@@ -401,8 +401,8 @@ def _get_metrics_across_levels(grouped_gt_section_indices: list[np.ndarray],
 
 
 def _compute_summary_statistics(fn: list, tp: list, fp: list, tn: list) -> dict:
-    precision = sum(tp) / (sum(tp) + sum(fp))
-    recall = sum(tp) / (sum(tp) + sum(fn))
+    precision = sum(tp) / (sum(tp) + sum(fp)) if (sum(tp) + sum(fp)) > 0 else 0
+    recall = sum(tp) / (sum(tp) + sum(fn)) if (sum(tp) + sum(fn)) > 0 else 0
 
     return {"precision": precision, "recall": recall}
 

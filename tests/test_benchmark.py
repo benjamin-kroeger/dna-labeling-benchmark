@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.evaluate_predictors import benchmark_gt_vs_pred_single, EvalMetrics
+from dna_segmentation_benchmark.evaluate_predictors import benchmark_gt_vs_pred_single, EvalMetrics, benchmark_gt_vs_pred_multiple
 from dna_segmentation_benchmark.label_definition import BendLabels, CustomTestLabels
 
 
@@ -33,12 +33,12 @@ from dna_segmentation_benchmark.label_definition import BendLabels, CustomTestLa
                     },
                     "SECTION": {
                         'nucleotide': {'tn': 4, 'fp': 9, 'fn': 6, 'tp': 6},
-                         'section': {'tn': 0, 'fp': 3, 'fn': 1, 'tp': 0},
-                         'strict_section':{'tn': 0 , 'fp': 3, 'fn': 1, 'tp': 0},
-                         'inner_section_boundaries': {'tn': 0, 'fp': 1, 'fn': 0, 'tp': 0},
-                         'all_section_boundaries': {'tn': 0, 'fp': 1, 'fn': 0, 'tp': 0},
-                         'first_sec_correct_3_prime_boundary': 0,
-                         'last_sec_correct_5_prime_boundary': 0
+                        'section': {'tn': 0, 'fp': 3, 'fn': 1, 'tp': 0},
+                        'strict_section': {'tn': 0, 'fp': 3, 'fn': 1, 'tp': 0},
+                        'inner_section_boundaries': {'tn': 0, 'fp': 1, 'fn': 0, 'tp': 0},
+                        'all_section_boundaries': {'tn': 0, 'fp': 1, 'fn': 0, 'tp': 0},
+                        'first_sec_correct_3_prime_boundary': 0,
+                        'last_sec_correct_5_prime_boundary': 0
                     }
                 }
             },
@@ -70,7 +70,7 @@ from dna_segmentation_benchmark.label_definition import BendLabels, CustomTestLa
         ),
         pytest.param(
             np.array([[0, 0, 0, 0, 2, 2, 2, 0, 0, 0],
-                              [8, 8, 8, 0, 0, 0, 0, 0, 8, 8]]),
+                      [8, 8, 8, 0, 0, 0, 0, 0, 8, 8]]),
             [BendLabels.EXON],
             [EvalMetrics.INDEL, EvalMetrics.SECTION],
             {
@@ -248,7 +248,7 @@ from dna_segmentation_benchmark.label_definition import BendLabels, CustomTestLa
         ),
         pytest.param(
             np.array([[8, 8, 8, 0, 0, 0, 2, 2, 2, 2, 0, 0, 8, 8],
-                              [8, 8, 8, 0, 0, 0, 2, 2, 2, 2, 0, 0, 8, 8]]),
+                      [8, 8, 8, 0, 0, 0, 2, 2, 2, 2, 0, 0, 8, 8]]),
             [BendLabels.INTRON],
             [EvalMetrics.SECTION],
             {
@@ -329,11 +329,84 @@ def test_benchmark_single(gt_pred_array: np.ndarray, classes, metrics, expected_
             metric_eval_mapping[metric](expected_results[metric.name], class_results[metric.name])
 
 
+@pytest.mark.parametrize(
+    "gt_arrays,pred_arrays,classes,metrics,expected_errors",
+    [
+        pytest.param(
+            [np.array([8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8])],
+            [np.array([8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])],
+
+            [BendLabels.EXON],
+            [EvalMetrics.INDEL, EvalMetrics.SECTION, EvalMetrics.ML],
+            {
+                "EXON": {
+                    "INDEL": {
+                        "5_prime_extensions": [],
+                        "3_prime_extensions": [],
+                        "whole_insertions": [],
+                        "5_prime_deletions": [],
+                        "3_prime_deletions": [],
+                        "whole_deletions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
+                        "split": [],
+                        "joined": []
+                    },
+                    "SECTION": {
+                        'nucleotide': {'tn': [13], 'fp': [0], 'fn': [12], 'tp': [0]},
+                        'section': {'tn': [0], 'fp': [0], 'fn': [3], 'tp': [0]},
+                        'strict_section': {'tn': [0], 'fp': [0], 'fn': [3], 'tp': [0]},
+                        'inner_section_boundaries': {'tn': [0], 'fp': [0], 'fn': [1], 'tp': [0]},
+                        'all_section_boundaries': {'tn': [0], 'fp': [0], 'fn': [1], 'tp': [0]},
+                        'first_sec_correct_3_prime_boundary': [0],
+                        'last_sec_correct_5_prime_boundary': [0]
+
+                    },
+                    "ML": {'correct_inner_section_boundaries_metrics': {'precision': 0, 'recall': 0.0},
+                           'correct_overall_section_boundaries_metrics': {'precision': 0, 'recall': 0.0},
+                           'encompass_section_match_metrics': {'precision': 0, 'recall': 0.0},
+                           'nucleotide_level_metrics': {'precision': 0, 'recall': 0.0},
+                           'strict_section_match_metrics': {'precision': 0, 'recall': 0.0}
+                           }
+                }
+            },
+            id="no_nuc_positives",
+        ),
+    ]
+)
+def test_benchmark_multiple(gt_arrays: list[np.ndarray], pred_arrays: list[np.ndarray], classes, metrics, expected_errors: dict):
+    benchmark_results = benchmark_gt_vs_pred_multiple(
+        gt_labels=gt_arrays,
+        pred_labels=pred_arrays,
+        labels=BendLabels,
+        classes=classes,
+        metrics=metrics,
+    )
+
+    # define which functions shall be used to evaluate the different metric groups
+    metric_eval_mapping = {
+        EvalMetrics.INDEL: _eval_indel_metrics,
+        EvalMetrics.SECTION: _eval_section_metrics,
+        EvalMetrics.ML: _eval_ml_metrics,
+        EvalMetrics.FRAMESHIFT: _eval_frameshift_metrics
+    }
+
+    # check that all the requested metric groups were computed
+    class_keys = benchmark_results.keys()
+    assert class_keys == expected_errors.keys(), "The benchmark keys do not match the expected keys"
+
+    # trigger evaluations of each metric group
+    for class_key in class_keys:
+        class_results = benchmark_results[class_key]
+        expected_results = expected_errors[class_key]
+        for metric in metrics:
+            metric_eval_mapping[metric](expected_results[metric.name], class_results[metric.name])
+
+
 def _eval_section_metrics(expected_section_metrics, computed_section_metrics):
     assert set(expected_section_metrics.keys()) == set(computed_section_metrics.keys()), "The keys for the section metrics dont match"
 
     for section_metric in computed_section_metrics.keys():
-        assert computed_section_metrics[section_metric] == expected_section_metrics[section_metric] , f"The computed output of {section_metric} does not match the expected output"
+        assert computed_section_metrics[section_metric] == expected_section_metrics[
+            section_metric], f"The computed output of {section_metric} does not match the expected output"
 
 
 def _eval_indel_metrics(expected_indel, computed_indel):
@@ -343,9 +416,7 @@ def _eval_indel_metrics(expected_indel, computed_indel):
         computed = computed_indel[metric]
         expected = expected_indel[metric]
 
-        assert len(computed) == len(expected), (
-            "The total number of errors in the benchmark does not match the expected number of errors"
-        )
+        assert len(computed) == len(expected), "The total number of errors in the benchmark does not match the expected number of errors"
 
         for individual_error_b, individual_error_e in zip(computed, expected):
             assert (individual_error_b == individual_error_e).all(), (
@@ -355,7 +426,9 @@ def _eval_indel_metrics(expected_indel, computed_indel):
 
 def _eval_ml_metrics(expected_ml, computed_ml):
     for metric_key in expected_ml:
-        assert math.isclose(expected_ml[metric_key], computed_ml[metric_key], abs_tol=0.001, rel_tol=0.011), f"The {metric_key} values do not match"
+        for eval_met in expected_ml[metric_key]:
+
+            assert math.isclose(expected_ml[metric_key][eval_met], computed_ml[metric_key][eval_met], abs_tol=0.001, rel_tol=0.011), f"The {metric_key} values do not match"
 
 
 def _eval_frameshift_metrics(expected_frameshift_metrics, computed_frameshift_metrics):

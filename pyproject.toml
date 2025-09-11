@@ -3,7 +3,7 @@ name = "dna-segmentation-benchmark"
 version = "0.0.3"
 description = "A collection of different evaluators for dna nucleodtide level labeling"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "biopython>=1.85",
     "bokeh>=3.7.0",
