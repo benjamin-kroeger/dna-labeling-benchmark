@@ -24,6 +24,14 @@ class EvalMetrics(Enum):
 default_metrics = [EvalMetrics.SECTION, EvalMetrics.ML]
 
 
+def get_contiguous_groups(indices: np.ndarray):
+    if indices.size == 0:
+        return []
+    # Find breaks in continuity where diff != 1
+    breaks = np.where(np.diff(indices) != 1)[0] + 1
+    return np.split(indices, breaks)
+
+
 def benchmark_gt_vs_pred_single(
         gt_labels: np.ndarray,
         pred_labels: np.ndarray,
@@ -79,11 +87,11 @@ def benchmark_gt_vs_pred_single(
 
         # group indices that are part of the same deletion/insertion together into arrays
         # Group indices
-        grouped_insertion_indices = np.split(insertion_indices, np.where(np.diff(insertion_indices) != 1)[0] + 1)
-        grouped_deletion_indices = np.split(deletion_indices, np.where(np.diff(deletion_indices) != 1)[0] + 1)
+        grouped_insertion_indices = get_contiguous_groups(insertion_indices)
+        grouped_deletion_indices = get_contiguous_groups(deletion_indices)
 
-        grouped_gt_target_indices = np.split(gt_exon_indices, np.where(np.diff(gt_exon_indices) != 1)[0] + 1)
-        grouped_pred_target_indices = np.split(pred_target_label_indices, np.where(np.diff(pred_target_label_indices) != 1)[0] + 1)
+        grouped_gt_target_indices = get_contiguous_groups(gt_exon_indices)
+        grouped_pred_target_indices = get_contiguous_groups(pred_target_label_indices)
 
         if EvalMetrics.INDEL in metrics or EvalMetrics.SECTION in metrics:
             # Now the insertions and deletions need to be checked if they are actually border extensions or deletions
@@ -316,59 +324,56 @@ def _get_metrics_across_levels(grouped_gt_section_indices: list[np.ndarray],
     first_sec_correct_3_prime_boundary = 0
     last_sec_correct_5_prime_boundary = 0
 
-    if grouped_gt_section_indices[0].size > 0:
+    for i, gt_target_label_section in enumerate(grouped_gt_section_indices):
 
-        for i, gt_target_label_section in enumerate(grouped_gt_section_indices):
+        # all gt labels match the pred labels, the boundaries are not checked. Pred may be longer
+        if (gt_labels[gt_target_label_section] == pred_labels[gt_target_label_section]).all():
+            sec_overlap_tp += 1
 
-            # all gt labels match the pred labels, the boundaries are not checked. Pred may be longer
-            if (gt_labels[gt_target_label_section] == pred_labels[gt_target_label_section]).all():
-                sec_overlap_tp += 1
+            # if the 3-prime boundary nucleotide is different from the target the section has the right boundary
+            if pred_labels[gt_target_label_section[-1] + 1] != dna_label_class.value:
 
-                # if the 3-prime boundary nucleotide is different from the target the section has the right boundary
-                if pred_labels[gt_target_label_section[-1] + 1] != dna_label_class.value:
+                if i == 0:
+                    first_sec_correct_3_prime_boundary = 1
 
-                    if i == 0:
-                        first_sec_correct_3_prime_boundary = 1
+                # if the 5-prime boundary nucleotide is different from the target the section has the right boundary
+                if pred_labels[gt_target_label_section[0] - 1] != dna_label_class.value:
+                    # add to inner boundary and fully match
+                    fully_matching_sections += 1
+                    inner_boundary_matching_sections += 1
+                    sec_strict_match_tp += 1
+                    if i == len(grouped_gt_section_indices) - 1:
+                        last_sec_correct_5_prime_boundary = 1
+                    continue
+                # if the 5-prime boundary was of but the 3 prime right and it was the first exon add it as correcet
+                if i == 0:
+                    inner_boundary_matching_sections += 1
 
-                    # if the 5-prime boundary nucleotide is different from the target the section has the right boundary
-                    if pred_labels[gt_target_label_section[0] - 1] != dna_label_class.value:
-                        # add to inner boundary and fully match
-                        fully_matching_sections += 1
-                        inner_boundary_matching_sections += 1
-                        sec_strict_match_tp += 1
-                        if i == len(grouped_gt_section_indices) - 1:
-                            last_sec_correct_5_prime_boundary = 1
-                        continue
-                    # if the 5-prime boundary was of but the 3 prime right and it was the first exon add it as correcet
-                    if i == 0:
-                        inner_boundary_matching_sections += 1
+            if i == len(grouped_gt_section_indices) - 1 and pred_labels[gt_target_label_section[0] - 1] != dna_label_class.value:
+                last_sec_correct_5_prime_boundary = 1
 
-                if i == len(grouped_gt_section_indices) - 1 and pred_labels[gt_target_label_section[0] - 1] != dna_label_class.value:
-                    last_sec_correct_5_prime_boundary = 1
+        if (gt_labels[gt_target_label_section] != pred_labels[gt_target_label_section]).all():
+            # at no point of the prediction the true target label was predicted
+            sec_overlap_fn += 1
+            sec_strict_match_fn += 1
 
-
-            if (gt_labels[gt_target_label_section] != pred_labels[gt_target_label_section]).all():
-                # at no point of the prediction the true target label was predicted
-                sec_overlap_fn += 1
-                sec_strict_match_fn += 1
-
-        # calc the min and max of each target section for fp checking
-        # if a predicted positive does not fully encompass the min and max of a gt section it is a fp
-        gt_section_minimums, gt_section_maximums = zip(*[(np.min(gt_section), np.max(gt_section)) for gt_section in grouped_gt_section_indices])
-    else:
+    # calc the min and max of each target section for fp checking
+    # if a predicted positive does not fully encompass the min and max of a gt section it is a fp
+    gt_section_minimums, gt_section_maximums = zip(*[(np.min(gt_section), np.max(gt_section)) for gt_section in grouped_gt_section_indices])
+    if len(grouped_gt_section_indices) == 0:
         gt_section_minimums, gt_section_maximums = -np.inf, np.inf
 
-    if grouped_pred_section_indices[0].size > 0:
-        for i, pred_target_label_section in enumerate(grouped_pred_section_indices):
 
-            pred_section_min = np.min(pred_target_label_section)
-            pred_section_max = np.max(pred_target_label_section)
+    for i, pred_target_label_section in enumerate(grouped_pred_section_indices):
 
-            if ~np.any((pred_section_max >= gt_section_maximums) & (pred_section_min <= gt_section_minimums)):
-                sec_overlap_fp += 1
+        pred_section_min = np.min(pred_target_label_section)
+        pred_section_max = np.max(pred_target_label_section)
 
-            if ~np.any((pred_section_max == gt_section_maximums) & (pred_section_min == gt_section_minimums)):
-                sec_strict_match_fp += 1
+        if ~np.any((pred_section_max >= gt_section_maximums) & (pred_section_min <= gt_section_minimums)):
+            sec_overlap_fp += 1
+
+        if ~np.any((pred_section_max == gt_section_maximums) & (pred_section_min == gt_section_minimums)):
+            sec_strict_match_fp += 1
 
     total_number_of_gt_sections = sum([1 if x.size > 0 else 0 for x in grouped_gt_section_indices])
     total_number_of_pred_sections = sum([1 if x.size > 0 else 0 for x in grouped_pred_section_indices])
