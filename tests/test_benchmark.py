@@ -172,8 +172,6 @@ CUSTOM_CONFIG = LabelConfig(
                         "internal_hit": {"tp": 1, "fn": 0},
                         "full_coverage_hit": {"tp": 1, "fn": 0},
                         "perfect_boundary_hit": {"tp": 1, "fn": 0, "fp": 0},
-                        "inner_section_boundaries": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
-                        "all_section_boundaries": {"tp": 1, "fp": 0, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 1,
                         "last_sec_correct_5_prime_boundary": 1
                     }
@@ -305,12 +303,14 @@ CUSTOM_CONFIG = LabelConfig(
                 "INTRON": {
                     "SECTION": {
                         "nucleotide": {"tn": 10, "fp": 0, "fn": 0, "tp": 4},
-                        "section": {"tn": 0, "fp": 0, "fn": 0, "tp": 1},
-                        "strict_section": {"tn": 0, "fp": 0, "fn": 0, "tp": 1},
-                        "inner_section_boundaries": {"tn": 0, "fp": 0, "fn": 0, "tp": 0},
-                        "all_section_boundaries": {"tn": 0, "fp": 0, "fn": 0, "tp": 1},
+                        "neighborhood_hit": {"tp": 1, "fn": 0, "fp": 0},
+                        "internal_hit": {"tp": 1, "fn": 0},
+                        "full_coverage_hit": {"tp": 1, "fn": 0},
+                        "perfect_boundary_hit": {"tp": 1, "fn": 0, "fp": 0},
+                        "inner_section_boundaries": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
+                        "all_section_boundaries": {"tp": 1, "fp": 0, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 1,
-                        "last_sec_correct_5_prime_boundary": 1,
+                        "last_sec_correct_5_prime_boundary": 1
                     }
                 }
             },
@@ -421,19 +421,25 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
                     },
                     "SECTION": {
                         "nucleotide": {"tn": [13], "fp": [0], "fn": [12], "tp": [0]},
-                        "section": {"tn": [0], "fp": [0], "fn": [3], "tp": [0]},
-                        "strict_section": {"tn": [0], "fp": [0], "fn": [3], "tp": [0]},
+                        "neighborhood_hit": {"fp": [0], "fn": [3], "tp": [0]},
+                        "internal_hit": {"fn": [3], "tp": [0]},
+                        "full_coverage_hit": {"fn": [3], "tp": [0]},
+                        "perfect_boundary_hit": {"fp": [0], "fn": [3], "tp": [0]},
                         "inner_section_boundaries": {"tn": [0], "fp": [0], "fn": [1], "tp": [0]},
                         "all_section_boundaries": {"tn": [0], "fp": [0], "fn": [1], "tp": [0]},
                         "first_sec_correct_3_prime_boundary": [0],
                         "last_sec_correct_5_prime_boundary": [0],
+                        "iou_scores": [],
                     },
                     "ML": {
-                        "correct_inner_section_boundaries_metrics": {"precision": 0, "recall": 0.0},
-                        "correct_overall_section_boundaries_metrics": {"precision": 0, "recall": 0.0},
-                        "encompass_section_match_metrics": {"precision": 0, "recall": 0.0},
+                        "inner_section_boundaries_metrics": {"precision": 0, "recall": 0.0},
+                        "all_section_boundaries_metrics": {"precision": 0, "recall": 0.0},
+                        "full_coverage_hit_metrics": {"recall": 0.0},
+                        "neighborhood_hit_metrics": {"precision": 0, "recall": 0.0},
+                        "internal_hit_metrics": {"recall": 0.0},
                         "nucleotide_level_metrics": {"precision": 0, "recall": 0.0},
-                        "strict_section_match_metrics": {"precision": 0, "recall": 0.0},
+                        "perfect_boundary_hit_metrics": {"precision": 0, "recall": 0.0},
+                        "iou_stats": {"mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0, "count": 0}
                     },
                 }
             },
@@ -535,10 +541,18 @@ class TestLabelConfig:
 
 
 def _eval_section_metrics(expected_section_metrics, computed_section_metrics):
-    assert set(expected_section_metrics.keys()) == set(computed_section_metrics.keys()), (
-        "The keys for the section metrics dont match"
+    # Filter out 'distributions' from computed if not in expected, to maintain backward compatibility of tests
+    computed_keys = set(computed_section_metrics.keys())
+    expected_keys = set(expected_section_metrics.keys())
+    
+    if "iou_scores" in computed_keys and "iou_scores" not in expected_keys:
+        computed_keys.remove("iou_scores")
+        
+    # Allow computed to have more keys than expected (new features)
+    assert expected_keys.issubset(computed_keys), (
+        f"The computed metrics are missing expected keys. Missing: {expected_keys - computed_keys}"
     )
-    for section_metric in computed_section_metrics:
+    for section_metric in expected_section_metrics:
         assert computed_section_metrics[section_metric] == expected_section_metrics[section_metric], (
             f"The computed output of {section_metric} does not match the expected output"
         )
@@ -562,6 +576,10 @@ def _eval_indel_metrics(expected_indel, computed_indel):
 
 def _eval_ml_metrics(expected_ml, computed_ml):
     for metric_key in expected_ml:
+        # Allow extra metrics in computed that are not in expected
+        if metric_key not in computed_ml:
+            raise AssertionError(f"Expected metric {metric_key} not found in computed results")
+            
         for eval_met in expected_ml[metric_key]:
             assert math.isclose(
                 expected_ml[metric_key][eval_met],

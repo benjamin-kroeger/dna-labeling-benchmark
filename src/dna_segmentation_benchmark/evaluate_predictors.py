@@ -257,10 +257,16 @@ def benchmark_gt_vs_pred_multiple(
             section = class_results[EvalMetrics.SECTION.name]
             ml = class_results[EvalMetrics.ML.name]
             ml["nucleotide_level_metrics"] = _compute_summary_statistics(**section["nucleotide"])
-            ml["encompass_section_match_metrics"] = _compute_summary_statistics(**section["section"])
-            ml["strict_section_match_metrics"] = _compute_summary_statistics(**section["strict_section"])
-            ml["correct_inner_section_boundaries_metrics"] = _compute_summary_statistics(**section["inner_section_boundaries"])
-            ml["correct_overall_section_boundaries_metrics"] = _compute_summary_statistics(**section["all_section_boundaries"])
+            ml["neighborhood_hit_metrics"] = _compute_summary_statistics(**section["neighborhood_hit"])
+            ml["internal_hit_metrics"] = _compute_summary_statistics(**section["internal_hit"])
+            ml["full_coverage_hit_metrics"] = _compute_summary_statistics(**section["full_coverage_hit"])
+            ml["perfect_boundary_hit_metrics"] = _compute_summary_statistics(**section["perfect_boundary_hit"])
+            ml["inner_section_boundaries_metrics"] = _compute_summary_statistics(**section["inner_section_boundaries"])
+            ml["all_section_boundaries_metrics"] = _compute_summary_statistics(**section["all_section_boundaries"])
+            
+            # IoU Statistics
+            if "iou_scores" in section:
+                ml["iou_stats"] = _compute_distribution_stats(section["iou_scores"], is_abs=False)
 
     return aggregated
 
@@ -526,16 +532,45 @@ def _get_metrics_across_levels(
 # ---------------------------------------------------------------------------
 
 
-def _compute_summary_statistics(fn: list, tp: list, fp: list, tn: list) -> dict:
+def _compute_summary_statistics(tp: list, fn: list = None, fp: list = None, tn: list = None) -> dict:
     """Compute precision and recall from aggregated confusion counts."""
-    total_tp = sum(tp)
-    total_fp = sum(fp)
-    total_fn = sum(fn)
-
-    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0
-    recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0
+    precision = None
+    recall = None
+    if tp is not None and fp is not None:
+        total_tp = sum(tp)
+        total_fp = sum(fp)
+        precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0
+    if tp is not None and fn is not None:
+        total_tp = sum(tp)
+        total_fn = sum(fn)
+        recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0
 
     return {"precision": precision, "recall": recall}
+
+
+
+def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
+    """Compute MAE, RMSE, Mean for a list of values."""
+    if not values:
+        return {"count": 0, "mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}
+
+    # Handle tuples if any (though IoU is scalar)
+    if values and isinstance(values[0], (tuple, list)):
+        flattened = [item for sublist in values for item in sublist]
+    else:
+        flattened = values
+
+    arr = np.array(flattened, dtype=float)
+
+    return {
+        "count": len(arr),
+        "mean": float(np.mean(arr)),
+        "mae": float(np.mean(np.abs(arr))) if is_abs else float(np.mean(arr)),
+        "rmse": float(np.sqrt(np.mean(arr**2))),
+        "std": float(np.std(arr)),
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr))
+    }
 
 
 # ---------------------------------------------------------------------------

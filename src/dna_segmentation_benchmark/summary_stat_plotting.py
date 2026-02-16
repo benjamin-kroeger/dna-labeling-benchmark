@@ -65,11 +65,11 @@ def _save_figure(fig: plt.Figure, save_path: Path) -> None:
 
 
 def _add_icon_to_ax(
-    ax: plt.Axes,
-    icon_path: str,
-    zoom: float = 0.2,
-    x_rel_pos: float = 0.5,
-    y_rel_pos: float = 1.25,
+        ax: plt.Axes,
+        icon_path: str,
+        zoom: float = 0.2,
+        x_rel_pos: float = 0.5,
+        y_rel_pos: float = 1.25,
 ) -> None:
     """Place an image (icon) above *ax*."""
     try:
@@ -91,9 +91,9 @@ def _add_icon_to_ax(
 
 
 def plot_individual_error_lengths_histograms(
-    df_indel_lengths: pd.DataFrame,
-    class_name: str,
-    save_path: Optional[Path] = None,
+        df_indel_lengths: pd.DataFrame,
+        class_name: str,
+        save_path: Optional[Path] = None,
 ) -> Optional[plt.Figure]:
     """Histograms of INDEL error lengths (log-scaled), one subplot per type.
 
@@ -214,9 +214,9 @@ def plot_individual_error_lengths_histograms(
 
 
 def plot_stacked_indel_counts_bar(
-    df_indel_counts: pd.DataFrame,
-    class_name: str,
-    save_path: Optional[Path] = None,
+        df_indel_counts: pd.DataFrame,
+        class_name: str,
+        save_path: Optional[Path] = None,
 ) -> Optional[plt.Figure]:
     """Stacked horizontal bar chart of INDEL counts per method.
 
@@ -268,78 +268,10 @@ def plot_stacked_indel_counts_bar(
     return fig
 
 
-def plot_section_metrics_bar(
-    df_section_metrics: pd.DataFrame,
-    class_name: str,
-    save_path: Optional[Path] = None,
-) -> Optional[plt.Figure]:
-    """Grouped bar chart of section-level recall at multiple match levels.
-
-    Computes recall = TP / (TP + FN) from the confusion counts stored under
-    the ``section``, ``strict_section``, ``inner_section_boundaries``, and
-    ``all_section_boundaries`` sub-keys of the SECTION metric data.
-
-    Returns
-    -------
-    Figure | None
-    """
-    if df_section_metrics.empty:
-        logger.info("No section metrics data for class %s.", class_name)
-        return None
-
-    # SECTION data has metric_key values like "nucleotide", "section", etc.
-    # whose values are dicts {"tn": [...], "fp": [...], "fn": [...], "tp": [...]}.
-    # We extract recall = sum(tp) / (sum(tp) + sum(fn)) for each level.
-    section_levels = ["section", "strict_section", "inner_section_boundaries", "all_section_boundaries"]
-
-    recall_rows: list[dict] = []
-    for _, row in df_section_metrics.iterrows():
-        if row["metric_key"] not in section_levels:
-            continue
-        val = row["value"]
-        if not isinstance(val, dict):
-            continue
-        tp_val = val.get("tp", 0)
-        fn_val = val.get("fn", 0)
-        tp_sum = sum(tp_val) if isinstance(tp_val, (list, np.ndarray)) else tp_val
-        fn_sum = sum(fn_val) if isinstance(fn_val, (list, np.ndarray)) else fn_val
-        denom = tp_sum + fn_sum
-        recall = tp_sum / denom if denom > 0 else 0.0
-        recall_rows.append({
-            "method_name": row["method_name"],
-            "level": row["metric_key"].replace("_", " ").title(),
-            "recall": recall,
-        })
-
-    if not recall_rows:
-        logger.info("Could not compute section recall for class %s.", class_name)
-        return None
-
-    recall_df = pd.DataFrame(recall_rows)
-
-    fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-    sns.barplot(data=recall_df, x="level", y="recall", hue="method_name", ax=ax)
-
-    for container in ax.containers:
-        ax.bar_label(container, label_type="edge", padding=3, fmt="%.3f")
-
-    ax.set_ylim(0, 1.05)
-    ax.set_title(f"Section-Level Recall — {class_name}", fontsize=16)
-    ax.set_xlabel("Match Level", fontsize=12)
-    ax.set_ylabel("Recall", fontsize=12)
-    ax.legend(title="Method Name", bbox_to_anchor=(1.02, 1), loc="upper left")
-
-    fig.tight_layout()
-
-    if save_path is not None:
-        _save_figure(fig, save_path)
-    return fig
-
-
 def plot_frameshift_percentage_bar(
-    df_frameshift_metrics: pd.DataFrame,
-    class_name: str,
-    save_path: Optional[Path] = None,
+        df_frameshift_metrics: pd.DataFrame,
+        class_name: str,
+        save_path: Optional[Path] = None,
 ) -> Optional[plt.Figure]:
     """Bar chart of codon reading-frame distribution per method.
 
@@ -353,7 +285,7 @@ def plot_frameshift_percentage_bar(
 
     only_frames = df_frameshift_metrics[
         df_frameshift_metrics["metric_key"] == "gt_frames"
-    ]
+        ]
     if only_frames.empty:
         return None
 
@@ -405,9 +337,9 @@ def plot_frameshift_percentage_bar(
 
 
 def plot_ml_metrics_bar(
-    df_ml_metrics: pd.DataFrame,
-    class_name: str,
-    save_path_prefix: Optional[Path] = None,
+        df_ml_metrics: pd.DataFrame,
+        class_name: str,
+        save_path_prefix: Optional[Path] = None,
 ) -> list[plt.Figure]:
     """Grouped bar chart of ML metrics (precision / recall) per level.
 
@@ -425,6 +357,13 @@ def plot_ml_metrics_bar(
     """
     if df_ml_metrics.empty:
         logger.info("No ML metrics data for class %s.", class_name)
+        return []
+
+    # Filter out iou_stats as it has a different schema (mean/std/count) vs precision/recall
+    # and is plotted separately in plot_iou_metrics.
+    df_ml_metrics = df_ml_metrics[df_ml_metrics["metric_key"] != "iou_stats"].copy()
+
+    if df_ml_metrics.empty:
         return []
 
     ml_scores = (
@@ -471,17 +410,103 @@ def plot_ml_metrics_bar(
     return figures
 
 
+def plot_iou_metrics(
+        df_iou: pd.DataFrame,
+        class_name: str,
+        save_path_prefix: Optional[Path] = None,
+) -> list[plt.Figure]:
+    """Generate IoU analysis plots: Average Bar Chart and Distribution Violin Plot.
+
+    Parameters
+    ----------
+    df_iou : pd.DataFrame
+        Filtered DataFrame containing only 'iou_scores' rows.
+    class_name : str
+        Human-readable class name.
+    save_path_prefix : Path | None
+        Prefix for saving figures (e.g. '.../EXON_iou').
+
+    Returns
+    -------
+    list[Figure]
+        [Average IoU Figure, Distribution Figure]
+    """
+    if df_iou.empty:
+        logger.info("No IoU data for class %s.", class_name)
+        return []
+
+    # Explode the lists of scores into individual rows
+    exploded = (
+        df_iou
+        .explode("value")
+        .astype({"value": float})
+        .rename(columns={"value": "IoU"})
+    )
+    # Drop NaNs if any
+    exploded = exploded.dropna(subset=["IoU"])
+
+    if exploded.empty:
+        return []
+
+    figures = []
+
+    # --- Plot 1: Average IoU Score per Method (Bar Plot) ---
+    avg_scores = exploded.groupby("method_name")["IoU"].mean().reset_index()
+
+    fig1, ax1 = plt.subplots(figsize=DEFAULT_FIG_SIZE)
+    sns.barplot(
+        data=avg_scores, x="method_name", y="IoU", hue="method_name",
+        ax=ax1, palette="viridis", legend=False
+    )
+    
+    for container in ax1.containers:
+        ax1.bar_label(container, fmt="%.3f", padding=3)
+
+    ax1.set_title(f"Average IoU Score per Method — {class_name}", fontsize=16)
+    ax1.set_ylabel("Average Intersection over Union", fontsize=12)
+    ax1.set_xlabel("Method Name", fontsize=12)
+    ax1.set_ylim(0, 1.05)
+    fig1.tight_layout()
+
+    if save_path_prefix:
+        _save_figure(fig1, save_path_prefix.with_name(f"{save_path_prefix.name}_average.png"))
+    figures.append(fig1)
+
+    # --- Plot 2: IoU Distribution per Method (Violin Plot) ---
+    fig2, ax2 = plt.subplots(figsize=DEFAULT_FIG_SIZE)
+    sns.violinplot(
+        data=exploded, x="method_name", y="IoU", hue="method_name",
+        ax=ax2, palette="viridis", cut=0, inner="quartile"
+    )
+    
+    ax2.set_title(f"IoU Score Distribution per Method — {class_name}", fontsize=16)
+    ax2.set_ylabel("Intersection over Union", fontsize=12)
+    ax2.set_xlabel("Method Name", fontsize=12)
+    ax2.set_ylim(0, 1.05)
+    
+    # Add accumulation of points if dataset is not huge, or just stick to violin
+    # sns.stripplot(data=exploded, x="method_name", y="IoU", color="black", alpha=0.3, size=2, ax=ax2)
+    
+    fig2.tight_layout()
+
+    if save_path_prefix:
+        _save_figure(fig2, save_path_prefix.with_name(f"{save_path_prefix.name}_distribution.png"))
+    figures.append(fig2)
+
+    return figures
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
 
 def compare_multiple_predictions(
-    per_method_benchmark_res: dict[str, dict],
-    label_config: LabelConfig,
-    classes: list[int],
-    metrics_to_eval: list[EvalMetrics],
-    output_dir: Optional[Path] = None,
+        per_method_benchmark_res: dict[str, dict],
+        label_config: LabelConfig,
+        classes: list[int],
+        metrics_to_eval: list[EvalMetrics],
+        output_dir: Optional[Path] = None,
 ) -> dict[str, plt.Figure]:
     """Generate all summary plots and return them as a dict.
 
@@ -542,7 +567,7 @@ def compare_multiple_predictions(
             df_indel = df[
                 (df["measured_class"] == class_name)
                 & (df["metric_group"] == EvalMetrics.INDEL.name)
-            ].copy()
+                ].copy()
 
             if not df_indel.empty:
                 fig = plot_stacked_indel_counts_bar(
@@ -559,27 +584,29 @@ def compare_multiple_predictions(
                 if fig is not None:
                     figures[f"{class_name}_indel_lengths"] = fig
 
-        # ---- Section plots ----------------------------------------------
+        # ---- IoU plots --------------------------------------------------
+        # IoU scores are stored under the SECTION group
         if EvalMetrics.SECTION in metrics_to_eval:
-            df_section = df[
+            df_iou = df[
                 (df["measured_class"] == class_name)
                 & (df["metric_group"] == EvalMetrics.SECTION.name)
-            ].copy()
+                & (df["metric_key"] == "iou_scores")
+                ].copy()
 
-            if not df_section.empty:
-                fig = plot_section_metrics_bar(
-                    df_section, class_name,
-                    save_path=(output_dir / f"{class_name}_section_metrics.png") if output_dir else None,
-                )
-                if fig is not None:
-                    figures[f"{class_name}_section_metrics"] = fig
+            if not df_iou.empty:
+                prefix = (output_dir / f"{class_name}_iou") if output_dir else None
+                iou_figs = plot_iou_metrics(df_iou, class_name, save_path_prefix=prefix)
+                for idx, fig in enumerate(iou_figs):
+                    # 0 = Average, 1 = Distribution
+                    suffix = "average" if idx == 0 else "distribution"
+                    figures[f"{class_name}_iou_{suffix}"] = fig
 
         # ---- ML plots ---------------------------------------------------
         if EvalMetrics.ML in metrics_to_eval:
             df_ml = df[
                 (df["measured_class"] == class_name)
                 & (df["metric_group"] == EvalMetrics.ML.name)
-            ].copy()
+                ].copy()
 
             if not df_ml.empty:
                 prefix = (output_dir / f"{class_name}_ml") if output_dir else None
@@ -592,7 +619,7 @@ def compare_multiple_predictions(
             df_fs = df[
                 (df["measured_class"] == class_name)
                 & (df["metric_group"] == EvalMetrics.FRAMESHIFT.name)
-            ].copy()
+                ].copy()
 
             if not df_fs.empty:
                 fig = plot_frameshift_percentage_bar(
