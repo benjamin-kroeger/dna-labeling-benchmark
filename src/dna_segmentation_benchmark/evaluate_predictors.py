@@ -374,6 +374,22 @@ import numpy as np
 from sklearn.metrics import confusion_matrix
 
 
+def _compute_intersection_over_union_score(gt_start: int, gt_end: int, pred_start, pred_end):
+    # Intersection
+    i_start = max(gt_start, pred_start)
+    i_end = min(gt_end, pred_end)
+    intersect_len = max(0, i_end - i_start + 1)
+
+    # Union
+    u_start = min(gt_start, pred_start)
+    u_end = max(gt_end, pred_end)
+    union_len = u_end - u_start + 1
+
+    iou = intersect_len / union_len if union_len > 0 else 0.0
+
+    return iou
+
+
 def _get_metrics_across_levels(
         grouped_gt_section_indices: list[np.ndarray],
         grouped_pred_section_indices: list[np.ndarray],
@@ -413,6 +429,9 @@ def _get_metrics_across_levels(
     gt_hit_strict = np.zeros(total_gt, dtype=bool)
     pred_hit_strict = np.zeros(total_pred, dtype=bool)
 
+    # New Metric Stores
+    iou_scores = []
+
     fully_matching_sections = 0
     inner_boundary_matching_sections = 0
     first_sec_correct_3_prime = 0
@@ -429,6 +448,9 @@ def _get_metrics_across_levels(
             if not (p_max < gt_min or p_min > gt_max):
                 gt_hit_overlap[g_idx] = True
                 pred_hit_overlap[p_idx] = True
+
+                # --- Metrics: IoU ----
+                iou_scores.append(_compute_intersection_over_union_score(gt_start=gt_min, gt_end=gt_max, pred_start=p_min, pred_end=p_max))
 
                 # --- B. Envelop (Prediction is entirely INSIDE GT) ---
                 if p_min >= gt_min and p_max <= gt_max:
@@ -458,7 +480,7 @@ def _get_metrics_across_levels(
     num_inner_expected = total_gt - 2 if total_gt > 2 else (1 if total_gt == 2 else 0)
     inner_boundaries = {
         "tp": 1 if total_gt > 1 and inner_boundary_matching_sections == num_inner_expected and total_pred > 0 else 0,
-        "fp": 1 if total_gt > 1 and inner_boundary_matching_sections != num_inner_expected else 0,
+        "fp": 1 if total_gt > 1 and inner_boundary_matching_sections != num_inner_expected and total_pred > 0 else 0,
         "fn": 1 if total_gt > 1 and total_pred == 0 else 0,
         "tn": 0,
     } if total_gt > 1 else {"tn": 0, "fp": 0, "fn": 0, "tp": 0}
@@ -488,13 +510,16 @@ def _get_metrics_across_levels(
         "inner_section_boundaries": inner_boundaries,
         "all_section_boundaries": {
             "tp": 1 if total_gt > 0 and fully_matching_sections == total_gt else 0,
-            "fp": 1 if total_gt > 0 and fully_matching_sections != total_gt else 0,
+            "fp": 1 if total_gt > 0 and fully_matching_sections != total_gt and total_pred > 0 else 0,
             "fn": 1 if total_gt > 0 and total_pred == 0 else 0,
             "tn": 0
         },
         "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
         "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
+        "iou_scores": iou_scores
+
     }
+
 
 # ---------------------------------------------------------------------------
 # Summary statistics
