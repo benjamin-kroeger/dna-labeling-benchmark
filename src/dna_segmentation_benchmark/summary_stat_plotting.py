@@ -458,7 +458,7 @@ def plot_iou_metrics(
         data=avg_scores, x="method_name", y="IoU", hue="method_name",
         ax=ax1, palette="viridis", legend=False
     )
-    
+
     for container in ax1.containers:
         ax1.bar_label(container, fmt="%.3f", padding=3)
 
@@ -478,15 +478,15 @@ def plot_iou_metrics(
         data=exploded, x="method_name", y="IoU", hue="method_name",
         ax=ax2, palette="viridis", cut=0, inner="quartile"
     )
-    
+
     ax2.set_title(f"IoU Score Distribution per Method — {class_name}", fontsize=16)
     ax2.set_ylabel("Intersection over Union", fontsize=12)
     ax2.set_xlabel("Method Name", fontsize=12)
     ax2.set_ylim(0, 1.05)
-    
+
     # Add accumulation of points if dataset is not huge, or just stick to violin
     # sns.stripplot(data=exploded, x="method_name", y="IoU", color="black", alpha=0.3, size=2, ax=ax2)
-    
+
     fig2.tight_layout()
 
     if save_path_prefix:
@@ -494,6 +494,60 @@ def plot_iou_metrics(
     figures.append(fig2)
 
     return figures
+
+
+def plot_boundary_precision_landscapes(df_fuzzy_boundaries:pd.DataFrame, max_range=10):
+    """
+    Plots the two diagnostic matrices to visualize model bias and reliability.
+    """
+    figures = []
+    for method in df_fuzzy_boundaries["method_name"].unique().tolist():
+
+        bias_matrix,reliability_matrix = df_fuzzy_boundaries[df_fuzzy_boundaries["method_name"] == method]["value"].iloc[0]
+
+        fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+        # --- Plot 1: The Bias Matrix (The "Exon Fingerprint") ---
+        # We want (0,0) to be the center.
+        ticks = np.arange(-max_range, max_range + 1)
+        sns.heatmap(
+            bias_matrix,
+            ax=axes[0],
+            cmap="YlGnBu",
+            xticklabels=ticks,
+            yticklabels=ticks,
+            cbar_kws={'label': 'Frequency (Number of Exons)'}
+        )
+        axes[0].set_title(f"Boundary Bias Landscape (±{max_range}bp)", fontsize=14, pad=15)
+        axes[0].set_ylabel("5' Residual (Pred - GT)", fontsize=12)
+        axes[0].set_xlabel("3' Residual (Pred - GT)", fontsize=12)
+
+        # Add crosshairs to emphasize the (0,0) perfect match center
+        axes[0].axvline(max_range + 0.5, color='red', linestyle='--', alpha=0.5)
+        axes[0].axhline(max_range + 0.5, color='red', linestyle='--', alpha=0.5)
+
+        # --- Plot 2: The Reliability Matrix (The "Tolerance Budget") ---
+        # We want 0 to max_range.
+        sns.heatmap(
+            reliability_matrix,
+            ax=axes[1],
+            cmap="magma",
+            xticklabels=np.arange(max_range + 1),
+            yticklabels=np.arange(max_range + 1),
+            annot=True,  # Shows the actual percentages in the cells
+            fmt=".2f",
+            cbar_kws={'label': 'Recall (Percentage of Exons Found)'}
+        )
+        axes[1].set_title(f"Cumulative Reliability (0 to {max_range}bp Tolerance)", fontsize=14, pad=15)
+        axes[1].set_xlabel("Allowed 5' Tolerance (bp)", fontsize=12)
+        axes[1].set_ylabel("Allowed 3' Tolerance (bp)", fontsize=12)
+
+        fig.suptitle(f"{method}", fontsize=14)
+        plt.tight_layout()
+        figures.append(fig)
+
+    return figures
+
 
 
 # ---------------------------------------------------------------------------
@@ -584,6 +638,19 @@ def compare_multiple_predictions(
                 if fig is not None:
                     figures[f"{class_name}_indel_lengths"] = fig
 
+        df_fuzzy = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.ML.name)
+            & (df["metric_key"] == "fuzzy_metrics")
+            ].copy()
+
+        df = df[df["metric_key"] != "fuzzy_metrics"]
+
+        fuzzy_metrics_figs=plot_boundary_precision_landscapes(
+           df_fuzzy
+        )
+        for i,fig in enumerate(fuzzy_metrics_figs):
+            figures[f"{i}_fuzzy_metrics"] = fig
         # ---- IoU plots --------------------------------------------------
         # IoU scores are stored under the SECTION group
         if EvalMetrics.SECTION in metrics_to_eval:

@@ -263,10 +263,13 @@ def benchmark_gt_vs_pred_multiple(
             ml["perfect_boundary_hit_metrics"] = _compute_summary_statistics(**section["perfect_boundary_hit"])
             ml["inner_section_boundaries_metrics"] = _compute_summary_statistics(**section["inner_section_boundaries"])
             ml["all_section_boundaries_metrics"] = _compute_summary_statistics(**section["all_section_boundaries"])
-            
+
             # IoU Statistics
             if "iou_scores" in section:
                 ml["iou_stats"] = _compute_distribution_stats(section["iou_scores"], is_abs=False)
+            ml["fuzzy_metrics"] = _compute_boundary_precision_landscape(
+                residuals=section["fuzzy_metrics"]["boundary_residuals"],
+                total_gt_count=sum(section["fuzzy_metrics"]["total_gt"]))
 
     return aggregated
 
@@ -435,7 +438,10 @@ def _get_metrics_across_levels(
     gt_hit_strict = np.zeros(total_gt, dtype=bool)
     pred_hit_strict = np.zeros(total_pred, dtype=bool)
 
-    # New Metric Stores
+    # Initialize this at the start of _get_metrics_across_levels
+    boundary_residuals = []
+
+    # Iou Scores
     iou_scores = []
 
     fully_matching_sections = 0
@@ -454,6 +460,11 @@ def _get_metrics_across_levels(
             if not (p_max < gt_min or p_min > gt_max):
                 gt_hit_overlap[g_idx] = True
                 pred_hit_overlap[p_idx] = True
+
+                # residual collecitons
+                res_5p = p_min - gt_min  # Negative = Upstream, Positive = Downstream
+                res_3p = p_max - gt_max  # Negative = Upstream, Positive = Downstream
+                boundary_residuals.append((res_5p, res_3p))
 
                 # --- Metrics: IoU ----
                 iou_scores.append(_compute_intersection_over_union_score(gt_start=gt_min, gt_end=gt_max, pred_start=p_min, pred_end=p_max))
@@ -522,9 +533,57 @@ def _get_metrics_across_levels(
         },
         "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
         "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
-        "iou_scores": iou_scores
+        "iou_scores": iou_scores,
+        "fuzzy_metrics": {
+            "boundary_residuals": boundary_residuals,
+            "total_gt": total_gt
+        }
 
     }
+
+
+def _compute_boundary_precision_landscape(
+        residuals: list[tuple[int, int]],
+        total_gt_count: int,
+        max_range: int = 10
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Computes two matrices for boundary evaluation.
+
+    1. Bias Matrix: 2D Histogram of raw signed errors (-max_range to +max_range).
+       Shows WHERE the model is shifting (Systemic Bias).
+    2. Reliability Matrix: Cumulative Recall (0 to max_range).
+       Shows HOW MUCH standard 'Double Penalty' is reduced by tolerance.
+    """
+    if not residuals:
+        return np.zeros((2 * max_range + 1, 2 * max_range + 1)), np.zeros((max_range + 1, max_range + 1))
+
+    res_arr = np.array(residuals)  # Shape: (N, 2)
+
+    # --- Matrix 1: Bias Matrix (The 'Scatter' Heatmap) ---
+    # Binning from -max_range to +max_range
+    bins = np.arange(-max_range, max_range + 2) - 0.5
+    bias_matrix, _, _ = np.histogram2d(
+        res_arr[:, 0], res_arr[:, 1], bins=bins
+    )
+
+    # --- Matrix 2: Reliability Matrix (The 'Cumulative' Heatmap) ---
+    # We use absolute distances for reliability tolerance
+    abs_res = np.abs(res_arr)
+    reliability_matrix = np.zeros((max_range + 1, max_range + 1))
+
+    # We use broadcasting for elegance and speed instead of nested python loops
+    # d5_grid and d3_grid create all possible combinations of tolerances
+    d5_grid, d3_grid = np.ogrid[0:max_range + 1, 0:max_range + 1]
+
+    # For each tolerance pair (d5, d3), count matches where |res5| <= d5 AND |res3| <= d3
+    # This creates the 'Tolerance Budget' surface
+    for d5 in range(max_range + 1):
+        for d3 in range(max_range + 1):
+            successes = np.sum((abs_res[:, 0] <= d5) & (abs_res[:, 1] <= d3))
+            reliability_matrix[d5, d3] = successes / total_gt_count if total_gt_count > 0 else 0
+
+    return bias_matrix, reliability_matrix
 
 
 # ---------------------------------------------------------------------------
@@ -548,7 +607,6 @@ def _compute_summary_statistics(tp: list, fn: list = None, fp: list = None, tn: 
     return {"precision": precision, "recall": recall}
 
 
-
 def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
     """Compute MAE, RMSE, Mean for a list of values."""
     if not values:
@@ -566,7 +624,7 @@ def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
         "count": len(arr),
         "mean": float(np.mean(arr)),
         "mae": float(np.mean(np.abs(arr))) if is_abs else float(np.mean(arr)),
-        "rmse": float(np.sqrt(np.mean(arr**2))),
+        "rmse": float(np.sqrt(np.mean(arr ** 2))),
         "std": float(np.std(arr)),
         "min": float(np.min(arr)),
         "max": float(np.max(arr))
