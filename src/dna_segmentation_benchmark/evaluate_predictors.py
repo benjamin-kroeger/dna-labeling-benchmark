@@ -31,6 +31,7 @@ from tqdm import tqdm
 
 from .label_definition import LabelConfig
 
+
 # ---------------------------------------------------------------------------
 # Public Enums
 # ---------------------------------------------------------------------------
@@ -41,7 +42,7 @@ class EvalMetrics(Enum):
 
     INDEL = 0
     SECTION = 1
-    ML = 2           # summary statistics from SECTION (single-seq not computed directly)
+    ML = 2  # summary statistics from SECTION (single-seq not computed directly)
     _MLMULTIPLE = 3  # reserved for cross-sequence averaging
     FRAMESHIFT = 4
 
@@ -68,11 +69,11 @@ def get_contiguous_groups(indices: np.ndarray) -> list[np.ndarray]:
 
 
 def benchmark_gt_vs_pred_single(
-    gt_labels: np.ndarray,
-    pred_labels: np.ndarray,
-    label_config: LabelConfig,
-    classes: list[int],
-    metrics: Optional[list[EvalMetrics]] = None,
+        gt_labels: np.ndarray,
+        pred_labels: np.ndarray,
+        label_config: LabelConfig,
+        classes: list[int],
+        metrics: Optional[list[EvalMetrics]] = None,
 ) -> dict[str, dict[str, dict]]:
     """Compare a single ground-truth sequence against a single prediction.
 
@@ -192,12 +193,12 @@ def benchmark_gt_vs_pred_single(
 
 
 def benchmark_gt_vs_pred_multiple(
-    gt_labels: list[np.ndarray],
-    pred_labels: list[np.ndarray],
-    label_config: LabelConfig,
-    classes: list[int],
-    metrics: Optional[list[EvalMetrics]] = None,
-    return_individual_results: bool = False,
+        gt_labels: list[np.ndarray],
+        pred_labels: list[np.ndarray],
+        label_config: LabelConfig,
+        classes: list[int],
+        metrics: Optional[list[EvalMetrics]] = None,
+        return_individual_results: bool = False,
 ) -> dict | list[dict]:
     """Run :func:`benchmark_gt_vs_pred_single` over paired GT/pred lists.
 
@@ -303,9 +304,9 @@ def recursive_merge(target: dict, source: dict) -> dict:
 
 
 def _classify_mismatches(
-    grouped_indices: list[np.ndarray],
-    gt_pred_arr: np.ndarray,
-    class_value: int,
+        grouped_indices: list[np.ndarray],
+        gt_pred_arr: np.ndarray,
+        class_value: int,
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray]]:
     """Sort contiguous mismatch groups into four categories.
 
@@ -330,15 +331,15 @@ def _classify_mismatches(
         last_idx = mismatch[-1]
 
         target_on_3_prime = (
-            int(gt_pred_arr[0, last_idx + 1])
-            == int(gt_pred_arr[1, last_idx + 1])
-            == class_value
+                int(gt_pred_arr[0, last_idx + 1])
+                == int(gt_pred_arr[1, last_idx + 1])
+                == class_value
         )
 
         target_on_5_prime = (
-            int(gt_pred_arr[0, first_idx - 1])
-            == int(gt_pred_arr[1, first_idx - 1])
-            == class_value
+                int(gt_pred_arr[0, first_idx - 1])
+                == int(gt_pred_arr[1, first_idx - 1])
+                == class_value
         )
 
         adjusted = mismatch - 1
@@ -360,114 +361,140 @@ def _classify_mismatches(
 # ---------------------------------------------------------------------------
 
 
-def _get_metrics_across_levels(
-    grouped_gt_section_indices: list[np.ndarray],
-    grouped_pred_section_indices: list[np.ndarray],
-    gt_labels: np.ndarray,
-    pred_labels: np.ndarray,
-    class_value: int,
-) -> dict:
-    """Compute confusion counts at nucleotide and section levels."""
+import numpy as np
+from sklearn.metrics import confusion_matrix
 
-    # ---- Nucleotide level -------------------------------------------------
+import numpy as np
+from sklearn.metrics import confusion_matrix
+
+import numpy as np
+from sklearn.metrics import confusion_matrix
+
+import numpy as np
+from sklearn.metrics import confusion_matrix
+
+
+def _get_metrics_across_levels(
+        grouped_gt_section_indices: list[np.ndarray],
+        grouped_pred_section_indices: list[np.ndarray],
+        gt_labels: np.ndarray,
+        pred_labels: np.ndarray,
+        class_value: int,
+) -> dict:
+    """
+    Compute confusion counts at nucleotide and section levels with split/merge tracking.
+
+    ===========================================================================
+    THE METRIC HIERARCHY (From Forgiving to Punishing)
+    ===========================================================================
+    1. Overlap:   "Neighborhood" Discovery. Any contact between GT and Pred.
+    2. Envelop:   Under-prediction support. Pred is a smaller segment INSIDE GT.
+    3. Encompass: Over-prediction support. Pred is a larger segment COVERING GT.
+    4. Strict:    Perfect Identity. Coordinates match exactly (The Double Penalty).
+    ===========================================================================
+    """
+
+    # ---- 1. Nucleotide level (Granular Base Accuracy) ---------------------
     binary_gt = np.where(gt_labels == class_value, 1, 0)
     binary_pred = np.where(pred_labels == class_value, 1, 0)
 
-    if (binary_gt == binary_pred).all() and len(np.unique(binary_gt)) == 1:
-        nuc_tn = len(binary_gt) - 2
-        nuc_fp, nuc_fn, nuc_tp = 0, 0, 0
-    else:
-        nuc_tn, nuc_fp, nuc_fn, nuc_tp = confusion_matrix(
-            binary_gt[1:-1], binary_pred[1:-1]
-        ).ravel()
+    # labels=[0, 1] ensures a 2x2 matrix; [1:-1] slices off prepended/appended tags.
+    cm = confusion_matrix(binary_gt[1:-1], binary_pred[1:-1], labels=[0, 1])
+    nuc_tn, nuc_fp, nuc_fn, nuc_tp = map(int, cm.ravel())
 
-    # ---- Section overlap / strict / boundary counters ---------------------
-    sec_overlap_tp, sec_overlap_fp, sec_overlap_fn = 0, 0, 0
-    sec_strict_tp, sec_strict_fp, sec_strict_fn = 0, 0, 0
+    # ---- 2. Initialize Tracking -------------------------------------------
+    total_gt = len(grouped_gt_section_indices)
+    total_pred = len(grouped_pred_section_indices)
+
+    gt_hit_overlap = np.zeros(total_gt, dtype=bool)
+    pred_hit_overlap = np.zeros(total_pred, dtype=bool)
+    gt_hit_envelop = np.zeros(total_gt, dtype=bool)  # Forgives Under-pred
+    gt_hit_encompass = np.zeros(total_gt, dtype=bool)  # Forgives Over-pred
+    gt_hit_strict = np.zeros(total_gt, dtype=bool)
+    pred_hit_strict = np.zeros(total_pred, dtype=bool)
 
     fully_matching_sections = 0
     inner_boundary_matching_sections = 0
     first_sec_correct_3_prime = 0
     last_sec_correct_5_prime = 0
 
-    for i, gt_section in enumerate(grouped_gt_section_indices):
-        if (gt_labels[gt_section] == pred_labels[gt_section]).all():
-            sec_overlap_tp += 1
+    # ---- 3. Mapping Logic -------------------------------------------------
+    for g_idx, gt_section in enumerate(grouped_gt_section_indices):
+        gt_min, gt_max = np.min(gt_section), np.max(gt_section)
 
-            if pred_labels[gt_section[-1] + 1] != class_value:
-                if i == 0:
-                    first_sec_correct_3_prime = 1
+        for p_idx, pred_section in enumerate(grouped_pred_section_indices):
+            p_min, p_max = np.min(pred_section), np.max(pred_section)
 
-                if pred_labels[gt_section[0] - 1] != class_value:
-                    fully_matching_sections += 1
+            # --- A. Overlap (Any contact) ---
+            if not (p_max < gt_min or p_min > gt_max):
+                gt_hit_overlap[g_idx] = True
+                pred_hit_overlap[p_idx] = True
+
+                # --- B. Envelop (Prediction is entirely INSIDE GT) ---
+                if p_min >= gt_min and p_max <= gt_max:
+                    gt_hit_envelop[g_idx] = True
+
+                # --- C. Encompass (Prediction fully COVERS GT) ---
+                if p_min <= gt_min and p_max >= gt_max:
+                    gt_hit_encompass[g_idx] = True
+
+            # --- D. Strict Match (Coordinates match exactly) ---
+            if p_min == gt_min and p_max == gt_max:
+                gt_hit_strict[g_idx] = True
+                pred_hit_strict[p_idx] = True
+                fully_matching_sections += 1
+
+                # Internal/Boundary Analysis
+                if 0 < g_idx < total_gt - 1:
                     inner_boundary_matching_sections += 1
-                    sec_strict_tp += 1
-                    if i == len(grouped_gt_section_indices) - 1:
-                        last_sec_correct_5_prime = 1
-                    continue
+            if g_idx == 0 and p_max == gt_max:
+                first_sec_correct_3_prime = 1
 
-                if i == 0:
-                    inner_boundary_matching_sections += 1
-
-            if (
-                i == len(grouped_gt_section_indices) - 1
-                and pred_labels[gt_section[0] - 1] != class_value
-            ):
+                # For the last exon, the left boundary (min) is the 5' end.
+            if g_idx == total_gt - 1 and p_min == gt_min:
                 last_sec_correct_5_prime = 1
 
-        if (gt_labels[gt_section] != pred_labels[gt_section]).all():
-            sec_overlap_fn += 1
-            sec_strict_fn += 1
-
-    # ---- FP counting ------------------------------------------------------
-    if len(grouped_gt_section_indices) > 0:
-        gt_mins, gt_maxs = zip(
-            *[(np.min(s), np.max(s)) for s in grouped_gt_section_indices]
-        )
-        gt_mins = np.array(gt_mins)
-        gt_maxs = np.array(gt_maxs)
-    else:
-        gt_mins = np.array([-np.inf])
-        gt_maxs = np.array([np.inf])
-
-    for pred_section in grouped_pred_section_indices:
-        pred_min = np.min(pred_section)
-        pred_max = np.max(pred_section)
-
-        if not np.any((pred_max >= gt_maxs) & (pred_min <= gt_mins)):
-            sec_overlap_fp += 1
-        if not np.any((pred_max == gt_maxs) & (pred_min == gt_mins)):
-            sec_strict_fp += 1
-
-    total_gt = sum(1 for s in grouped_gt_section_indices if s.size > 0)
-    total_pred = sum(1 for s in grouped_pred_section_indices if s.size > 0)
-
-    inner_boundaries = (
-        {
-            "tn": 0,
-            "fp": 1 if total_pred > 0 and inner_boundary_matching_sections != total_gt else 0,
-            "fn": 1 if total_pred == 0 and total_gt > 0 else 0,
-            "tp": 1 if inner_boundary_matching_sections == total_gt and inner_boundary_matching_sections > 0 else 0,
-        }
-        if total_gt > 1
-        else {"tn": 0, "fp": 0, "fn": 0, "tp": 0}
-    )
+    # ---- 4. Sequence-Level Aggregates -------------------------------------
+    num_inner_expected = total_gt - 2 if total_gt > 2 else (1 if total_gt == 2 else 0)
+    inner_boundaries = {
+        "tp": 1 if total_gt > 1 and inner_boundary_matching_sections == num_inner_expected and total_pred > 0 else 0,
+        "fp": 1 if total_gt > 1 and inner_boundary_matching_sections != num_inner_expected else 0,
+        "fn": 1 if total_gt > 1 and total_pred == 0 else 0,
+        "tn": 0,
+    } if total_gt > 1 else {"tn": 0, "fp": 0, "fn": 0, "tp": 0}
 
     return {
         "nucleotide": {"tn": nuc_tn, "fp": nuc_fp, "fn": nuc_fn, "tp": nuc_tp},
-        "section": {"tn": 0, "fp": sec_overlap_fp, "fn": sec_overlap_fn, "tp": sec_overlap_tp},
-        "strict_section": {"tn": 0, "fp": sec_strict_fp, "fn": sec_strict_fn, "tp": sec_strict_tp},
+        "neighborhood_hit": {
+            "tp": int(np.sum(gt_hit_overlap)),
+            "fn": int(total_gt - np.sum(gt_hit_overlap)),
+            "fp": int(total_pred - np.sum(pred_hit_overlap))
+        },
+        # Forgives under-prediction (prediction segment is inside GT).
+        "internal_hit": {
+            "tp": int(np.sum(gt_hit_envelop)),
+            "fn": int(total_gt - np.sum(gt_hit_envelop)),
+        },
+        # Forgives over-prediction (prediction segment covers GT).
+        "full_coverage_hit": {
+            "tp": int(np.sum(gt_hit_encompass)),
+            "fn": int(total_gt - np.sum(gt_hit_encompass)),
+        },
+        "perfect_boundary_hit": {
+            "tp": int(np.sum(gt_hit_strict)),
+            "fn": int(total_gt - np.sum(gt_hit_strict)),
+            "fp": int(total_pred - np.sum(pred_hit_strict))
+        },
         "inner_section_boundaries": inner_boundaries,
         "all_section_boundaries": {
-            "tn": 0,
-            "fp": 1 if total_pred > 0 and fully_matching_sections != total_gt else 0,
-            "fn": 1 if total_pred == 0 and total_gt > 0 else 0,
-            "tp": 1 if fully_matching_sections == total_gt and fully_matching_sections > 0 else 0,
+            "tp": 1 if total_gt > 0 and fully_matching_sections == total_gt else 0,
+            "fp": 1 if total_gt > 0 and fully_matching_sections != total_gt else 0,
+            "fn": 1 if total_gt > 0 and total_pred == 0 else 0,
+            "tn": 0
         },
         "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
         "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
     }
-
 
 # ---------------------------------------------------------------------------
 # Summary statistics
@@ -492,9 +519,9 @@ def _compute_summary_statistics(fn: list, tp: list, fp: list, tn: list) -> dict:
 
 
 def _get_frame_shift_metrics(
-    gt_labels: np.ndarray,
-    pred_labels: np.ndarray,
-    coding_value: int,
+        gt_labels: np.ndarray,
+        pred_labels: np.ndarray,
+        coding_value: int,
 ) -> dict:
     """Compute per-position reading-frame deviation."""
     gt_exon_indices = np.where(gt_labels == coding_value)[0]
@@ -515,8 +542,8 @@ def _get_frame_shift_metrics(
     _common_codons = np.intersect1d(gt_codon_view, pred_codon_view)
 
     valid_mask = (
-        np.isin(np.arange(len(gt_labels)), gt_exon_indices)
-        & np.isin(np.arange(len(gt_labels)), pred_exon_indices)
+            np.isin(np.arange(len(gt_labels)), gt_exon_indices)
+            & np.isin(np.arange(len(gt_labels)), pred_exon_indices)
     )
 
     frame_list = np.full(len(gt_labels), np.inf)

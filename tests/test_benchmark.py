@@ -10,7 +10,6 @@ from dna_segmentation_benchmark.evaluate_predictors import (
 )
 from dna_segmentation_benchmark.label_definition import LabelConfig, BEND_LABEL_CONFIG
 
-
 # ------------------------------------------------------------------
 # Convenience token constants (replace enum members)
 # ------------------------------------------------------------------
@@ -51,12 +50,14 @@ CUSTOM_CONFIG = LabelConfig(
                     },
                     "SECTION": {
                         "nucleotide": {"tn": 4, "fp": 9, "fn": 6, "tp": 6},
-                        "section": {"tn": 0, "fp": 3, "fn": 1, "tp": 0},
-                        "strict_section": {"tn": 0, "fp": 3, "fn": 1, "tp": 0},
-                        "inner_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
-                        "all_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
+                        "neighborhood_hit": {"tp": 2, "fn": 1, "fp": 1},
+                        "internal_hit": {"tp": 0, "fn": 3},
+                        "full_coverage_hit": {"tp": 0, "fn": 3},
+                        "perfect_boundary_hit": {"tp": 0, "fn": 3, "fp": 3},
+                        "inner_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
+                        "all_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 0,
-                        "last_sec_correct_5_prime_boundary": 0,
+                        "last_sec_correct_5_prime_boundary": 0
                     },
                 }
             },
@@ -76,12 +77,14 @@ CUSTOM_CONFIG = LabelConfig(
                 "EXON": {
                     "SECTION": {
                         "nucleotide": {"tn": 11, "fp": 6, "fn": 0, "tp": 12},
-                        "section": {"tn": 0, "fp": 0, "fn": 0, "tp": 4},
-                        "strict_section": {"tn": 0, "fp": 3, "fn": 0, "tp": 1},
-                        "inner_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
-                        "all_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
+                        "neighborhood_hit": {"tp": 4, "fn": 0, "fp": 0},
+                        "internal_hit": {"tp": 1, "fn": 3},
+                        "full_coverage_hit": {"tp": 4, "fn": 0},
+                        "perfect_boundary_hit": {"tp": 1, "fn": 3, "fp": 3},
+                        "inner_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
+                        "all_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 1,
-                        "last_sec_correct_5_prime_boundary": 1,
+                        "last_sec_correct_5_prime_boundary": 1
                     }
                 }
             },
@@ -111,12 +114,14 @@ CUSTOM_CONFIG = LabelConfig(
                     },
                     "SECTION": {
                         "nucleotide": {"tn": 0, "fp": 3, "fn": 5, "tp": 2},
-                        "section": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
-                        "strict_section": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
-                        "inner_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
-                        "all_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
+                        "neighborhood_hit": {"tp": 2, "fn": 0, "fp": 0},
+                        "internal_hit": {"tp": 0, "fn": 2},
+                        "full_coverage_hit": {"tp": 0, "fn": 2},
+                        "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
+                        "inner_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
+                        "all_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 0,
-                        "last_sec_correct_5_prime_boundary": 0,
+                        "last_sec_correct_5_prime_boundary": 0
                     },
                 }
             },
@@ -136,12 +141,14 @@ CUSTOM_CONFIG = LabelConfig(
                 "EXON": {
                     "SECTION": {
                         "nucleotide": {"tn": 13, "fp": 0, "fn": 0, "tp": 12},
-                        "section": {"tn": 0, "fp": 0, "fn": 0, "tp": 3},
-                        "strict_section": {"tn": 0, "fp": 0, "fn": 0, "tp": 3},
-                        "inner_section_boundaries": {"tn": 0, "fp": 0, "fn": 0, "tp": 1},
-                        "all_section_boundaries": {"tn": 0, "fp": 0, "fn": 0, "tp": 1},
+                        "neighborhood_hit": {"tp": 3, "fn": 0, "fp": 0},
+                        "internal_hit": {"tp": 3, "fn": 0},
+                        "full_coverage_hit": {"tp": 3, "fn": 0},
+                        "perfect_boundary_hit": {"tp": 3, "fn": 0, "fp": 0},
+                        "inner_section_boundaries": {"tp": 1, "fp": 0, "fn": 0, "tn": 0},
+                        "all_section_boundaries": {"tp": 1, "fp": 0, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 1,
-                        "last_sec_correct_5_prime_boundary": 1,
+                        "last_sec_correct_5_prime_boundary": 1
                     }
                 }
             },
@@ -161,12 +168,14 @@ CUSTOM_CONFIG = LabelConfig(
                 "EXON": {
                     "SECTION": {
                         "nucleotide": {"tn": 7, "fp": 0, "fn": 0, "tp": 5},
-                        "section": {"tn": 0, "fp": 0, "fn": 0, "tp": 1},
-                        "strict_section": {"tn": 0, "fp": 0, "fn": 0, "tp": 1},
-                        "inner_section_boundaries": {"tn": 0, "fp": 0, "fn": 0, "tp": 0},
-                        "all_section_boundaries": {"tn": 0, "fp": 0, "fn": 0, "tp": 1},
+                        "neighborhood_hit": {"tp": 1, "fn": 0, "fp": 0},
+                        "internal_hit": {"tp": 1, "fn": 0},
+                        "full_coverage_hit": {"tp": 1, "fn": 0},
+                        "perfect_boundary_hit": {"tp": 1, "fn": 0, "fp": 0},
+                        "inner_section_boundaries": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
+                        "all_section_boundaries": {"tp": 1, "fp": 0, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 1,
-                        "last_sec_correct_5_prime_boundary": 1,
+                        "last_sec_correct_5_prime_boundary": 1
                     }
                 }
             },
@@ -196,13 +205,15 @@ CUSTOM_CONFIG = LabelConfig(
                     },
                     "SECTION": {
                         "nucleotide": {"tn": 6, "fp": 1, "fn": 2, "tp": 2},
-                        "section": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
-                        "strict_section": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
-                        "inner_section_boundaries": {"tn": 0, "fp": 0, "fn": 0, "tp": 0},
-                        "all_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
+                        "neighborhood_hit": {"tp": 1, "fn": 0, "fp": 0},
+                        "internal_hit": {"tp": 0, "fn": 1},
+                        "full_coverage_hit": {"tp": 0, "fn": 1},
+                        "perfect_boundary_hit": {"tp": 0, "fn": 1, "fp": 1},
+                        "inner_section_boundaries": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
+                        "all_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 0,
-                        "last_sec_correct_5_prime_boundary": 0,
-                    },
+                        "last_sec_correct_5_prime_boundary": 0
+                    }
                 },
                 "EXON": {
                     "INDEL": {
@@ -217,13 +228,15 @@ CUSTOM_CONFIG = LabelConfig(
                     },
                     "SECTION": {
                         "nucleotide": {"tn": 7, "fp": 0, "fn": 3, "tp": 1},
-                        "section": {"tn": 0, "fp": 1, "fn": 1, "tp": 0},
-                        "strict_section": {"tn": 0, "fp": 1, "fn": 1, "tp": 0},
-                        "inner_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
-                        "all_section_boundaries": {"tn": 0, "fp": 1, "fn": 0, "tp": 0},
+                        "neighborhood_hit": {"tp": 1, "fn": 1, "fp": 0},
+                        "internal_hit": {"tp": 1, "fn": 1},
+                        "full_coverage_hit": {"tp": 0, "fn": 2},
+                        "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
+                        "inner_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
+                        "all_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
                         "first_sec_correct_3_prime_boundary": 0,
-                        "last_sec_correct_5_prime_boundary": 0,
-                    },
+                        "last_sec_correct_5_prime_boundary": 0
+                    }
                 },
             },
             id="exon_intron_combination_test",
