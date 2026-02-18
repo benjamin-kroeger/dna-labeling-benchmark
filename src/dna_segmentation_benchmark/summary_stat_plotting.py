@@ -14,7 +14,10 @@ The orchestrator :func:`compare_multiple_predictions` returns a
 
 from __future__ import annotations
 
+import dataclasses
 import logging
+import textwrap
+from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Optional
 
@@ -36,20 +39,107 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 PACKAGE_NAME = "dna_segmentation_benchmark"
-
+ICON_PATH = resources.files(PACKAGE_NAME) / "icons"
 ICON_MAP = {
-    "5_prime_extensions": resources.files(PACKAGE_NAME) / "icons" / "left_extension.png",
-    "3_prime_extensions": resources.files(PACKAGE_NAME) / "icons" / "right_extension.png",
-    "whole_insertions": resources.files(PACKAGE_NAME) / "icons" / "exon_insertion.png",
-    "joined": resources.files(PACKAGE_NAME) / "icons" / "joined_exons.png",
-    "5_prime_deletions": resources.files(PACKAGE_NAME) / "icons" / "left_deletion.png",
-    "3_prime_deletions": resources.files(PACKAGE_NAME) / "icons" / "right_deletion.png",
-    "whole_deletions": resources.files(PACKAGE_NAME) / "icons" / "exon_deletion.png",
-    "split": resources.files(PACKAGE_NAME) / "icons" / "split_exons.png",
+    "5_prime_extensions": ICON_PATH / "left_extension.png",
+    "3_prime_extensions": ICON_PATH / "right_extension.png",
+    "whole_insertions": ICON_PATH / "exon_insertion.png",
+    "joined": ICON_PATH / "joined_exons.png",
+    "5_prime_deletions": ICON_PATH / "left_deletion.png",
+    "3_prime_deletions": ICON_PATH / "right_deletion.png",
+    "whole_deletions": ICON_PATH / "exon_deletion.png",
+    "split": ICON_PATH / "split_exons.png",
 }
 
 DEFAULT_FIG_SIZE = (16, 10)
 DEFAULT_MULTI_PLOT_FIG_SIZE = (18, 12)
+
+
+# ---------------------------------------------------------------------------
+# Plot metadata — pictogram panel content
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class PlotMetadata:
+    """Icon and explanatory text shown in the right-side pictogram panel.
+
+    Attributes
+    ----------
+    icon_path : Path | Traversable | None
+        Path to a PNG icon.  ``None`` means no icon yet.
+    description : str
+        Short paragraph explaining what the plot shows.  Rendered as
+        word-wrapped text below the icon.
+    display_name : str
+        Human-readable title rendered above the icon.
+    show_tp_tn_fp_fn : bool
+        If ``True`` a compact TP / TN / FP / FN definitions block is
+        rendered at the bottom of the panel.
+    """
+
+    icon_path: Path | Traversable | None = None
+    description: str = ""
+    display_name: str = ""
+    show_tp_tn_fp_fn: bool = False
+
+
+# Placeholder entries — fill in ``icon_path`` and ``description`` as
+# pictograms are created.  Keys must match those used in
+# :func:`compare_multiple_predictions`.
+PLOT_METADATA: dict[str, PlotMetadata] = {
+    # INDEL summary
+    "indel_counts": PlotMetadata(display_name="INDEL Counts"),
+    "indel_lengths": PlotMetadata(display_name="INDEL Length Distribution"),
+    # ML precision / recall (one entry per level)
+    "ml_nucleotide_level_metrics": PlotMetadata(
+        display_name="Nucleotide-Level Metrics",
+        show_tp_tn_fp_fn=True,
+    ),
+    "ml_neighborhood_hit_metrics": PlotMetadata(
+        display_name="Neighborhood Hit Metrics",
+        icon_path=ICON_PATH / "overlap.png",
+        show_tp_tn_fp_fn=True,
+    ),
+    "ml_internal_hit_metrics": PlotMetadata(
+        display_name="Internal Hit Metrics",
+        icon_path=ICON_PATH / "internal.png",
+        show_tp_tn_fp_fn=True,
+    ),
+    "ml_full_coverage_hit_metrics": PlotMetadata(
+        display_name="Full Coverage Hit Metrics",
+        icon_path=ICON_PATH / "full_coverage.png",
+        show_tp_tn_fp_fn=True,
+    ),
+    "ml_perfect_boundary_hit_metrics": PlotMetadata(
+        display_name="Perfect Boundary Hit Metrics",
+        icon_path=ICON_PATH / "prefect_hit.png",
+        show_tp_tn_fp_fn=True,
+    ),
+    "ml_inner_section_boundaries_metrics": PlotMetadata(
+        display_name="Inner Section Boundaries",
+        show_tp_tn_fp_fn=True,
+    ),
+    "ml_all_section_boundaries_metrics": PlotMetadata(
+        display_name="All Section Boundaries",
+        show_tp_tn_fp_fn=True,
+    ),
+    # IoU
+    "iou_average": PlotMetadata(
+        display_name="Average IoU",
+        icon_path=ICON_PATH / "iou.png",
+        description="Measures the intersection over the union of any 2"
+                    " overlapping ground truth and predicted section.",
+    ),
+    "iou_distribution": PlotMetadata(
+        display_name="IoU Distribution",
+        icon_path=ICON_PATH / "iou.png",
+        description="Measures the intersection over the union of any 2"
+                    " overlapping ground truth and predicted section.",
+    ),
+    # Frameshift
+    "frameshift": PlotMetadata(display_name="Frameshift Distribution"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +173,162 @@ def _add_icon_to_ax(
         logger.warning("Icon not found: %s", icon_path)
     except Exception:
         logger.warning("Could not load icon: %s", icon_path, exc_info=True)
+
+
+def _add_pictogram_panel(
+        fig: plt.Figure,
+        metadata: PlotMetadata | None,
+        panel_width_fraction: float = 0.22,
+) -> None:
+    """Add a right-side pictogram panel to *fig*.
+
+    The panel displays an icon (scaled to fit within the panel) with
+    explanatory text below it, and optionally a TP/TN/FP/FN
+    definitions block.  All existing axes in *fig* are shrunk to make
+    room.
+
+    If *metadata* is ``None`` or contains nothing to render, the
+    function is a **no-op**.
+    """
+    if metadata is None:
+        return
+    has_content = (
+        metadata.icon_path is not None
+        or metadata.description
+        or metadata.show_tp_tn_fp_fn
+        or metadata.display_name
+    )
+    if not has_content:
+        return
+
+    # Shrink every existing axes to make room on the right
+    for ax in fig.get_axes():
+        box = ax.get_position()
+        ax.set_position([
+            box.x0,
+            box.y0,
+            box.width * (1 - panel_width_fraction),
+            box.height,
+        ])
+
+    # Create the panel axes on the freed right-hand side
+    panel_left = 1 - panel_width_fraction + 0.01
+    panel_width = panel_width_fraction - 0.02
+    panel_ax = fig.add_axes([panel_left, 0.05, panel_width, 0.90])
+    panel_ax.set_axis_off()
+
+    # Panel dimensions in inches
+    fig_w_in, fig_h_in = fig.get_size_inches()
+    panel_width_in = panel_width * fig_w_in
+    panel_height_in = 0.90 * fig_h_in  # panel is 90% of fig height
+
+    # Convert panel_ax coordinates to figure coordinates for precise placement
+    # of elements relative to the panel.
+    # panel_ax.transAxes.transform((x, y)) gives figure coordinates.
+    # fig.transFigure.inverted().transform((x, y)) gives figure fraction coordinates.
+    # We want to work in figure fraction coordinates for text and icon placement.
+    panel_bbox = panel_ax.get_position()
+    panel_x0, panel_y0, panel_w, panel_h = panel_bbox.x0, panel_bbox.y0, panel_bbox.width, panel_bbox.height
+
+    # y_cursor is in figure fraction coordinates, relative to the top of the panel
+    y_cursor = panel_y0 + panel_h * 0.95  # Start near the top of the panel
+
+    # --- Display name ---
+    if metadata.display_name:
+        # Text x-position is center of panel, y-position is y_cursor
+        text_x = panel_x0 + panel_w / 2
+        fig.text(
+            text_x, y_cursor, metadata.display_name,
+            ha="center", va="top", fontsize=13, fontweight="bold",
+            wrap=True,
+        )
+        y_cursor -= panel_h * 0.08  # Move cursor down
+
+    # --- Icon (scaled to fit panel, constrained by both width and height) ---
+    # Reserve vertical budget: title ~8%, icon max 40%, description ~20%, TP/TN ~20%
+    max_icon_height_frac = 0.40  # max 40% of panel height for the icon
+    if metadata.icon_path is not None:
+        try:
+            icon_img = plt.imread(str(metadata.icon_path))
+            icon_w_px = icon_img.shape[1]
+            icon_h_px = icon_img.shape[0]
+
+            # Calculate zoom to fit within 85% of panel width and max_icon_height_frac of panel height
+            zoom_w = (panel_width_in * fig.dpi * 0.85) / icon_w_px
+            max_icon_h_px = max_icon_height_frac * panel_height_in * fig.dpi
+            zoom_h = max_icon_h_px / icon_h_px
+            zoom = min(zoom_w, zoom_h)
+
+            # Create an inset axes for the icon to ensure it respects bounds
+            icon_rendered_w_in = (icon_w_px * zoom) / fig.dpi
+            icon_rendered_h_in = (icon_h_px * zoom) / fig.dpi
+
+            # Convert rendered dimensions to figure fraction
+            icon_w_fig_frac = icon_rendered_w_in / fig_w_in
+            icon_h_fig_frac = icon_rendered_h_in / fig_h_in
+
+            # Calculate icon axes position: centered horizontally, top aligned with y_cursor
+            icon_ax_x0 = panel_x0 + (panel_w - icon_w_fig_frac) / 2
+            icon_ax_y0 = y_cursor - icon_h_fig_frac # Top of icon is at y_cursor
+
+            icon_ax = fig.add_axes([icon_ax_x0, icon_ax_y0, icon_w_fig_frac, icon_h_fig_frac])
+            icon_ax.imshow(icon_img)
+            # Pad limits slightly so edge pixels are never clipped
+            icon_ax.set_xlim(-1, icon_w_px)
+            icon_ax.set_ylim(icon_h_px, -3)
+            icon_ax.set_axis_off()
+
+            y_cursor -= icon_h_fig_frac + panel_h * 0.04 # Move cursor down past icon and add spacing
+        except Exception:
+            logger.warning(
+                "Could not load panel icon: %s", metadata.icon_path,
+                exc_info=True,
+            )
+
+    # --- Description text ---
+    if metadata.description:
+        wrapped = textwrap.fill(metadata.description, width=26)
+        text_x = panel_x0 + panel_w / 2
+        fig.text(
+            text_x, y_cursor, wrapped,
+            ha="center", va="top", fontsize=9,
+            linespacing=1.4,
+        )
+        n_lines = wrapped.count("\n") + 1
+        y_cursor -= n_lines * panel_h * 0.05 + panel_h * 0.04 # Move cursor down past description and add spacing
+
+    # --- TP / TN / FP / FN definitions (placed at bottom of panel) ---
+    if metadata.show_tp_tn_fp_fn:
+        definitions = (
+            "\u2022 TP: Correctly predicted\n"
+            "\u2022 TN: Correctly absent\n"
+            "\u2022 FP: Falsely predicted\n"
+            "\u2022 FN: Falsely missed"
+        )
+        # Place at fixed position near the bottom to avoid overlap
+        # Calculate bottom-aligned y-position for definitions block
+        tp_y_bottom = panel_y0 + panel_h * 0.05 # 5% from bottom of panel
+        # Estimate height of definitions block (4 lines * line_height_factor)
+        # This is a rough estimate, actual height depends on font size and dpi
+        estimated_line_height_fig_frac = 0.025 * (fig_h_in / DEFAULT_FIG_SIZE[1]) # Scale by figure height
+        estimated_block_height_fig_frac = 4 * estimated_line_height_fig_frac * 1.5 # 4 lines, linespacing 1.5
+        tp_y_top = tp_y_bottom + estimated_block_height_fig_frac
+
+        # Ensure it doesn't overlap with content above
+        final_tp_y = min(y_cursor - panel_h * 0.02, tp_y_top) # 2% buffer from above content
+
+        fig.text(
+            panel_x0 + panel_w * 0.05, final_tp_y, definitions,
+            ha="left", va="top", fontsize=9,
+            linespacing=1.5,
+            family="monospace",
+            bbox=dict(
+                boxstyle="round,pad=0.4",
+                facecolor="#f0f0f0",
+                edgecolor="#cccccc",
+                alpha=0.9,
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +463,7 @@ def plot_stacked_indel_counts_bar(
         df_indel_counts: pd.DataFrame,
         class_name: str,
         save_path: Optional[Path] = None,
+        metadata: PlotMetadata | None = None,
 ) -> Optional[plt.Figure]:
     """Stacked horizontal bar chart of INDEL counts per method.
 
@@ -259,9 +506,10 @@ def plot_stacked_indel_counts_bar(
     ax.set_title(f"INDEL Counts by Method — {class_name}", fontsize=16)
     ax.set_xlabel("Total Number of INDELs", fontsize=12)
     ax.set_ylabel("Method Name", fontsize=12)
-    ax.legend(title="INDEL Type", bbox_to_anchor=(1.01, 1), loc="upper left")
+    ax.legend(title="INDEL Type", loc="lower right", fontsize=9)
 
     fig.tight_layout()
+    _add_pictogram_panel(fig, metadata)
 
     if save_path is not None:
         _save_figure(fig, save_path)
@@ -272,6 +520,7 @@ def plot_frameshift_percentage_bar(
         df_frameshift_metrics: pd.DataFrame,
         class_name: str,
         save_path: Optional[Path] = None,
+        metadata: PlotMetadata | None = None,
 ) -> Optional[plt.Figure]:
     """Bar chart of codon reading-frame distribution per method.
 
@@ -327,9 +576,10 @@ def plot_frameshift_percentage_bar(
     )
     ax.set_xlabel("Reading Frame", fontsize=12)
     ax.set_ylabel("Percentage of Codons", fontsize=12)
-    ax.legend(title="Method Name", bbox_to_anchor=(1.02, 1), loc="upper left")
+    ax.legend(title="Method Name", loc="upper right", fontsize=9)
 
     fig.tight_layout()
+    _add_pictogram_panel(fig, metadata)
 
     if save_path is not None:
         _save_figure(fig, save_path)
@@ -340,6 +590,7 @@ def plot_ml_metrics_bar(
         df_ml_metrics: pd.DataFrame,
         class_name: str,
         save_path_prefix: Optional[Path] = None,
+        metadata_map: dict[str, PlotMetadata] | None = None,
 ) -> list[plt.Figure]:
     """Grouped bar chart of ML metrics (precision / recall) per level.
 
@@ -349,6 +600,9 @@ def plot_ml_metrics_bar(
     ----------
     save_path_prefix : Path | None
         If given, figures are saved as ``<prefix>_<level>.png``.
+    metadata_map : dict[str, PlotMetadata] | None
+        Mapping from ``ml_<level>`` key to :class:`PlotMetadata`.
+        Looked up per-level to attach the correct pictogram panel.
 
     Returns
     -------
@@ -382,6 +636,9 @@ def plot_ml_metrics_bar(
         .melt(id_vars=["method_name", "metric_key"], var_name="metric", value_name="Score")
     )
 
+    if metadata_map is None:
+        metadata_map = {}
+
     figures: list[plt.Figure] = []
 
     for level in melted["metric_key"].unique():
@@ -397,8 +654,10 @@ def plot_ml_metrics_bar(
         ax.set_xlabel("Metric", fontsize=12)
         ax.set_ylabel("Score", fontsize=12)
         ax.set_ylim(0, 1.05)
-        ax.legend(title="Method Name", bbox_to_anchor=(1.02, 1), loc="upper left")
+        ax.legend(title="Method Name", loc="upper right", fontsize=9)
         fig.tight_layout()
+
+        _add_pictogram_panel(fig, metadata_map.get(f"ml_{level}"))
 
         if save_path_prefix is not None:
             _save_figure(fig, save_path_prefix.with_name(
@@ -414,6 +673,8 @@ def plot_iou_metrics(
         df_iou: pd.DataFrame,
         class_name: str,
         save_path_prefix: Optional[Path] = None,
+        metadata_average: PlotMetadata | None = None,
+        metadata_distribution: PlotMetadata | None = None,
 ) -> list[plt.Figure]:
     """Generate IoU analysis plots: Average Bar Chart and Distribution Violin Plot.
 
@@ -425,6 +686,8 @@ def plot_iou_metrics(
         Human-readable class name.
     save_path_prefix : Path | None
         Prefix for saving figures (e.g. '.../EXON_iou').
+    metadata_average, metadata_distribution : PlotMetadata | None
+        Pictogram panel content for the average / distribution figure.
 
     Returns
     -------
@@ -467,6 +730,7 @@ def plot_iou_metrics(
     ax1.set_xlabel("Method Name", fontsize=12)
     ax1.set_ylim(0, 1.05)
     fig1.tight_layout()
+    _add_pictogram_panel(fig1, metadata_average)
 
     if save_path_prefix:
         _save_figure(fig1, save_path_prefix.with_name(f"{save_path_prefix.name}_average.png"))
@@ -484,10 +748,8 @@ def plot_iou_metrics(
     ax2.set_xlabel("Method Name", fontsize=12)
     ax2.set_ylim(0, 1.05)
 
-    # Add accumulation of points if dataset is not huge, or just stick to violin
-    # sns.stripplot(data=exploded, x="method_name", y="IoU", color="black", alpha=0.3, size=2, ax=ax2)
-
     fig2.tight_layout()
+    _add_pictogram_panel(fig2, metadata_distribution)
 
     if save_path_prefix:
         _save_figure(fig2, save_path_prefix.with_name(f"{save_path_prefix.name}_distribution.png"))
@@ -499,6 +761,7 @@ def plot_iou_metrics(
 def plot_boundary_precision_landscapes(
         df_fuzzy_boundaries: pd.DataFrame,
         max_range: int = 10,
+        metadata: PlotMetadata | None = None,
 ) -> list[plt.Figure]:
     """Plot the two diagnostic matrices to visualize model bias and reliability.
 
@@ -519,7 +782,7 @@ def plot_boundary_precision_landscapes(
         bias_matrix, reliability_matrix = (
             df_fuzzy_boundaries[
                 df_fuzzy_boundaries["method_name"] == method
-            ]["value"].iloc[0]
+                ]["value"].iloc[0]
         )
 
         fig, axes = plt.subplots(1, 2, figsize=(16, 7))
@@ -566,10 +829,10 @@ def plot_boundary_precision_landscapes(
 
         fig.suptitle(f"{method}", fontsize=14)
         plt.tight_layout()
+        _add_pictogram_panel(fig, metadata)
         figures.append(fig)
 
     return figures
-
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +912,7 @@ def compare_multiple_predictions(
                 fig = plot_stacked_indel_counts_bar(
                     df_indel, class_name,
                     save_path=(output_dir / f"{class_name}_indel_counts.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("indel_counts"),
                 )
                 if fig is not None:
                     figures[f"{class_name}_indel_counts"] = fig
@@ -660,6 +924,7 @@ def compare_multiple_predictions(
                 if fig is not None:
                     figures[f"{class_name}_indel_lengths"] = fig
 
+        # ---- Fuzzy boundary plots ---------------------------------------
         df_fuzzy = df[
             (df["measured_class"] == class_name)
             & (df["metric_group"] == EvalMetrics.ML.name)
@@ -668,11 +933,13 @@ def compare_multiple_predictions(
 
         df = df[df["metric_key"] != "fuzzy_metrics"]
 
-        fuzzy_metrics_figs=plot_boundary_precision_landscapes(
-           df_fuzzy
+        fuzzy_metrics_figs = plot_boundary_precision_landscapes(
+            df_fuzzy,
+            metadata=PLOT_METADATA.get("fuzzy_metrics"),
         )
-        for i,fig in enumerate(fuzzy_metrics_figs):
+        for i, fig in enumerate(fuzzy_metrics_figs):
             figures[f"{i}_fuzzy_metrics"] = fig
+
         # ---- IoU plots --------------------------------------------------
         # IoU scores are stored under the SECTION group
         if EvalMetrics.SECTION in metrics_to_eval:
@@ -684,9 +951,13 @@ def compare_multiple_predictions(
 
             if not df_iou.empty:
                 prefix = (output_dir / f"{class_name}_iou") if output_dir else None
-                iou_figs = plot_iou_metrics(df_iou, class_name, save_path_prefix=prefix)
+                iou_figs = plot_iou_metrics(
+                    df_iou, class_name,
+                    save_path_prefix=prefix,
+                    metadata_average=PLOT_METADATA.get("iou_average"),
+                    metadata_distribution=PLOT_METADATA.get("iou_distribution"),
+                )
                 for idx, fig in enumerate(iou_figs):
-                    # 0 = Average, 1 = Distribution
                     suffix = "average" if idx == 0 else "distribution"
                     figures[f"{class_name}_iou_{suffix}"] = fig
 
@@ -699,7 +970,11 @@ def compare_multiple_predictions(
 
             if not df_ml.empty:
                 prefix = (output_dir / f"{class_name}_ml") if output_dir else None
-                ml_figs = plot_ml_metrics_bar(df_ml, class_name, save_path_prefix=prefix)
+                ml_figs = plot_ml_metrics_bar(
+                    df_ml, class_name,
+                    save_path_prefix=prefix,
+                    metadata_map=PLOT_METADATA,
+                )
                 for idx, fig in enumerate(ml_figs):
                     figures[f"{class_name}_ml_{idx}"] = fig
 
@@ -714,6 +989,7 @@ def compare_multiple_predictions(
                 fig = plot_frameshift_percentage_bar(
                     df_fs, class_name,
                     save_path=(output_dir / f"{class_name}_frameshift.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("frameshift"),
                 )
                 if fig is not None:
                     figures[f"{class_name}_frameshift"] = fig
