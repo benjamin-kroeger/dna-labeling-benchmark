@@ -25,6 +25,7 @@ from enum import Enum
 from typing import Optional
 
 import numpy as np
+import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
@@ -546,42 +547,69 @@ def _compute_boundary_precision_landscape(
         residuals: list[tuple[int, int]],
         total_gt_count: int,
         max_range: int = 10
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Computes two matrices for boundary evaluation.
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Compute two matrices for boundary evaluation.
 
-    1. Bias Matrix: 2D Histogram of raw signed errors (-max_range to +max_range).
+    Both returned DataFrames use **rows = 5' dimension** and
+    **columns = 3' dimension**, with their index/columns set to the
+    corresponding bin centres so that downstream plotting code can
+    render them directly.
+
+    1. Bias Matrix: 2-D histogram of raw signed errors
+       (``-max_range`` to ``+max_range``).
        Shows WHERE the model is shifting (Systemic Bias).
-    2. Reliability Matrix: Cumulative Recall (0 to max_range).
+    2. Reliability Matrix: Cumulative Recall
+       (``0`` to ``max_range``).
        Shows HOW MUCH standard 'Double Penalty' is reduced by tolerance.
     """
-    if not residuals:
-        return np.zeros((2 * max_range + 1, 2 * max_range + 1)), np.zeros((max_range + 1, max_range + 1))
+    bias_ticks = np.arange(-max_range, max_range + 1)
+    tolerance_ticks = np.arange(max_range + 1)
 
-    res_arr = np.array(residuals)  # Shape: (N, 2)
+    if not residuals:
+        return (
+            pd.DataFrame(
+                np.zeros((2 * max_range + 1, 2 * max_range + 1)),
+                index=pd.Index(bias_ticks, name="5' Residual (Pred − GT)"),
+                columns=pd.Index(bias_ticks, name="3' Residual (Pred − GT)"),
+            ),
+            pd.DataFrame(
+                np.zeros((max_range + 1, max_range + 1)),
+                index=pd.Index(tolerance_ticks, name="5' Tolerance (bp)"),
+                columns=pd.Index(tolerance_ticks, name="3' Tolerance (bp)"),
+            ),
+        )
+
+    res_arr = np.array(residuals)  # Shape: (N, 2) — (5prime, 3prime) tuples
 
     # --- Matrix 1: Bias Matrix (The 'Scatter' Heatmap) ---
-    # Binning from -max_range to +max_range
     bins = np.arange(-max_range, max_range + 2) - 0.5
-    bias_matrix, _, _ = np.histogram2d(
-        res_arr[:, 0], res_arr[:, 1], bins=bins
+    # np.histogram2d: x → rows (dim 0), y → cols (dim 1)
+    # ==> rows = 5', cols = 3'
+    bias_values, _, _ = np.histogram2d(
+        x=res_arr[:, 0], y=res_arr[:, 1], bins=bins
+    )
+    bias_matrix = pd.DataFrame(
+        bias_values,
+        index=pd.Index(bias_ticks, name="5' Residual (Pred − GT)"),
+        columns=pd.Index(bias_ticks, name="3' Residual (Pred − GT)"),
     )
 
     # --- Matrix 2: Reliability Matrix (The 'Cumulative' Heatmap) ---
-    # We use absolute distances for reliability tolerance
     abs_res = np.abs(res_arr)
-    reliability_matrix = np.zeros((max_range + 1, max_range + 1))
+    reliability_values = np.zeros((max_range + 1, max_range + 1))
 
-    # We use broadcasting for elegance and speed instead of nested python loops
-    # d5_grid and d3_grid create all possible combinations of tolerances
-    d5_grid, d3_grid = np.ogrid[0:max_range + 1, 0:max_range + 1]
-
-    # For each tolerance pair (d5, d3), count matches where |res5| <= d5 AND |res3| <= d3
-    # This creates the 'Tolerance Budget' surface
     for d5 in range(max_range + 1):
         for d3 in range(max_range + 1):
             successes = np.sum((abs_res[:, 0] <= d5) & (abs_res[:, 1] <= d3))
-            reliability_matrix[d5, d3] = successes / total_gt_count if total_gt_count > 0 else 0
+            reliability_values[d5, d3] = (
+                successes / total_gt_count if total_gt_count > 0 else 0
+            )
+
+    reliability_matrix = pd.DataFrame(
+        reliability_values,
+        index=pd.Index(tolerance_ticks, name="5' Tolerance (bp)"),
+        columns=pd.Index(tolerance_ticks, name="3' Tolerance (bp)"),
+    )
 
     return bias_matrix, reliability_matrix
 
