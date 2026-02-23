@@ -111,6 +111,10 @@ def benchmark_gt_vs_pred_single(
 
     metric_results: dict[str, dict] = {}
 
+    transition_failure_confusion_maps = _compute_state_change_errors(gt_pred_arr=arr,label_config=label_config)
+    metric_results["transition_failures"] = transition_failure_confusion_maps
+
+
     for class_token in classes:
         class_name = label_config.name_of(class_token)
         metric_results[class_name] = {}
@@ -254,6 +258,8 @@ def benchmark_gt_vs_pred_multiple(
 
     if EvalMetrics.ML in metrics:
         for _class_name, class_results in aggregated.items():
+            if _class_name == "transition_failures":
+                continue
             class_results[EvalMetrics.ML.name] = {}
             section = class_results[EvalMetrics.SECTION.name]
             ml = class_results[EvalMetrics.ML.name]
@@ -292,6 +298,8 @@ def recursive_merge(target: dict, source: dict) -> dict:
                 recursive_merge(target[key], source_value)
             elif isinstance(source_value, list):
                 target[key] = list(source_value)
+            elif isinstance(source_value, np.ndarray):
+                target[key] = source_value
             else:
                 target[key] = [source_value]
         else:
@@ -303,6 +311,8 @@ def recursive_merge(target: dict, source: dict) -> dict:
                     target_value.extend(source_value)
                 else:
                     target_value.append(source_value)
+            elif isinstance(target_value, np.ndarray):
+                target[key] += source_value
             else:
                 target[key] = [target_value, source_value]
     return target
@@ -613,6 +623,41 @@ def _compute_boundary_precision_landscape(
 
     return bias_matrix, reliability_matrix
 
+
+def _compute_state_change_errors(
+        gt_pred_arr: np.ndarray,
+        label_config
+):
+
+    per_label_failures = {label_id: [] for label_id in label_config.labels.keys()}
+
+    nuc_transitions = np.lib.stride_tricks.sliding_window_view(gt_pred_arr, (2, 2))[0]
+
+    failled_transition_mask = mask = (nuc_transitions[:, 0, 0] == nuc_transitions[:, 1, 0]) & \
+                                     (nuc_transitions[:, 0, 1] != nuc_transitions[:, 1, 1])
+
+    failled_transitions = nuc_transitions[failled_transition_mask]
+
+    for failed_transition in failled_transitions:
+
+        start_nuc_id = int(failed_transition[0,0])
+        gt_transition_id = int(failed_transition[0,1])
+        pred_transition_id = int(failed_transition[1,1])
+        per_label_failures[start_nuc_id].append((gt_transition_id, pred_transition_id))
+
+    transition_matricies = {}
+    for label_id,transition_failure_tuples in per_label_failures.items():
+        if len(transition_failure_tuples) == 0:
+            num_labels = len(label_config.labels)
+            transition_matricies[label_id] = np.zeros((num_labels, num_labels),dtype=np.int64)
+            continue
+
+        gt_transition_ids, pred_transition_ids = zip(*transition_failure_tuples)
+
+        transition_failure_matrix = confusion_matrix(gt_transition_ids, pred_transition_ids,labels=sorted(list(per_label_failures.keys())))
+        transition_matricies[label_id] = transition_failure_matrix.astype(np.int64)
+
+    return transition_matricies
 
 # ---------------------------------------------------------------------------
 # Summary statistics
