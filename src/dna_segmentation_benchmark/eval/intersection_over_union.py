@@ -1,4 +1,5 @@
-def _compute_intersection_over_union_score(gt_start: int, gt_end: int, pred_start, pred_end):
+def _compute_intersection_over_union_score(gt_start: int, gt_end: int, pred_start: int, pred_end: int) -> float:
+    """Compute the Intersection over Union (IoU) of two bounded segments."""
     # Intersection
     i_start = max(gt_start, pred_start)
     i_end = min(gt_end, pred_end)

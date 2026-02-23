@@ -21,7 +21,6 @@ from __future__ import annotations
 import functools
 import warnings
 from copy import deepcopy
-from enum import Enum
 from typing import Optional
 
 import numpy as np
@@ -32,7 +31,7 @@ from .boundary_precision import _compute_boundary_precision_landscape
 from .frame_shift import _get_frame_shift_metrics
 from .intersection_over_union import _compute_intersection_over_union_score
 from .state_transitions import _compute_state_change_errors
-from .uitls import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
+from .utils import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
 
 
@@ -261,28 +260,40 @@ def benchmark_gt_vs_pred_multiple(
 
     aggregated = functools.reduce(recursive_merge, [res for res in results if res], {})
 
-    if EvalMetrics.ML in metrics:
-        for _class_name, class_results in aggregated.items():
-            if _class_name == "transition_failures":
-                continue
-            class_results[EvalMetrics.ML.name] = {}
-            section = class_results[EvalMetrics.SECTION.name]
-            ml = class_results[EvalMetrics.ML.name]
-            ml["nucleotide_level_metrics"] = _compute_summary_statistics(**section["nucleotide"])
-            ml["neighborhood_hit_metrics"] = _compute_summary_statistics(**section["neighborhood_hit"])
-            ml["internal_hit_metrics"] = _compute_summary_statistics(**section["internal_hit"])
-            ml["full_coverage_hit_metrics"] = _compute_summary_statistics(**section["full_coverage_hit"])
-            ml["perfect_boundary_hit_metrics"] = _compute_summary_statistics(**section["perfect_boundary_hit"])
-            ml["inner_section_boundaries_metrics"] = _compute_summary_statistics(**section["inner_section_boundaries"])
-            ml["all_section_boundaries_metrics"] = _compute_summary_statistics(**section["all_section_boundaries"])
+    aggregated = _aggregate_ml_metrics(aggregated, metrics)
 
-            # IoU Statistics
-            if "iou_scores" in section:
-                ml["iou_stats"] = _compute_distribution_stats(section["iou_scores"], is_abs=False)
-            ml["fuzzy_metrics"] = _compute_boundary_precision_landscape(
-                residuals=section["fuzzy_metrics"]["boundary_residuals"],
-                total_gt_count=sum(section["fuzzy_metrics"]["total_gt"]))
+    return aggregated
 
+
+def _aggregate_ml_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> dict:
+    """Compute and append ML-level statistics to the aggregated results."""
+    if EvalMetrics.ML not in metrics:
+        return aggregated
+
+    for _class_name, class_results in aggregated.items():
+        if _class_name == "transition_failures":
+            continue
+        class_results[EvalMetrics.ML.name] = {}
+        section = class_results[EvalMetrics.SECTION.name]
+        ml = class_results[EvalMetrics.ML.name]
+        
+        ml["nucleotide_level_metrics"] = _compute_summary_statistics(**section["nucleotide"])
+        ml["neighborhood_hit_metrics"] = _compute_summary_statistics(**section["neighborhood_hit"])
+        ml["internal_hit_metrics"] = _compute_summary_statistics(**section["internal_hit"])
+        ml["full_coverage_hit_metrics"] = _compute_summary_statistics(**section["full_coverage_hit"])
+        ml["perfect_boundary_hit_metrics"] = _compute_summary_statistics(**section["perfect_boundary_hit"])
+        ml["inner_section_boundaries_metrics"] = _compute_summary_statistics(**section["inner_section_boundaries"])
+        ml["all_section_boundaries_metrics"] = _compute_summary_statistics(**section["all_section_boundaries"])
+
+        # IoU Statistics
+        if "iou_scores" in section:
+            ml["iou_stats"] = _compute_distribution_stats(section["iou_scores"], is_abs=False)
+            
+        ml["fuzzy_metrics"] = _compute_boundary_precision_landscape(
+            residuals=section["fuzzy_metrics"]["boundary_residuals"],
+            total_gt_count=sum(section["fuzzy_metrics"]["total_gt"])
+        )
+        
     return aggregated
 
 
@@ -344,6 +355,22 @@ def _classify_mismatches(
 # ---------------------------------------------------------------------------
 
 
+def _compute_nucleotide_level_confusion(
+        gt_labels: np.ndarray,
+        pred_labels: np.ndarray,
+        class_value: int
+) -> dict[str, int]:
+    """Calculate granular base accuracy as a dict of confusion metrics."""
+    binary_gt = np.where(gt_labels == class_value, 1, 0)
+    binary_pred = np.where(pred_labels == class_value, 1, 0)
+
+    # labels=[0, 1] ensures a 2x2 matrix; [1:-1] slices off prepended/appended tags.
+    cm = confusion_matrix(binary_gt[1:-1], binary_pred[1:-1], labels=[0, 1])
+    nuc_tn, nuc_fp, nuc_fn, nuc_tp = map(int, cm.ravel())
+    
+    return {"tn": nuc_tn, "fp": nuc_fp, "fn": nuc_fn, "tp": nuc_tp}
+
+
 def _get_metrics_across_levels(
         grouped_gt_section_indices: list[np.ndarray],
         grouped_pred_section_indices: list[np.ndarray],
@@ -363,16 +390,23 @@ def _get_metrics_across_levels(
     4. Strict:    Perfect Identity. Coordinates match exactly (The Double Penalty).
     ===========================================================================
     """
+    nuc_metrics = _compute_nucleotide_level_confusion(gt_labels, pred_labels, class_value)
+    section_metrics = _analyze_section_overlap_and_boundaries(
+        grouped_gt_section_indices,
+        grouped_pred_section_indices
+    )
+    
+    return {
+        "nucleotide": nuc_metrics,
+        **section_metrics
+    }
 
-    # ---- 1. Nucleotide level (Granular Base Accuracy) ---------------------
-    binary_gt = np.where(gt_labels == class_value, 1, 0)
-    binary_pred = np.where(pred_labels == class_value, 1, 0)
 
-    # labels=[0, 1] ensures a 2x2 matrix; [1:-1] slices off prepended/appended tags.
-    cm = confusion_matrix(binary_gt[1:-1], binary_pred[1:-1], labels=[0, 1])
-    nuc_tn, nuc_fp, nuc_fn, nuc_tp = map(int, cm.ravel())
-
-    # ---- 2. Initialize Tracking -------------------------------------------
+def _analyze_section_overlap_and_boundaries(
+        grouped_gt_section_indices: list[np.ndarray],
+        grouped_pred_section_indices: list[np.ndarray],
+) -> dict:
+    """Analyze overlap and boundary precision between section groups."""
     total_gt = len(grouped_gt_section_indices)
     total_pred = len(grouped_pred_section_indices)
 
@@ -448,7 +482,6 @@ def _get_metrics_across_levels(
     } if total_gt > 1 else {"tn": 0, "fp": 0, "fn": 0, "tp": 0}
 
     return {
-        "nucleotide": {"tn": nuc_tn, "fp": nuc_fp, "fn": nuc_fn, "tp": nuc_tp},
         "neighborhood_hit": {
             "tp": int(np.sum(gt_hit_overlap)),
             "fn": int(total_gt - np.sum(gt_hit_overlap)),
@@ -483,5 +516,4 @@ def _get_metrics_across_levels(
             "boundary_residuals": boundary_residuals,
             "total_gt": total_gt
         }
-
     }
