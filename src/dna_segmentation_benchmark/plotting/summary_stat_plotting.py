@@ -128,7 +128,7 @@ def plot_individual_error_lengths_histograms(
         ax.set_xlabel("Length (log scaled)")
 
         if error_type in ICON_MAP:
-            _add_icon_to_ax(ax, ICON_MAP[error_type], zoom=0.18, y_rel_pos=1.35)
+            _add_icon_to_ax(ax, ICON_MAP[error_type], zoom=0.18, y_rel_pos=1.35,logger=logger)
 
     for j in range(i + 1, len(axes)):
         fig.delaxes(axes[j])
@@ -150,7 +150,7 @@ def plot_individual_error_lengths_histograms(
         )
 
     if save_path is not None:
-        _save_figure(fig, save_path)
+        _save_figure(fig, save_path,logger=logger)
     return fig
 
 
@@ -204,10 +204,10 @@ def plot_stacked_indel_counts_bar(
     ax.legend(title="INDEL Type", loc="lower right", fontsize=9)
 
     fig.tight_layout()
-    _add_pictogram_panel(fig, metadata)
+    _add_pictogram_panel(fig, metadata,logger=logger)
 
     if save_path is not None:
-        _save_figure(fig, save_path)
+        _save_figure(fig, save_path,logger=logger)
     return fig
 
 
@@ -274,10 +274,10 @@ def plot_frameshift_percentage_bar(
     ax.legend(title="Method Name", loc="upper right", fontsize=9)
 
     fig.tight_layout()
-    _add_pictogram_panel(fig, metadata)
+    _add_pictogram_panel(fig, metadata,logger=logger)
 
     if save_path is not None:
-        _save_figure(fig, save_path)
+        _save_figure(fig, save_path,logger=logger)
     return fig
 
 
@@ -352,12 +352,12 @@ def plot_ml_metrics_bar(
         ax.legend(title="Method Name", loc="upper right", fontsize=9)
         fig.tight_layout()
 
-        _add_pictogram_panel(fig, metadata_map.get(f"ml_{level}"))
+        _add_pictogram_panel(fig, metadata_map.get(f"ml_{level}"),logger=logger)
 
         if save_path_prefix is not None:
             _save_figure(fig, save_path_prefix.with_name(
                 f"{save_path_prefix.stem}_{level}.png"
-            ))
+            ),logger=logger)
 
         figures.append(fig)
 
@@ -371,7 +371,7 @@ def plot_iou_metrics(
         metadata_average: PlotMetadata | None = None,
         metadata_distribution: PlotMetadata | None = None,
 ) -> list[plt.Figure]:
-    """Generate IoU analysis plots: Average Bar Chart and Distribution Violin Plot.
+    """Generate IoU analysis plots: Average Bar Chart and Distribution Raincloud Plot.
 
     Parameters
     ----------
@@ -425,29 +425,58 @@ def plot_iou_metrics(
     ax1.set_xlabel("Method Name", fontsize=12)
     ax1.set_ylim(0, 1.05)
     fig1.tight_layout()
-    _add_pictogram_panel(fig1, metadata_average)
+    _add_pictogram_panel(fig1, metadata_average,logger=logger)
 
     if save_path_prefix:
-        _save_figure(fig1, save_path_prefix.with_name(f"{save_path_prefix.name}_average.png"))
+        _save_figure(fig1, save_path_prefix.with_name(f"{save_path_prefix.name}_average.png"),logger=logger)
     figures.append(fig1)
 
-    # --- Plot 2: IoU Distribution per Method (Violin Plot) ---
+    # --- Plot 2: IoU Distribution per Method (ECDF Plot) -----------
+    #
+    # When data is highly concentrated at exactly 1.0 (perfect matches), 
+    # density plots (violins, rainclouds) break down. An Empirical Cumulative 
+    # Distribution Function (ECDF) plotted as a survival curve is ideal here.
+    # It shows "Proportion of predictions with an IoU score >= X".
+    # ------------------------------------------------------------------
+
     fig2, ax2 = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-    sns.violinplot(
-        data=exploded, x="method_name", y="IoU", hue="method_name",
-        ax=ax2, palette="viridis", cut=0, inner="quartile"
+
+    sns.ecdfplot(
+        data=exploded, 
+        x="IoU", 
+        hue="method_name", 
+        ax=ax2, 
+        palette="viridis", 
+        complementary=True, 
+        linewidth=2.5
     )
 
-    ax2.set_title(f"IoU Score Distribution per Method — {class_name}", fontsize=16)
-    ax2.set_ylabel("Intersection over Union", fontsize=12)
-    ax2.set_xlabel("Method Name", fontsize=12)
-    ax2.set_ylim(0, 1.05)
+    ax2.set_title(
+        f"IoU Score Distribution (Survival Curve) — {class_name}", fontsize=16,
+    )
+    ax2.set_ylabel("Proportion of Predictions with IoU $\\geq$ X", fontsize=12)
+    ax2.set_xlabel("Intersection over Union Score (X)", fontsize=12)
+    ax2.set_xlim(-0.05, 1.05)
+    ax2.set_ylim(-0.05, 1.05)
+    
+    # Add grid lines so it's easy to read across the percentage points
+    ax2.grid(True, linestyle="--", alpha=0.6)
+    
+    # ECDF creates its own legend. If we call ax2.legend() directly without handles, 
+    # it can accidentally clear the items. Moving the existing legend is safer.
+    if ax2.get_legend() is not None:
+        sns.move_legend(ax2, "lower left", title="Method Name", fontsize=10)
 
     fig2.tight_layout()
-    _add_pictogram_panel(fig2, metadata_distribution)
+    _add_pictogram_panel(fig2, metadata_distribution,logger=logger)
 
     if save_path_prefix:
-        _save_figure(fig2, save_path_prefix.with_name(f"{save_path_prefix.name}_distribution.png"))
+        _save_figure(
+            fig2,
+            save_path_prefix.with_name(
+                f"{save_path_prefix.name}_distribution.png",
+            ),logger=logger
+        )
     figures.append(fig2)
 
     return figures
@@ -524,7 +553,7 @@ def plot_boundary_precision_landscapes(
 
         fig.suptitle(f"{method}", fontsize=14)
         plt.tight_layout()
-        _add_pictogram_panel(fig, metadata)
+        _add_pictogram_panel(fig, metadata,logger=logger)
         figures.append(fig)
 
     return figures
@@ -545,7 +574,7 @@ def plot_transition_matrices(transition_failures: dict, label_config: LabelConfi
         return
 
     # 1. Calculate the grid dimensions (roughly square)
-    cols = math.ceil(math.sqrt(num_matrices))
+    cols = 3
     rows = math.ceil(num_matrices / cols)
 
     # 2. Create the figure and subplots
