@@ -48,6 +48,7 @@ def benchmark_gt_vs_pred_single(
         label_config: LabelConfig,
         classes: list[int],
         metrics: Optional[list[EvalMetrics]] = None,
+        mask_labels: Optional[np.ndarray] = None,
 ) -> dict[str, dict[str, dict]]:
     """Compare a single ground-truth sequence against a single prediction.
 
@@ -64,12 +65,36 @@ def benchmark_gt_vs_pred_single(
         EXON and INTRON).
     metrics : list[EvalMetrics] | None
         Which metric groups to compute.  Defaults to ``[SECTION, ML]``.
+    mask_labels : np.ndarray | None
+        Optional boolean mask (True = exclude). Must match length of GT.
 
     Returns
     -------
     dict
         Nested dict keyed by human-readable class name → metric group → results.
     """
+    if mask_labels is not None:
+        is_valid = ~mask_labels.astype(bool)
+        padded = np.pad(is_valid, (1, 1), mode='constant', constant_values=False)
+        starts = np.where(~padded[:-1] & padded[1:])[0]
+        ends = np.where(padded[:-1] & ~padded[1:])[0]
+        
+        chunk_results = []
+        for s, e in zip(starts, ends):
+            if e > s:
+                # Remove mask_labels to avoid infinite recursion
+                chunk_res = benchmark_gt_vs_pred_single(
+                    gt_labels=gt_labels[s:e],
+                    pred_labels=pred_labels[s:e],
+                    label_config=label_config,
+                    classes=classes,
+                    metrics=metrics,
+                    mask_labels=None,
+                )
+                chunk_results.append(chunk_res)
+        
+        return functools.reduce(recursive_merge, chunk_results, {}) if chunk_results else {}
+
     if metrics is None:
         metrics = _DEFAULT_METRICS
 
@@ -176,6 +201,7 @@ def benchmark_gt_vs_pred_multiple(
         classes: list[int],
         metrics: Optional[list[EvalMetrics]] = None,
         return_individual_results: bool = False,
+        mask_labels: Optional[list[np.ndarray]] = None,
 ) -> dict | list[dict]:
     """Run :func:`benchmark_gt_vs_pred_single` over paired GT/pred lists.
 
@@ -192,6 +218,8 @@ def benchmark_gt_vs_pred_multiple(
     return_individual_results : bool
         If ``True``, return per-sequence results as a list instead of
         aggregating.
+    mask_labels : list[np.ndarray] | None
+        Optional boolean masks (True = exclude). Must match length of GT.
 
     Returns
     -------
@@ -201,6 +229,10 @@ def benchmark_gt_vs_pred_multiple(
     assert len(gt_labels) == len(pred_labels), (
         "There must be equally many ground-truth and prediction sequences."
     )
+    if mask_labels is not None:
+        assert len(mask_labels) == len(gt_labels), (
+            "Mask list must be the same length as GT list."
+        )
 
     metrics = deepcopy(metrics) if metrics is not None else list(_DEFAULT_METRICS)
 
@@ -220,13 +252,14 @@ def benchmark_gt_vs_pred_multiple(
             label_config=label_config,
             classes=classes,
             metrics=metrics,
+            mask_labels=mask_labels[i] if mask_labels is not None else None,
         )
         results.append(seq_result)
 
     if return_individual_results:
         return results
 
-    aggregated = functools.reduce(recursive_merge, results, {})
+    aggregated = functools.reduce(recursive_merge, [res for res in results if res], {})
 
     if EvalMetrics.ML in metrics:
         for _class_name, class_results in aggregated.items():

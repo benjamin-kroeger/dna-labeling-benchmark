@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.evaluate_predictors import (
+from dna_segmentation_benchmark.eval.evaluate_predictors import (
     benchmark_gt_vs_pred_single,
     benchmark_gt_vs_pred_multiple,
     EvalMetrics,
@@ -364,6 +364,35 @@ CUSTOM_CONFIG = LabelConfig(
             },
             id="Different_label_test",
         ),
+        pytest.param(
+            np.array(
+                [
+                    [8, 0, 0, 0, 2, 2,  0, 0, 2, 2,     2, 2, 0, 0, 8, 8],
+                    [8, 0, 0, 0, 2, 2,  0, 0, 0, 0,     2, 2, 0, 0, 8, 8],
+                    [0, 0, 0, 0, 0, 0,  1, 1, 1, 1,     0, 0, 0, 0, 0, 0],
+
+                ]
+            ),
+            BEND_LABEL_CONFIG,
+            [EXON],
+            [EvalMetrics.SECTION],
+            {
+                "EXON": {
+                    "SECTION": {
+                        "nucleotide": {"tn": [3,4], "fp": [0,0], "fn": [0,0], "tp": [3,2]},
+                        "neighborhood_hit": {"tp": [1,1], "fn": [0,0], "fp": [0,0]},
+                        "internal_hit": {"tp": [1,1], "fn": [0,0]},
+                        "full_coverage_hit": {"tp": [1,1], "fn": [0,0]},
+                        "perfect_boundary_hit": {"tp": [1,1], "fn": [0,0], "fp": [0,0]},
+                        "inner_section_boundaries": {"tp": [0,0], "fp": [0,0], "fn": [0,0], "tn": [0,0]},
+                        "all_section_boundaries": {"tp": [1,1], "fp": [0,0], "fn": [0,0], "tn": [0,0]},
+                        "first_sec_correct_3_prime_boundary": [1,1],
+                        "last_sec_correct_5_prime_boundary": [1,1],
+                    }
+                }
+            },
+            id="mask_test",
+        ),
     ],
 )
 def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expected_errors):
@@ -371,6 +400,7 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
     benchmark_results = benchmark_gt_vs_pred_single(
         gt_labels=gt_pred_array[0],
         pred_labels=gt_pred_array[1],
+        mask_labels=gt_pred_array[2] if gt_pred_array.shape[0] > 2 else None,
         label_config=label_config,
         classes=classes,
         metrics=metrics,
@@ -383,11 +413,14 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
         EvalMetrics.FRAMESHIFT: _eval_frameshift_metrics,
     }
 
-    assert benchmark_results.keys() == expected_errors.keys(), (
-        "The benchmark keys do not match the expected keys"
+    filtered_keys = set(benchmark_results.keys()) - {"transition_failures"}
+    assert filtered_keys == set(expected_errors.keys()), (
+        f"The benchmark keys do not match the expected keys. Expected {expected_errors.keys()}, got {filtered_keys}"
     )
 
     for class_key in benchmark_results:
+        if class_key == "transition_failures":
+            continue
         class_results = benchmark_results[class_key]
         expected_results = expected_errors[class_key]
         for metric in metrics:
@@ -464,11 +497,14 @@ def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, classes, metri
         EvalMetrics.FRAMESHIFT: _eval_frameshift_metrics,
     }
 
-    assert benchmark_results.keys() == expected_errors.keys(), (
-        "The benchmark keys do not match the expected keys"
+    filtered_keys = set(benchmark_results.keys()) - {"transition_failures"}
+    assert filtered_keys == set(expected_errors.keys()), (
+        f"The benchmark keys do not match the expected keys. Expected {expected_errors.keys()}, got {filtered_keys}"
     )
 
     for class_key in benchmark_results:
+        if class_key == "transition_failures":
+            continue
         class_results = benchmark_results[class_key]
         expected_results = expected_errors[class_key]
         for metric in metrics:
@@ -544,10 +580,10 @@ def _eval_section_metrics(expected_section_metrics, computed_section_metrics):
     # Filter out 'distributions' from computed if not in expected, to maintain backward compatibility of tests
     computed_keys = set(computed_section_metrics.keys())
     expected_keys = set(expected_section_metrics.keys())
-    
+
     if "iou_scores" in computed_keys and "iou_scores" not in expected_keys:
         computed_keys.remove("iou_scores")
-        
+
     # Allow computed to have more keys than expected (new features)
     assert expected_keys.issubset(computed_keys), (
         f"The computed metrics are missing expected keys. Missing: {expected_keys - computed_keys}"
@@ -579,7 +615,7 @@ def _eval_ml_metrics(expected_ml, computed_ml):
         # Allow extra metrics in computed that are not in expected
         if metric_key not in computed_ml:
             raise AssertionError(f"Expected metric {metric_key} not found in computed results")
-            
+
         for eval_met in expected_ml[metric_key]:
             assert math.isclose(
                 expected_ml[metric_key][eval_met],
