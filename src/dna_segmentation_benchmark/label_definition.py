@@ -12,6 +12,7 @@ confusing runtime error can occur.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, model_validator
@@ -109,3 +110,16 @@ BEND_LABEL_CONFIG = LabelConfig(
     splice_donor_label=1,
     splice_acceptor_label=3,
 )
+
+
+class EvalMetrics(Enum):
+    """Available evaluation metric groups."""
+
+    INDEL = 0
+    SECTION = 1
+    ML = 2  # summary statistics from SECTION (single-seq not computed directly)
+    _MLMULTIPLE = 3  # reserved for cross-sequence averaging
+    FRAMESHIFT = 4
+
+
+_DEFAULT_METRICS = [EvalMetrics.SECTION, EvalMetrics.ML]

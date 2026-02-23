@@ -25,48 +25,21 @@ from enum import Enum
 from typing import Optional
 
 import numpy as np
-import pandas as pd
-from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 
-from .label_definition import LabelConfig
+from .boundary_precision import _compute_boundary_precision_landscape
+from .frame_shift import _get_frame_shift_metrics
+from .intersection_over_union import _compute_intersection_over_union_score
+from .state_transitions import _compute_state_change_errors
+from .uitls import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
+from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
 
 
 # ---------------------------------------------------------------------------
 # Public Enums
 # ---------------------------------------------------------------------------
 
-
-class EvalMetrics(Enum):
-    """Available evaluation metric groups."""
-
-    INDEL = 0
-    SECTION = 1
-    ML = 2  # summary statistics from SECTION (single-seq not computed directly)
-    _MLMULTIPLE = 3  # reserved for cross-sequence averaging
-    FRAMESHIFT = 4
-
-
-_DEFAULT_METRICS = [EvalMetrics.SECTION, EvalMetrics.ML]
-
-
-# ---------------------------------------------------------------------------
-# Utility helpers
-# ---------------------------------------------------------------------------
-
-
-def get_contiguous_groups(indices: np.ndarray) -> list[np.ndarray]:
-    """Split *indices* into sub-arrays of contiguous runs."""
-    if indices.size == 0:
-        return []
-    breaks = np.where(np.diff(indices) != 1)[0] + 1
-    return np.split(indices, breaks)
-
-
-# ---------------------------------------------------------------------------
-# Single-sequence benchmark
-# ---------------------------------------------------------------------------
 
 
 def benchmark_gt_vs_pred_single(
@@ -111,9 +84,8 @@ def benchmark_gt_vs_pred_single(
 
     metric_results: dict[str, dict] = {}
 
-    transition_failure_confusion_maps = _compute_state_change_errors(gt_pred_arr=arr,label_config=label_config)
+    transition_failure_confusion_maps = _compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
     metric_results["transition_failures"] = transition_failure_confusion_maps
-
 
     for class_token in classes:
         class_name = label_config.name_of(class_token)
@@ -281,48 +253,6 @@ def benchmark_gt_vs_pred_multiple(
     return aggregated
 
 
-# ---------------------------------------------------------------------------
-# Dictionary merging
-# ---------------------------------------------------------------------------
-
-
-def recursive_merge(target: dict, source: dict) -> dict:
-    """Recursively merge *source* into *target*, skipping ``None`` values."""
-    for key, source_value in source.items():
-        if source_value is None:
-            continue
-
-        if key not in target:
-            if isinstance(source_value, dict):
-                target[key] = {}
-                recursive_merge(target[key], source_value)
-            elif isinstance(source_value, list):
-                target[key] = list(source_value)
-            elif isinstance(source_value, np.ndarray):
-                target[key] = source_value
-            else:
-                target[key] = [source_value]
-        else:
-            target_value = target[key]
-            if isinstance(source_value, dict) and isinstance(target_value, dict):
-                recursive_merge(target_value, source_value)
-            elif isinstance(target_value, list):
-                if isinstance(source_value, list):
-                    target_value.extend(source_value)
-                else:
-                    target_value.append(source_value)
-            elif isinstance(target_value, np.ndarray):
-                target[key] += source_value
-            else:
-                target[key] = [target_value, source_value]
-    return target
-
-
-# ---------------------------------------------------------------------------
-# INDEL classification
-# ---------------------------------------------------------------------------
-
-
 def _classify_mismatches(
         grouped_indices: list[np.ndarray],
         gt_pred_arr: np.ndarray,
@@ -379,35 +309,6 @@ def _classify_mismatches(
 # ---------------------------------------------------------------------------
 # Section-level metrics
 # ---------------------------------------------------------------------------
-
-
-import numpy as np
-from sklearn.metrics import confusion_matrix
-
-import numpy as np
-from sklearn.metrics import confusion_matrix
-
-import numpy as np
-from sklearn.metrics import confusion_matrix
-
-import numpy as np
-from sklearn.metrics import confusion_matrix
-
-
-def _compute_intersection_over_union_score(gt_start: int, gt_end: int, pred_start, pred_end):
-    # Intersection
-    i_start = max(gt_start, pred_start)
-    i_end = min(gt_end, pred_end)
-    intersect_len = max(0, i_end - i_start + 1)
-
-    # Union
-    u_start = min(gt_start, pred_start)
-    u_end = max(gt_end, pred_end)
-    union_len = u_end - u_start + 1
-
-    iou = intersect_len / union_len if union_len > 0 else 0.0
-
-    return iou
 
 
 def _get_metrics_across_levels(
@@ -551,197 +452,3 @@ def _get_metrics_across_levels(
         }
 
     }
-
-
-def _compute_boundary_precision_landscape(
-        residuals: list[tuple[int, int]],
-        total_gt_count: int,
-        max_range: int = 10
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Compute two matrices for boundary evaluation.
-
-    Both returned DataFrames use **rows = 5' dimension** and
-    **columns = 3' dimension**, with their index/columns set to the
-    corresponding bin centres so that downstream plotting code can
-    render them directly.
-
-    1. Bias Matrix: 2-D histogram of raw signed errors
-       (``-max_range`` to ``+max_range``).
-       Shows WHERE the model is shifting (Systemic Bias).
-    2. Reliability Matrix: Cumulative Recall
-       (``0`` to ``max_range``).
-       Shows HOW MUCH standard 'Double Penalty' is reduced by tolerance.
-    """
-    bias_ticks = np.arange(-max_range, max_range + 1)
-    tolerance_ticks = np.arange(max_range + 1)
-
-    if not residuals:
-        return (
-            pd.DataFrame(
-                np.zeros((2 * max_range + 1, 2 * max_range + 1)),
-                index=pd.Index(bias_ticks, name="5' Residual (Pred − GT)"),
-                columns=pd.Index(bias_ticks, name="3' Residual (Pred − GT)"),
-            ),
-            pd.DataFrame(
-                np.zeros((max_range + 1, max_range + 1)),
-                index=pd.Index(tolerance_ticks, name="5' Tolerance (bp)"),
-                columns=pd.Index(tolerance_ticks, name="3' Tolerance (bp)"),
-            ),
-        )
-
-    res_arr = np.array(residuals)  # Shape: (N, 2) — (5prime, 3prime) tuples
-
-    # --- Matrix 1: Bias Matrix (The 'Scatter' Heatmap) ---
-    bins = np.arange(-max_range, max_range + 2) - 0.5
-    # np.histogram2d: x → rows (dim 0), y → cols (dim 1)
-    # ==> rows = 5', cols = 3'
-    bias_values, _, _ = np.histogram2d(
-        x=res_arr[:, 0], y=res_arr[:, 1], bins=bins
-    )
-    bias_matrix = pd.DataFrame(
-        bias_values,
-        index=pd.Index(bias_ticks, name="5' Residual (Pred − GT)"),
-        columns=pd.Index(bias_ticks, name="3' Residual (Pred − GT)"),
-    )
-
-    # --- Matrix 2: Reliability Matrix (The 'Cumulative' Heatmap) ---
-    abs_res = np.abs(res_arr)
-    reliability_values = np.zeros((max_range + 1, max_range + 1))
-
-    for d5 in range(max_range + 1):
-        for d3 in range(max_range + 1):
-            successes = np.sum((abs_res[:, 0] <= d5) & (abs_res[:, 1] <= d3))
-            reliability_values[d5, d3] = (
-                successes / total_gt_count if total_gt_count > 0 else 0
-            )
-
-    reliability_matrix = pd.DataFrame(
-        reliability_values,
-        index=pd.Index(tolerance_ticks, name="5' Tolerance (bp)"),
-        columns=pd.Index(tolerance_ticks, name="3' Tolerance (bp)"),
-    )
-
-    return bias_matrix, reliability_matrix
-
-
-def _compute_state_change_errors(
-        gt_pred_arr: np.ndarray,
-        label_config
-):
-
-    per_label_failures = {label_id: [] for label_id in label_config.labels.keys()}
-
-    nuc_transitions = np.lib.stride_tricks.sliding_window_view(gt_pred_arr, (2, 2))[0]
-
-    failled_transition_mask = mask = (nuc_transitions[:, 0, 0] == nuc_transitions[:, 1, 0]) & \
-                                     (nuc_transitions[:, 0, 1] != nuc_transitions[:, 1, 1])
-
-    failled_transitions = nuc_transitions[failled_transition_mask]
-
-    for failed_transition in failled_transitions:
-
-        start_nuc_id = int(failed_transition[0,0])
-        gt_transition_id = int(failed_transition[0,1])
-        pred_transition_id = int(failed_transition[1,1])
-        per_label_failures[start_nuc_id].append((gt_transition_id, pred_transition_id))
-
-    transition_matricies = {}
-    for label_id,transition_failure_tuples in per_label_failures.items():
-        if len(transition_failure_tuples) == 0:
-            num_labels = len(label_config.labels)
-            transition_matricies[label_id] = np.zeros((num_labels, num_labels),dtype=np.int64)
-            continue
-
-        gt_transition_ids, pred_transition_ids = zip(*transition_failure_tuples)
-
-        transition_failure_matrix = confusion_matrix(gt_transition_ids, pred_transition_ids,labels=sorted(list(per_label_failures.keys())))
-        transition_matricies[label_id] = transition_failure_matrix.astype(np.int64)
-
-    return transition_matricies
-
-# ---------------------------------------------------------------------------
-# Summary statistics
-# ---------------------------------------------------------------------------
-
-
-def _compute_summary_statistics(tp: list, fn: list = None, fp: list = None, tn: list = None) -> dict:
-    """Compute precision and recall from aggregated confusion counts."""
-    precision = None
-    recall = None
-    if tp is not None and fp is not None:
-        total_tp = sum(tp)
-        total_fp = sum(fp)
-        precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0
-    if tp is not None and fn is not None:
-        total_tp = sum(tp)
-        total_fn = sum(fn)
-        recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0
-
-    return {"precision": precision, "recall": recall}
-
-
-def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
-    """Compute MAE, RMSE, Mean for a list of values."""
-    if not values:
-        return {"count": 0, "mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}
-
-    # Handle tuples if any (though IoU is scalar)
-    if values and isinstance(values[0], (tuple, list)):
-        flattened = [item for sublist in values for item in sublist]
-    else:
-        flattened = values
-
-    arr = np.array(flattened, dtype=float)
-
-    return {
-        "count": len(arr),
-        "mean": float(np.mean(arr)),
-        "mae": float(np.mean(np.abs(arr))) if is_abs else float(np.mean(arr)),
-        "rmse": float(np.sqrt(np.mean(arr ** 2))),
-        "std": float(np.std(arr)),
-        "min": float(np.min(arr)),
-        "max": float(np.max(arr))
-    }
-
-
-# ---------------------------------------------------------------------------
-# Frameshift metrics
-# ---------------------------------------------------------------------------
-
-
-def _get_frame_shift_metrics(
-        gt_labels: np.ndarray,
-        pred_labels: np.ndarray,
-        coding_value: int,
-) -> dict:
-    """Compute per-position reading-frame deviation."""
-    gt_exon_indices = np.where(gt_labels == coding_value)[0]
-    pred_exon_indices = np.where(pred_labels == coding_value)[0]
-
-    if len(gt_exon_indices) == 0 or len(pred_exon_indices) == 0:
-        return {"gt_frames": []}
-
-    assert len(gt_exon_indices) % 3 == 0, "There is no clear codon usage"
-
-    gt_codons = gt_exon_indices.reshape(-1, 3)
-    possible_pred_codons = sliding_window_view(pred_exon_indices, 3)
-
-    gt_codon_view = gt_codons.view([("", gt_codons.dtype)] * 3).reshape(-1)
-    pred_codon_view = possible_pred_codons.view(
-        [("", possible_pred_codons.dtype)] * 3
-    ).reshape(-1)
-    _common_codons = np.intersect1d(gt_codon_view, pred_codon_view)
-
-    valid_mask = (
-            np.isin(np.arange(len(gt_labels)), gt_exon_indices)
-            & np.isin(np.arange(len(gt_labels)), pred_exon_indices)
-    )
-
-    frame_list = np.full(len(gt_labels), np.inf)
-
-    gt_cumsum = np.searchsorted(gt_exon_indices, np.arange(len(gt_labels)), side="right")
-    pred_cumsum = np.searchsorted(pred_exon_indices, np.arange(len(gt_labels)), side="right")
-
-    frame_list[valid_mask] = np.abs(pred_cumsum[valid_mask] - gt_cumsum[valid_mask]) % 3
-
-    return {"gt_frames": frame_list[1:-1]}

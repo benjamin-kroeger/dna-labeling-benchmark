@@ -14,11 +14,8 @@ The orchestrator :func:`compare_multiple_predictions` returns a
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 import math
-import textwrap
-from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Optional
 
@@ -26,316 +23,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from importlib import resources
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.ticker import MaxNLocator
 
-from .evaluate_predictors import EvalMetrics
-from .label_definition import LabelConfig
+from .config import ICON_MAP, DEFAULT_MULTI_PLOT_FIG_SIZE, PlotMetadata, DEFAULT_FIG_SIZE, PLOT_METADATA
+from .utils import _add_icon_to_ax, _save_figure, _add_pictogram_panel
+from ..label_definition import LabelConfig, EvalMetrics
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-PACKAGE_NAME = "dna_segmentation_benchmark"
-ICON_PATH = resources.files(PACKAGE_NAME) / "icons"
-ICON_MAP = {
-    "5_prime_extensions": ICON_PATH / "left_extension.png",
-    "3_prime_extensions": ICON_PATH / "right_extension.png",
-    "whole_insertions": ICON_PATH / "exon_insertion.png",
-    "joined": ICON_PATH / "joined_exons.png",
-    "5_prime_deletions": ICON_PATH / "left_deletion.png",
-    "3_prime_deletions": ICON_PATH / "right_deletion.png",
-    "whole_deletions": ICON_PATH / "exon_deletion.png",
-    "split": ICON_PATH / "split_exons.png",
-}
-
-DEFAULT_FIG_SIZE = (16, 10)
-DEFAULT_MULTI_PLOT_FIG_SIZE = (18, 12)
-
-
-# ---------------------------------------------------------------------------
-# Plot metadata — pictogram panel content
-# ---------------------------------------------------------------------------
-
-
-@dataclasses.dataclass(frozen=True)
-class PlotMetadata:
-    """Icon and explanatory text shown in the right-side pictogram panel.
-
-    Attributes
-    ----------
-    icon_path : Path | Traversable | None
-        Path to a PNG icon.  ``None`` means no icon yet.
-    description : str
-        Short paragraph explaining what the plot shows.  Rendered as
-        word-wrapped text below the icon.
-    display_name : str
-        Human-readable title rendered above the icon.
-    show_tp_tn_fp_fn : bool
-        If ``True`` a compact TP / TN / FP / FN definitions block is
-        rendered at the bottom of the panel.
-    """
-
-    icon_path: Path | Traversable | None = None
-    description: str = ""
-    display_name: str = ""
-    show_tp_tn_fp_fn: bool = False
-
-
-# Placeholder entries — fill in ``icon_path`` and ``description`` as
-# pictograms are created.  Keys must match those used in
-# :func:`compare_multiple_predictions`.
-PLOT_METADATA: dict[str, PlotMetadata] = {
-    # INDEL summary
-    "indel_counts": PlotMetadata(display_name="INDEL Counts"),
-    "indel_lengths": PlotMetadata(display_name="INDEL Length Distribution"),
-    # ML precision / recall (one entry per level)
-    "ml_nucleotide_level_metrics": PlotMetadata(
-        display_name="Nucleotide-Level Metrics",
-        show_tp_tn_fp_fn=True,
-    ),
-    "ml_neighborhood_hit_metrics": PlotMetadata(
-        display_name="Neighborhood Hit Metrics",
-        icon_path=ICON_PATH / "overlap.png",
-        show_tp_tn_fp_fn=True,
-    ),
-    "ml_internal_hit_metrics": PlotMetadata(
-        display_name="Internal Hit Metrics",
-        icon_path=ICON_PATH / "internal.png",
-        show_tp_tn_fp_fn=True,
-    ),
-    "ml_full_coverage_hit_metrics": PlotMetadata(
-        display_name="Full Coverage Hit Metrics",
-        icon_path=ICON_PATH / "full_coverage.png",
-        show_tp_tn_fp_fn=True,
-    ),
-    "ml_perfect_boundary_hit_metrics": PlotMetadata(
-        display_name="Perfect Boundary Hit Metrics",
-        icon_path=ICON_PATH / "prefect_hit.png",
-        show_tp_tn_fp_fn=True,
-    ),
-    "ml_inner_section_boundaries_metrics": PlotMetadata(
-        display_name="Inner Section Boundaries",
-        show_tp_tn_fp_fn=True,
-    ),
-    "ml_all_section_boundaries_metrics": PlotMetadata(
-        display_name="All Section Boundaries",
-        show_tp_tn_fp_fn=True,
-    ),
-    # IoU
-    "iou_average": PlotMetadata(
-        display_name="Average IoU",
-        icon_path=ICON_PATH / "iou.png",
-        description="Measures the intersection over the union of any 2"
-                    " overlapping ground truth and predicted section.",
-    ),
-    "iou_distribution": PlotMetadata(
-        display_name="IoU Distribution",
-        icon_path=ICON_PATH / "iou.png",
-        description="Measures the intersection over the union of any 2"
-                    " overlapping ground truth and predicted section.",
-    ),
-    # Frameshift
-    "frameshift": PlotMetadata(display_name="Frameshift Distribution"),
-}
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-def _save_figure(fig: plt.Figure, save_path: Path) -> None:
-    """Save *fig* to *save_path*, creating parent dirs as needed."""
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(save_path, bbox_inches="tight", dpi=150)
-    logger.info("Saved figure to %s", save_path)
-
-
-def _add_icon_to_ax(
-        ax: plt.Axes,
-        icon_path: str,
-        zoom: float = 0.2,
-        x_rel_pos: float = 0.5,
-        y_rel_pos: float = 1.25,
-) -> None:
-    """Place an image (icon) above *ax*."""
-    try:
-        icon_img = plt.imread(icon_path)
-        imagebox = OffsetImage(icon_img, zoom=zoom)
-        ab = AnnotationBbox(
-            imagebox, (x_rel_pos, y_rel_pos), xycoords=ax.transAxes, frameon=False
-        )
-        ax.add_artist(ab)
-    except FileNotFoundError:
-        logger.warning("Icon not found: %s", icon_path)
-    except Exception:
-        logger.warning("Could not load icon: %s", icon_path, exc_info=True)
-
-
-def _add_pictogram_panel(
-        fig: plt.Figure,
-        metadata: PlotMetadata | None,
-        panel_width_fraction: float = 0.22,
-) -> None:
-    """Add a right-side pictogram panel to *fig*.
-
-    The panel displays an icon (scaled to fit within the panel) with
-    explanatory text below it, and optionally a TP/TN/FP/FN
-    definitions block.  All existing axes in *fig* are shrunk to make
-    room.
-
-    If *metadata* is ``None`` or contains nothing to render, the
-    function is a **no-op**.
-    """
-    if metadata is None:
-        return
-    has_content = (
-        metadata.icon_path is not None
-        or metadata.description
-        or metadata.show_tp_tn_fp_fn
-        or metadata.display_name
-    )
-    if not has_content:
-        return
-
-    # Shrink every existing axes to make room on the right
-    for ax in fig.get_axes():
-        box = ax.get_position()
-        ax.set_position([
-            box.x0,
-            box.y0,
-            box.width * (1 - panel_width_fraction),
-            box.height,
-        ])
-
-    # Create the panel axes on the freed right-hand side
-    panel_left = 1 - panel_width_fraction + 0.01
-    panel_width = panel_width_fraction - 0.02
-    panel_ax = fig.add_axes([panel_left, 0.05, panel_width, 0.90])
-    panel_ax.set_axis_off()
-
-    # Panel dimensions in inches
-    fig_w_in, fig_h_in = fig.get_size_inches()
-    panel_width_in = panel_width * fig_w_in
-    panel_height_in = 0.90 * fig_h_in  # panel is 90% of fig height
-
-    # Convert panel_ax coordinates to figure coordinates for precise placement
-    # of elements relative to the panel.
-    # panel_ax.transAxes.transform((x, y)) gives figure coordinates.
-    # fig.transFigure.inverted().transform((x, y)) gives figure fraction coordinates.
-    # We want to work in figure fraction coordinates for text and icon placement.
-    panel_bbox = panel_ax.get_position()
-    panel_x0, panel_y0, panel_w, panel_h = panel_bbox.x0, panel_bbox.y0, panel_bbox.width, panel_bbox.height
-
-    # y_cursor is in figure fraction coordinates, relative to the top of the panel
-    y_cursor = panel_y0 + panel_h * 0.95  # Start near the top of the panel
-
-    # --- Display name ---
-    if metadata.display_name:
-        # Text x-position is center of panel, y-position is y_cursor
-        text_x = panel_x0 + panel_w / 2
-        fig.text(
-            text_x, y_cursor, metadata.display_name,
-            ha="center", va="top", fontsize=13, fontweight="bold",
-            wrap=True,
-        )
-        y_cursor -= panel_h * 0.08  # Move cursor down
-
-    # --- Icon (scaled to fit panel, constrained by both width and height) ---
-    # Reserve vertical budget: title ~8%, icon max 40%, description ~20%, TP/TN ~20%
-    max_icon_height_frac = 0.40  # max 40% of panel height for the icon
-    if metadata.icon_path is not None:
-        try:
-            icon_img = plt.imread(str(metadata.icon_path))
-            icon_w_px = icon_img.shape[1]
-            icon_h_px = icon_img.shape[0]
-
-            # Calculate zoom to fit within 85% of panel width and max_icon_height_frac of panel height
-            zoom_w = (panel_width_in * fig.dpi * 0.85) / icon_w_px
-            max_icon_h_px = max_icon_height_frac * panel_height_in * fig.dpi
-            zoom_h = max_icon_h_px / icon_h_px
-            zoom = min(zoom_w, zoom_h)
-
-            # Create an inset axes for the icon to ensure it respects bounds
-            icon_rendered_w_in = (icon_w_px * zoom) / fig.dpi
-            icon_rendered_h_in = (icon_h_px * zoom) / fig.dpi
-
-            # Convert rendered dimensions to figure fraction
-            icon_w_fig_frac = icon_rendered_w_in / fig_w_in
-            icon_h_fig_frac = icon_rendered_h_in / fig_h_in
-
-            # Calculate icon axes position: centered horizontally, top aligned with y_cursor
-            icon_ax_x0 = panel_x0 + (panel_w - icon_w_fig_frac) / 2
-            icon_ax_y0 = y_cursor - icon_h_fig_frac # Top of icon is at y_cursor
-
-            icon_ax = fig.add_axes([icon_ax_x0, icon_ax_y0, icon_w_fig_frac, icon_h_fig_frac])
-            icon_ax.imshow(icon_img)
-            # Pad limits slightly so edge pixels are never clipped
-            icon_ax.set_xlim(-1, icon_w_px)
-            icon_ax.set_ylim(icon_h_px, -3)
-            icon_ax.set_axis_off()
-
-            y_cursor -= icon_h_fig_frac + panel_h * 0.04 # Move cursor down past icon and add spacing
-        except Exception:
-            logger.warning(
-                "Could not load panel icon: %s", metadata.icon_path,
-                exc_info=True,
-            )
-
-    # --- Description text ---
-    if metadata.description:
-        wrapped = textwrap.fill(metadata.description, width=26)
-        text_x = panel_x0 + panel_w / 2
-        fig.text(
-            text_x, y_cursor, wrapped,
-            ha="center", va="top", fontsize=9,
-            linespacing=1.4,
-        )
-        n_lines = wrapped.count("\n") + 1
-        y_cursor -= n_lines * panel_h * 0.05 + panel_h * 0.04 # Move cursor down past description and add spacing
-
-    # --- TP / TN / FP / FN definitions (placed at bottom of panel) ---
-    if metadata.show_tp_tn_fp_fn:
-        definitions = (
-            "\u2022 TP: Correctly predicted\n"
-            "\u2022 TN: Correctly absent\n"
-            "\u2022 FP: Falsely predicted\n"
-            "\u2022 FN: Falsely missed"
-        )
-        # Place at fixed position near the bottom to avoid overlap
-        # Calculate bottom-aligned y-position for definitions block
-        tp_y_bottom = panel_y0 + panel_h * 0.05 # 5% from bottom of panel
-        # Estimate height of definitions block (4 lines * line_height_factor)
-        # This is a rough estimate, actual height depends on font size and dpi
-        estimated_line_height_fig_frac = 0.025 * (fig_h_in / DEFAULT_FIG_SIZE[1]) # Scale by figure height
-        estimated_block_height_fig_frac = 4 * estimated_line_height_fig_frac * 1.5 # 4 lines, linespacing 1.5
-        tp_y_top = tp_y_bottom + estimated_block_height_fig_frac
-
-        # Ensure it doesn't overlap with content above
-        final_tp_y = min(y_cursor - panel_h * 0.02, tp_y_top) # 2% buffer from above content
-
-        fig.text(
-            panel_x0 + panel_w * 0.05, final_tp_y, definitions,
-            ha="left", va="top", fontsize=9,
-            linespacing=1.5,
-            family="monospace",
-            bbox=dict(
-                boxstyle="round,pad=0.4",
-                facecolor="#f0f0f0",
-                edgecolor="#cccccc",
-                alpha=0.9,
-            ),
-        )
-
-
-# ---------------------------------------------------------------------------
-# Individual plot functions
-# ---------------------------------------------------------------------------
-
 
 def plot_individual_error_lengths_histograms(
         df_indel_lengths: pd.DataFrame,
@@ -836,7 +530,7 @@ def plot_boundary_precision_landscapes(
     return figures
 
 
-def plot_transition_matrices(transition_failures: dict, label_config:LabelConfig):
+def plot_transition_matrices(transition_failures: dict, label_config: LabelConfig):
     """
     Plots a grid of transition matrices from a dictionary.
 
@@ -868,7 +562,7 @@ def plot_transition_matrices(transition_failures: dict, label_config:LabelConfig
     for i, (key, matrix) in enumerate(transition_failures.items()):
         ax = axes[i]
         ordered_labels = [label_config.labels[x] for x in sorted(label_config.labels)]
-        matrix_df = pd.DataFrame(matrix, columns=ordered_labels,index=ordered_labels)
+        matrix_df = pd.DataFrame(matrix, columns=ordered_labels, index=ordered_labels)
 
         # Using seaborn's heatmap for nice color scaling and text annotations inside the cells
         sns.heatmap(matrix_df, annot=True, cmap="Blues", fmt=".2f", ax=ax, cbar=True)
@@ -885,6 +579,7 @@ def plot_transition_matrices(transition_failures: dict, label_config:LabelConfig
     # 5. Adjust layout so titles and labels don't overlap, then show
     plt.tight_layout()
     plt.show()
+
 
 # ---------------------------------------------------------------------------
 # Orchestrator
@@ -925,7 +620,7 @@ def compare_multiple_predictions(
     rows: list[list] = []
     for method_name, benchmark_results in per_method_benchmark_res.items():
         transition_matrices = benchmark_results.pop("transition_failures")
-        plot_transition_matrices(transition_matrices,label_config)
+        plot_transition_matrices(transition_matrices, label_config)
         for class_name, metric_groupings in benchmark_results.items():
             class_name_str = class_name if isinstance(class_name, str) else str(class_name)
             for metric_group, metric_data in metric_groupings.items():
