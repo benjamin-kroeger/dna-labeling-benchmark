@@ -5,10 +5,12 @@ and computes a rich set of metrics:
 
 * **INDEL** – 5'/3' extensions/deletions, whole insertions/deletions,
   joins/splits.
-* **SECTION** – nucleotide-level, encompassing-section, strict-section,
-  inner-boundary, and total-boundary confusion counts.
-* **ML** – aggregated precision & recall across section levels (computed from
-  the SECTION counts after multi-sequence merging).
+* **REGION_DISCOVERY** – precision & recall at four overlap strictness
+  levels (neighbourhood, internal, full-coverage, perfect-boundary).
+* **BOUNDARY_EXACTNESS** – IoU statistics, boundary-residual bias /
+  reliability landscape, inner / all section-boundary precision & recall,
+  terminal-boundary flags.
+* **NUCLEOTIDE_CLASSIFICATION** – per-base precision, recall, and F1.
 * **FRAMESHIFT** – per-position reading-frame deviation between GT and
   predicted exon chains.
 
@@ -36,9 +38,23 @@ from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
 
 
 # ---------------------------------------------------------------------------
-# Public Enums
+# Helpers — which groups need section overlap to be computed
 # ---------------------------------------------------------------------------
 
+_SECTION_DEPENDENT_GROUPS = frozenset({
+    EvalMetrics.REGION_DISCOVERY,
+    EvalMetrics.BOUNDARY_EXACTNESS,
+})
+
+
+def _needs_section_analysis(metrics: list[EvalMetrics]) -> bool:
+    """Return ``True`` if any requested metric needs section-overlap data."""
+    return bool(_SECTION_DEPENDENT_GROUPS & set(metrics))
+
+
+# ---------------------------------------------------------------------------
+# Single-sequence benchmark
+# ---------------------------------------------------------------------------
 
 
 def benchmark_gt_vs_pred_single(
@@ -63,7 +79,8 @@ def benchmark_gt_vs_pred_single(
         Which token values to compute metrics for (e.g. ``[0, 2]`` for
         EXON and INTRON).
     metrics : list[EvalMetrics] | None
-        Which metric groups to compute.  Defaults to ``[SECTION, ML]``.
+        Which metric groups to compute.  Defaults to
+        ``[REGION_DISCOVERY, BOUNDARY_EXACTNESS, NUCLEOTIDE_CLASSIFICATION]``.
     mask_labels : np.ndarray | None
         Optional boolean mask (True = exclude). Must match length of GT.
 
@@ -132,7 +149,7 @@ def benchmark_gt_vs_pred_single(
         grouped_pred_sections = get_contiguous_groups(pred_section_indices)
 
         # ---- INDEL metrics ------------------------------------------------
-        if EvalMetrics.INDEL in metrics or EvalMetrics.SECTION in metrics:
+        if EvalMetrics.INDEL in metrics or _needs_section_analysis(metrics):
             ext5, ext3, joined, whole_ins = _classify_mismatches(
                 grouped_indices=grouped_insertions,
                 gt_pred_arr=arr,
@@ -154,18 +171,42 @@ def benchmark_gt_vs_pred_single(
                 "whole_deletions": whole_del,
                 "split": split,
             }
-            metric_results[class_name][EvalMetrics.INDEL.name] = indel_results
+            if EvalMetrics.INDEL in metrics:
+                metric_results[class_name][EvalMetrics.INDEL.name] = indel_results
 
-        # ---- Section-level metrics ----------------------------------------
-        if EvalMetrics.SECTION in metrics:
-            confusion = _get_metrics_across_levels(
+        # ---- Section-overlap analysis (shared by REGION_DISCOVERY & BOUNDARY_EXACTNESS)
+        if _needs_section_analysis(metrics):
+            section_data = _analyze_section_overlap_and_boundaries(
                 grouped_gt_section_indices=grouped_gt_sections,
                 grouped_pred_section_indices=grouped_pred_sections,
-                gt_labels=gt_labels,
-                pred_labels=pred_labels,
-                class_value=class_token,
             )
-            metric_results[class_name][EvalMetrics.SECTION.name] = confusion
+
+            # -- REGION_DISCOVERY: precision & recall at four strictness levels
+            if EvalMetrics.REGION_DISCOVERY in metrics:
+                metric_results[class_name][EvalMetrics.REGION_DISCOVERY.name] = {
+                    "neighborhood_hit": section_data["neighborhood_hit"],
+                    "internal_hit": section_data["internal_hit"],
+                    "full_coverage_hit": section_data["full_coverage_hit"],
+                    "perfect_boundary_hit": section_data["perfect_boundary_hit"],
+                }
+
+            # -- BOUNDARY_EXACTNESS: IoU, boundary residuals, section-boundary flags
+            if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
+                metric_results[class_name][EvalMetrics.BOUNDARY_EXACTNESS.name] = {
+                    "inner_section_boundaries": section_data["inner_section_boundaries"],
+                    "all_section_boundaries": section_data["all_section_boundaries"],
+                    "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
+                    "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
+                    "iou_scores": section_data["iou_scores"],
+                    "fuzzy_metrics": section_data["fuzzy_metrics"],
+                }
+
+        # ---- NUCLEOTIDE_CLASSIFICATION: per-base precision, recall, F1 ----
+        if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
+            nuc_confusion = _compute_nucleotide_level_confusion(gt_labels, pred_labels, class_token)
+            metric_results[class_name][EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
+                "nucleotide": nuc_confusion,
+            }
 
         # ---- Frameshift metrics -------------------------------------------
         if EvalMetrics.FRAMESHIFT in metrics:
@@ -260,40 +301,59 @@ def benchmark_gt_vs_pred_multiple(
 
     aggregated = functools.reduce(recursive_merge, [res for res in results if res], {})
 
-    aggregated = _aggregate_ml_metrics(aggregated, metrics)
+    aggregated = _aggregate_summary_metrics(aggregated, metrics)
 
     return aggregated
 
 
-def _aggregate_ml_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> dict:
-    """Compute and append ML-level statistics to the aggregated results."""
-    if EvalMetrics.ML not in metrics:
-        return aggregated
+def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> dict:
+    """Compute user-facing summary statistics from raw accumulated counts.
 
+    After multi-sequence merging, the raw tp/fn/fp lists are converted into
+    precision & recall (and F1 for nucleotide level).  Raw counts are
+    *replaced* by the computed summaries so they are not exposed to the user.
+    """
     for _class_name, class_results in aggregated.items():
         if _class_name == "transition_failures":
             continue
-        class_results[EvalMetrics.ML.name] = {}
-        section = class_results[EvalMetrics.SECTION.name]
-        ml = class_results[EvalMetrics.ML.name]
-        
-        ml["nucleotide_level_metrics"] = _compute_summary_statistics(**section["nucleotide"])
-        ml["neighborhood_hit_metrics"] = _compute_summary_statistics(**section["neighborhood_hit"])
-        ml["internal_hit_metrics"] = _compute_summary_statistics(**section["internal_hit"])
-        ml["full_coverage_hit_metrics"] = _compute_summary_statistics(**section["full_coverage_hit"])
-        ml["perfect_boundary_hit_metrics"] = _compute_summary_statistics(**section["perfect_boundary_hit"])
-        ml["inner_section_boundaries_metrics"] = _compute_summary_statistics(**section["inner_section_boundaries"])
-        ml["all_section_boundaries_metrics"] = _compute_summary_statistics(**section["all_section_boundaries"])
 
-        # IoU Statistics
-        if "iou_scores" in section:
-            ml["iou_stats"] = _compute_distribution_stats(section["iou_scores"], is_abs=False)
-            
-        ml["fuzzy_metrics"] = _compute_boundary_precision_landscape(
-            residuals=section["fuzzy_metrics"]["boundary_residuals"],
-            total_gt_count=sum(section["fuzzy_metrics"]["total_gt"])
-        )
-        
+        # -- REGION_DISCOVERY: precision & recall per strictness level ------
+        if EvalMetrics.REGION_DISCOVERY in metrics:
+            rd = class_results[EvalMetrics.REGION_DISCOVERY.name]
+            for level_key in ("neighborhood_hit", "internal_hit",
+                              "full_coverage_hit", "perfect_boundary_hit"):
+                rd[level_key] = _compute_summary_statistics(**rd[level_key])
+
+        # -- BOUNDARY_EXACTNESS: IoU stats + landscape + section boundaries -
+        if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
+            be = class_results[EvalMetrics.BOUNDARY_EXACTNESS.name]
+
+            # Inner / all section boundary precision & recall
+            for boundary_key in ("inner_section_boundaries", "all_section_boundaries"):
+                be[boundary_key] = _compute_summary_statistics(**be[boundary_key])
+
+            # IoU distribution statistics
+            if "iou_scores" in be:
+                be["iou_stats"] = _compute_distribution_stats(be["iou_scores"], is_abs=False)
+                del be["iou_scores"]
+
+            # Boundary-residual bias / reliability landscape
+            if "fuzzy_metrics" in be:
+                be["fuzzy_metrics"] = _compute_boundary_precision_landscape(
+                    residuals=be["fuzzy_metrics"]["boundary_residuals"],
+                    total_gt_count=sum(be["fuzzy_metrics"]["total_gt"]),
+                )
+
+        # -- NUCLEOTIDE_CLASSIFICATION: precision, recall, F1 ---------------
+        if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
+            nc = class_results[EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name]
+            nuc_counts = nc["nucleotide"]
+            summary = _compute_summary_statistics(**nuc_counts)
+            # Add F1 (only meaningful at nucleotide level)
+            p, r = summary.get("precision", 0), summary.get("recall", 0)
+            summary["f1"] = (2 * p * r / (p + r)) if (p + r) > 0 else 0.0
+            nc["nucleotide"] = summary
+
     return aggregated
 
 
@@ -369,37 +429,6 @@ def _compute_nucleotide_level_confusion(
     nuc_tn, nuc_fp, nuc_fn, nuc_tp = map(int, cm.ravel())
     
     return {"tn": nuc_tn, "fp": nuc_fp, "fn": nuc_fn, "tp": nuc_tp}
-
-
-def _get_metrics_across_levels(
-        grouped_gt_section_indices: list[np.ndarray],
-        grouped_pred_section_indices: list[np.ndarray],
-        gt_labels: np.ndarray,
-        pred_labels: np.ndarray,
-        class_value: int,
-) -> dict:
-    """
-    Compute confusion counts at nucleotide and section levels with split/merge tracking.
-
-    ===========================================================================
-    THE METRIC HIERARCHY (From Forgiving to Punishing)
-    ===========================================================================
-    1. Overlap:   "Neighborhood" Discovery. Any contact between GT and Pred.
-    2. Envelop:   Under-prediction support. Pred is a smaller segment INSIDE GT.
-    3. Encompass: Over-prediction support. Pred is a larger segment COVERING GT.
-    4. Strict:    Perfect Identity. Coordinates match exactly (The Double Penalty).
-    ===========================================================================
-    """
-    nuc_metrics = _compute_nucleotide_level_confusion(gt_labels, pred_labels, class_value)
-    section_metrics = _analyze_section_overlap_and_boundaries(
-        grouped_gt_section_indices,
-        grouped_pred_section_indices
-    )
-    
-    return {
-        "nucleotide": nuc_metrics,
-        **section_metrics
-    }
 
 
 def _analyze_section_overlap_and_boundaries(

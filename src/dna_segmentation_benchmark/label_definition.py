@@ -113,13 +113,32 @@ BEND_LABEL_CONFIG = LabelConfig(
 
 
 class EvalMetrics(Enum):
-    """Available evaluation metric groups."""
+    """Available evaluation metric groups.
+
+    Each value answers one clear question about prediction quality:
+
+    * ``INDEL`` – *"What structural errors exist?"*
+      5'/3' extensions/deletions, whole insertions/deletions, splits/joins.
+    * ``REGION_DISCOVERY`` – *"Did we find the right regions?"*
+      Precision & recall at four overlap strictness levels.
+    * ``BOUNDARY_EXACTNESS`` – *"How precise are the boundaries?"*
+      IoU stats, bias/reliability landscape, inner/all section boundary
+      precision & recall, terminal-boundary flags.
+    * ``NUCLEOTIDE_CLASSIFICATION`` – *"Per-base, how accurate is it?"*
+      Precision, recall, and F1 from the nucleotide confusion matrix.
+    * ``FRAMESHIFT`` – *"Is the reading frame preserved?"*
+      Per-position reading-frame deviation.
+    """
 
     INDEL = 0
-    SECTION = 1
-    ML = 2  # summary statistics from SECTION (single-seq not computed directly)
-    _MLMULTIPLE = 3  # reserved for cross-sequence averaging
+    REGION_DISCOVERY = 1
+    BOUNDARY_EXACTNESS = 2
+    NUCLEOTIDE_CLASSIFICATION = 3
     FRAMESHIFT = 4
 
 
-_DEFAULT_METRICS = [EvalMetrics.SECTION, EvalMetrics.ML]
+_DEFAULT_METRICS = [
+    EvalMetrics.REGION_DISCOVERY,
+    EvalMetrics.BOUNDARY_EXACTNESS,
+    EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
+]

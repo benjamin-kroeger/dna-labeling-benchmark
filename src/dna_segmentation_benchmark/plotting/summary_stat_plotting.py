@@ -132,28 +132,28 @@ def compare_multiple_predictions(
                 if fig is not None:
                     figures[f"{class_name}_indel_lengths"] = fig
 
-        # ---- Fuzzy boundary plots ---------------------------------------
-        df_fuzzy = df[
-            (df["measured_class"] == class_name)
-            & (df["metric_group"] == EvalMetrics.ML.name)
-            & (df["metric_key"] == "fuzzy_metrics")
-            ].copy()
+        # ---- Fuzzy boundary landscape plots (from BOUNDARY_EXACTNESS) ----
+        if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
+            df_fuzzy = df[
+                (df["measured_class"] == class_name)
+                & (df["metric_group"] == EvalMetrics.BOUNDARY_EXACTNESS.name)
+                & (df["metric_key"] == "fuzzy_metrics")
+                ].copy()
 
-        df = df[df["metric_key"] != "fuzzy_metrics"]
+            df = df[df["metric_key"] != "fuzzy_metrics"]
 
-        fuzzy_metrics_figs = plot_boundary_precision_landscapes(
-            df_fuzzy,
-            metadata=PLOT_METADATA.get("fuzzy_metrics"),
-        )
-        for i, fig in enumerate(fuzzy_metrics_figs):
-            figures[f"{i}_fuzzy_metrics"] = fig
+            fuzzy_metrics_figs = plot_boundary_precision_landscapes(
+                df_fuzzy,
+                metadata=PLOT_METADATA.get("fuzzy_metrics"),
+            )
+            for i, fig in enumerate(fuzzy_metrics_figs):
+                figures[f"{i}_fuzzy_metrics"] = fig
 
-        # ---- IoU plots --------------------------------------------------
-        # IoU scores are stored under the SECTION group
-        if EvalMetrics.SECTION in metrics_to_eval:
+        # ---- IoU plots (from BOUNDARY_EXACTNESS) -------------------------
+        if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
             df_iou = df[
                 (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.SECTION.name)
+                & (df["metric_group"] == EvalMetrics.BOUNDARY_EXACTNESS.name)
                 & (df["metric_key"] == "iou_scores")
                 ].copy()
 
@@ -169,22 +169,39 @@ def compare_multiple_predictions(
                     suffix = "average" if idx == 0 else "distribution"
                     figures[f"{class_name}_iou_{suffix}"] = fig
 
-        # ---- ML plots ---------------------------------------------------
-        if EvalMetrics.ML in metrics_to_eval:
-            df_ml = df[
+        # ---- Region-discovery bar plots -----------------------------------
+        if EvalMetrics.REGION_DISCOVERY in metrics_to_eval:
+            df_rd = df[
                 (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.ML.name)
+                & (df["metric_group"] == EvalMetrics.REGION_DISCOVERY.name)
                 ].copy()
 
-            if not df_ml.empty:
-                prefix = (output_dir / f"{class_name}_ml") if output_dir else None
-                ml_figs = plot_ml_metrics_bar(
-                    df_ml, class_name,
+            if not df_rd.empty:
+                prefix = (output_dir / f"{class_name}_region_discovery") if output_dir else None
+                rd_figs = plot_ml_metrics_bar(
+                    df_rd, class_name,
                     save_path_prefix=prefix,
                     metadata_map=PLOT_METADATA,
                 )
-                for idx, fig in enumerate(ml_figs):
-                    figures[f"{class_name}_ml_{idx}"] = fig
+                for idx, fig in enumerate(rd_figs):
+                    figures[f"{class_name}_region_discovery_{idx}"] = fig
+
+        # ---- Nucleotide-classification bar plots --------------------------
+        if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics_to_eval:
+            df_nc = df[
+                (df["measured_class"] == class_name)
+                & (df["metric_group"] == EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name)
+                ].copy()
+
+            if not df_nc.empty:
+                prefix = (output_dir / f"{class_name}_nucleotide_classification") if output_dir else None
+                nc_figs = plot_ml_metrics_bar(
+                    df_nc, class_name,
+                    save_path_prefix=prefix,
+                    metadata_map=PLOT_METADATA,
+                )
+                for idx, fig in enumerate(nc_figs):
+                    figures[f"{class_name}_nucleotide_classification_{idx}"] = fig
 
         # ---- Frameshift plots -------------------------------------------
         if EvalMetrics.FRAMESHIFT in metrics_to_eval:
@@ -203,4 +220,3 @@ def compare_multiple_predictions(
                     figures[f"{class_name}_frameshift"] = fig
 
     return figures
-

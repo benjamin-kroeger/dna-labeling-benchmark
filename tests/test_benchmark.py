@@ -27,13 +27,6 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
         metrics=metrics,
     )
 
-    metric_eval_mapping = {
-        EvalMetrics.INDEL: _eval_indel_metrics,
-        EvalMetrics.SECTION: _eval_section_metrics,
-        EvalMetrics.ML: _eval_ml_metrics,
-        EvalMetrics.FRAMESHIFT: _eval_frameshift_metrics,
-    }
-
     filtered_keys = set(benchmark_results.keys()) - {"transition_failures"}
     assert filtered_keys == set(expected_errors.keys()), (
         f"The benchmark keys do not match the expected keys. Expected {expected_errors.keys()}, got {filtered_keys}"
@@ -45,7 +38,7 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
         class_results = benchmark_results[class_key]
         expected_results = expected_errors[class_key]
         for metric in metrics:
-            metric_eval_mapping[metric](expected_results[metric.name], class_results[metric.name])
+            _METRIC_EVAL_DISPATCH[metric](expected_results[metric.name], class_results[metric.name])
 
 
 @pytest.mark.parametrize(
@@ -53,7 +46,7 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
     MULTI_SEQUENCE_TEST_CASES,
 )
 def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, classes, metrics, expected_errors):
-    """Test multi-sequence benchmark with aggregation and ML summary."""
+    """Test multi-sequence benchmark with aggregation and summary metrics."""
     benchmark_results = benchmark_gt_vs_pred_multiple(
         gt_labels=gt_arrays,
         pred_labels=pred_arrays,
@@ -62,13 +55,6 @@ def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, classes, metri
         metrics=metrics,
     )
 
-    metric_eval_mapping = {
-        EvalMetrics.INDEL: _eval_indel_metrics,
-        EvalMetrics.SECTION: _eval_section_metrics,
-        EvalMetrics.ML: _eval_ml_metrics,
-        EvalMetrics.FRAMESHIFT: _eval_frameshift_metrics,
-    }
-
     filtered_keys = set(benchmark_results.keys()) - {"transition_failures"}
     assert filtered_keys == set(expected_errors.keys()), (
         f"The benchmark keys do not match the expected keys. Expected {expected_errors.keys()}, got {filtered_keys}"
@@ -80,7 +66,7 @@ def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, classes, metri
         class_results = benchmark_results[class_key]
         expected_results = expected_errors[class_key]
         for metric in metrics:
-            metric_eval_mapping[metric](expected_results[metric.name], class_results[metric.name])
+            _METRIC_EVAL_DISPATCH[metric](expected_results[metric.name], class_results[metric.name])
 
 
 # ------------------------------------------------------------------
@@ -150,22 +136,40 @@ class TestLabelConfig:
 # ------------------------------------------------------------------
 
 
-def _eval_section_metrics(expected_section_metrics, computed_section_metrics):
-    # Filter out 'distributions' from computed if not in expected, to maintain backward compatibility of tests
-    computed_keys = set(computed_section_metrics.keys())
-    expected_keys = set(expected_section_metrics.keys())
+def _eval_region_discovery(expected, computed):
+    """Verify region-discovery hit counts (or precision/recall if aggregated)."""
+    expected_keys = set(expected.keys())
+    computed_keys = set(computed.keys())
 
-    if "iou_scores" in computed_keys and "iou_scores" not in expected_keys:
-        computed_keys.remove("iou_scores")
-
-    # Allow computed to have more keys than expected (new features)
     assert expected_keys.issubset(computed_keys), (
-        f"The computed metrics are missing expected keys. Missing: {expected_keys - computed_keys}"
+        f"Region discovery computed metrics are missing expected keys. Missing: {expected_keys - computed_keys}"
     )
-    for section_metric in expected_section_metrics:
-        assert computed_section_metrics[section_metric] == expected_section_metrics[section_metric], (
-            f"The computed output of {section_metric} does not match the expected output"
-        )
+    for key in expected:
+        _assert_metric_value_equal(expected[key], computed[key], key)
+
+
+def _eval_boundary_exactness(expected, computed):
+    """Verify boundary-exactness metrics."""
+    expected_keys = set(expected.keys())
+    computed_keys = set(computed.keys())
+
+    assert expected_keys.issubset(computed_keys), (
+        f"Boundary exactness computed metrics are missing expected keys. Missing: {expected_keys - computed_keys}"
+    )
+    for key in expected:
+        _assert_metric_value_equal(expected[key], computed[key], key)
+
+
+def _eval_nucleotide_classification(expected, computed):
+    """Verify nucleotide-classification metrics."""
+    expected_keys = set(expected.keys())
+    computed_keys = set(computed.keys())
+
+    assert expected_keys.issubset(computed_keys), (
+        f"Nucleotide classification computed metrics are missing expected keys. Missing: {expected_keys - computed_keys}"
+    )
+    for key in expected:
+        _assert_metric_value_equal(expected[key], computed[key], key)
 
 
 def _eval_indel_metrics(expected_indel, computed_indel):
@@ -184,21 +188,6 @@ def _eval_indel_metrics(expected_indel, computed_indel):
             )
 
 
-def _eval_ml_metrics(expected_ml, computed_ml):
-    for metric_key in expected_ml:
-        # Allow extra metrics in computed that are not in expected
-        if metric_key not in computed_ml:
-            raise AssertionError(f"Expected metric {metric_key} not found in computed results")
-
-        for eval_met in expected_ml[metric_key]:
-            assert math.isclose(
-                expected_ml[metric_key][eval_met],
-                computed_ml[metric_key][eval_met],
-                abs_tol=0.001,
-                rel_tol=0.011,
-            ), f"The {metric_key} values do not match"
-
-
 def _eval_frameshift_metrics(expected_frameshift, computed_frameshift):
     assert set(expected_frameshift.keys()) == set(computed_frameshift.keys()), (
         "The keys for the frameshift metrics dont match."
@@ -207,3 +196,42 @@ def _eval_frameshift_metrics(expected_frameshift, computed_frameshift):
         assert (expected_frameshift[metric] == computed_frameshift[metric]).all(), (
             "The computed frame assignment does not match the expected frame assignment."
         )
+
+
+def _assert_metric_value_equal(expected, computed, key_name: str):
+    """Compare a single metric value, handling dicts, lists, scalars, and None."""
+    if isinstance(expected, dict):
+        assert isinstance(computed, dict), f"Expected dict for {key_name}, got {type(computed)}"
+        for sub_key in expected:
+            assert sub_key in computed, f"Missing sub-key {sub_key} in {key_name}"
+            _assert_metric_value_equal(expected[sub_key], computed[sub_key], f"{key_name}.{sub_key}")
+    elif isinstance(expected, list):
+        assert isinstance(computed, list), f"Expected list for {key_name}, got {type(computed)}"
+        assert len(computed) == len(expected), (
+            f"List length mismatch for {key_name}: expected {len(expected)}, got {len(computed)}"
+        )
+        for i, (exp_item, comp_item) in enumerate(zip(expected, computed)):
+            _assert_metric_value_equal(exp_item, comp_item, f"{key_name}[{i}]")
+    elif expected is None:
+        assert computed is None, f"Expected None for {key_name}, got {computed}"
+    elif isinstance(expected, float):
+        assert math.isclose(expected, computed, abs_tol=0.001, rel_tol=0.011), (
+            f"Float mismatch for {key_name}: expected {expected}, got {computed}"
+        )
+    else:
+        assert expected == computed, (
+            f"Value mismatch for {key_name}: expected {expected}, got {computed}"
+        )
+
+
+# ------------------------------------------------------------------
+# Dispatch table
+# ------------------------------------------------------------------
+
+_METRIC_EVAL_DISPATCH = {
+    EvalMetrics.INDEL: _eval_indel_metrics,
+    EvalMetrics.REGION_DISCOVERY: _eval_region_discovery,
+    EvalMetrics.BOUNDARY_EXACTNESS: _eval_boundary_exactness,
+    EvalMetrics.NUCLEOTIDE_CLASSIFICATION: _eval_nucleotide_classification,
+    EvalMetrics.FRAMESHIFT: _eval_frameshift_metrics,
+}

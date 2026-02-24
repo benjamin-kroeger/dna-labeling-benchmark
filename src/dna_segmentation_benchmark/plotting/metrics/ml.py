@@ -82,7 +82,7 @@ def plot_ml_metrics_bar(
         ax.legend(title="Method Name", loc="upper right", fontsize=9)
         fig.tight_layout()
 
-        _add_pictogram_panel(fig, metadata_map.get(f"ml_{level}"),logger=logger)
+        _add_pictogram_panel(fig, metadata_map.get(level),logger=logger)
 
         if save_path_prefix is not None:
             _save_figure(fig, save_path_prefix.with_name(

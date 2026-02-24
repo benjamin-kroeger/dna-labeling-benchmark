@@ -62,7 +62,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     "indel_counts": PlotMetadata(display_name="INDEL Counts"),
     "indel_lengths": PlotMetadata(display_name="INDEL Length Distribution"),
     # ML precision / recall (one entry per level)
-    "ml_nucleotide_level_metrics": PlotMetadata(
+    "nucleotide": PlotMetadata(
         display_name="Nucleotide-Level Metrics",
         show_tp_tn_fp_fn=True,
         tp_definition="Nucleotides correctly predicted as the target class",
@@ -70,7 +70,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="Nucleotides incorrectly predicted as the target class",
         fn_definition="Nucleotides incorrectly predicted as NOT the target class",
     ),
-    "ml_neighborhood_hit_metrics": PlotMetadata(
+    "neighborhood_hit": PlotMetadata(
         display_name="Neighborhood Hit Metrics",
         icon_path=ICON_PATH / "overlap.png",
         show_tp_tn_fp_fn=True,
@@ -80,7 +80,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="Predicted section does not overlap any ground truth section",
         fn_definition="Ground Truth section is not overlapped by any prediction",
     ),
-    "ml_internal_hit_metrics": PlotMetadata(
+    "internal_hit": PlotMetadata(
         display_name="Internal Hit Metrics",
         icon_path=ICON_PATH / "internal.png",
         description="Measures if a prediction did not exceed the ground truth boundaries (forgiving to under prediction)",
@@ -90,7 +90,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="N/A",
         fn_definition="Ground truth section does not completely contain a predicted section",
     ),
-    "ml_full_coverage_hit_metrics": PlotMetadata(
+    "full_coverage_hit": PlotMetadata(
         display_name="Full Coverage Hit Metrics",
         icon_path=ICON_PATH / "full_coverage.png",
         description="Measures if a prediction contains the entire ground truth section or more (forgiving to over prediction)",
@@ -100,7 +100,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="N/A",
         fn_definition="Ground Truth section is not completely covered by a predicted section",
     ),
-    "ml_perfect_boundary_hit_metrics": PlotMetadata(
+    "perfect_boundary_hit": PlotMetadata(
         display_name="Perfect Boundary Hit Metrics",
         icon_path=ICON_PATH / "prefect_hit.png",
         show_tp_tn_fp_fn=True,
@@ -109,7 +109,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="Predicted section does not perfectly match any true section",
         fn_definition="Ground Truth section is not perfectly matched by a prediction",
     ),
-    "ml_inner_section_boundaries_metrics": PlotMetadata(
+    "inner_section_boundaries": PlotMetadata(
         display_name="Inner Section Boundaries",
         show_tp_tn_fp_fn=True,
         tp_definition="All inner section boundaries are correct except for the outer ones",
@@ -117,7 +117,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="Not all inner section boundaries are correct",
         fn_definition="No predictions were made but gt sections exist",
     ),
-    "ml_all_section_boundaries_metrics": PlotMetadata(
+    "all_section_boundaries": PlotMetadata(
         display_name="All Section Boundaries",
         show_tp_tn_fp_fn=True,
         tp_definition="All section boundaries are correct",
