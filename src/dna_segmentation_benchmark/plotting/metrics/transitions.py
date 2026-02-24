@@ -54,6 +54,6 @@ def plot_transition_matrices(transition_failures: dict, label_config: LabelConfi
         fig.delaxes(axes[j])
 
     fig.suptitle(method_name, fontsize=14)
-    # 5. Adjust layout so titles and labels don't overlap, then show
+    # 5. Adjust layout so titles and labels don't overlap, then return
     plt.tight_layout()
-    plt.show()
+    return fig

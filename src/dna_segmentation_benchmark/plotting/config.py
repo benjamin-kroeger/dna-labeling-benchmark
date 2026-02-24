@@ -1,5 +1,5 @@
 import dataclasses
-from importlib.abc import Traversable
+from importlib.resources.abc import Traversable
 from pathlib import Path
 
 from importlib import resources
@@ -48,6 +48,10 @@ class PlotMetadata:
     description: str = ""
     display_name: str = ""
     show_tp_tn_fp_fn: bool = False
+    tp_definition: str | None = None
+    tn_definition: str | None = None
+    fp_definition: str | None = None
+    fn_definition: str | None = None
 
 
 # Placeholder entries — fill in ``icon_path`` and ``description`` as
@@ -61,34 +65,65 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     "ml_nucleotide_level_metrics": PlotMetadata(
         display_name="Nucleotide-Level Metrics",
         show_tp_tn_fp_fn=True,
+        tp_definition="Nucleotides correctly predicted as the target class",
+        tn_definition="Nucleotides correctly predicted as NOT the target class",
+        fp_definition="Nucleotides incorrectly predicted as the target class",
+        fn_definition="Nucleotides incorrectly predicted as NOT the target class",
     ),
     "ml_neighborhood_hit_metrics": PlotMetadata(
         display_name="Neighborhood Hit Metrics",
         icon_path=ICON_PATH / "overlap.png",
         show_tp_tn_fp_fn=True,
+        description="Measures how well predicted sections partially overlap ground truth section",
+        tp_definition="Predicted section overlaps a true section",
+        tn_definition="N/A",
+        fp_definition="Predicted section does not overlap any ground truth section",
+        fn_definition="Ground Truth section is not overlapped by any prediction",
     ),
     "ml_internal_hit_metrics": PlotMetadata(
         display_name="Internal Hit Metrics",
         icon_path=ICON_PATH / "internal.png",
+        description="Measures if a prediction did not exceed the ground truth boundaries (forgiving to under prediction)",
         show_tp_tn_fp_fn=True,
+        tp_definition="Predicted section is completely contained within a true section",
+        tn_definition="N/A",
+        fp_definition="N/A",
+        fn_definition="Ground truth section does not completely contain a predicted section",
     ),
     "ml_full_coverage_hit_metrics": PlotMetadata(
         display_name="Full Coverage Hit Metrics",
         icon_path=ICON_PATH / "full_coverage.png",
+        description="Measures if a prediction contains the entire ground truth section or more (forgiving to over prediction)",
         show_tp_tn_fp_fn=True,
+        tp_definition="Ground Truth section is completely covered by a predicted section",
+        tn_definition="N/A",
+        fp_definition="N/A",
+        fn_definition="Ground Truth section is not completely covered by a predicted section",
     ),
     "ml_perfect_boundary_hit_metrics": PlotMetadata(
         display_name="Perfect Boundary Hit Metrics",
         icon_path=ICON_PATH / "prefect_hit.png",
         show_tp_tn_fp_fn=True,
+        tp_definition="Predicted section exactly matches a true section's boundaries (100% IoU)",
+        tn_definition="N/A",
+        fp_definition="Predicted section does not perfectly match any true section",
+        fn_definition="Ground Truth section is not perfectly matched by a prediction",
     ),
     "ml_inner_section_boundaries_metrics": PlotMetadata(
         display_name="Inner Section Boundaries",
         show_tp_tn_fp_fn=True,
+        tp_definition="All inner section boundaries are correct except for the outer ones",
+        tn_definition="N/A",
+        fp_definition="Not all inner section boundaries are correct",
+        fn_definition="No predictions were made but gt sections exist",
     ),
     "ml_all_section_boundaries_metrics": PlotMetadata(
         display_name="All Section Boundaries",
         show_tp_tn_fp_fn=True,
+        tp_definition="All section boundaries are correct",
+        tn_definition="N/A",
+        fp_definition="Not all section boundaries are correct",
+        fn_definition="No predictions were made but gt sections exist",
     ),
     # IoU
     "iou_average": PlotMetadata(

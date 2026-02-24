@@ -73,10 +73,14 @@ def compare_multiple_predictions(
     """
     # ---- Build long-format DataFrame ------------------------------------
     rows: list[list] = []
+    figures: dict[str, plt.Figure] = {}
+
     for method_name, benchmark_results in per_method_benchmark_res.items():
         transition_matrices = benchmark_results.pop("transition_failures")
-        plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
-
+        fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
+        if fig_transitions is not None:
+             figures[f"{method_name}_transition_matrices"] = fig_transitions
+        
         for class_name, metric_groupings in benchmark_results.items():
             class_name_str = class_name if isinstance(class_name, str) else str(class_name)
             for metric_group, metric_data in metric_groupings.items():

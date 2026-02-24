@@ -161,12 +161,31 @@ def _add_pictogram_panel(
 
     # --- TP / TN / FP / FN definitions (placed at bottom of panel) ---
     if metadata.show_tp_tn_fp_fn:
-        definitions = (
-            "\u2022 TP: Correctly predicted\n"
-            "\u2022 TN: Correctly absent\n"
-            "\u2022 FP: Falsely predicted\n"
-            "\u2022 FN: Falsely missed"
-        )
+        parts = []
+        if getattr(metadata, "tp_definition", None):
+            parts.append(f"\u2022 TP: {metadata.tp_definition}")
+        else:
+            parts.append("\u2022 TP: Correctly predicted")
+            
+        if getattr(metadata, "tn_definition", None):
+            parts.append(f"\u2022 TN: {metadata.tn_definition}")
+        else:
+            parts.append("\u2022 TN: Correctly absent")
+            
+        if getattr(metadata, "fp_definition", None):
+            parts.append(f"\u2022 FP: {metadata.fp_definition}")
+        else:
+            parts.append("\u2022 FP: Falsely predicted")
+            
+        if getattr(metadata, "fn_definition", None):
+            parts.append(f"\u2022 FN: {metadata.fn_definition}")
+        else:
+            parts.append("\u2022 FN: Falsely missed")
+            
+        # Optional: Word wrap longer definitions so they don't overrun the panel box
+        wrapped_parts = [textwrap.fill(p, width=40, subsequent_indent="  ") for p in parts]
+        definitions = "\n".join(wrapped_parts)
+        
         # Place at fixed position near the bottom to avoid overlap
         # Calculate bottom-aligned y-position for definitions block
         tp_y_bottom = panel_y0 + panel_h * 0.05  # 5% from bottom of panel
