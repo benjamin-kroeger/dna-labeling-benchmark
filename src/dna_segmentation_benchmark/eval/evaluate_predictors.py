@@ -347,7 +347,6 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
             # IoU distribution statistics
             if "iou_scores" in be:
                 be["iou_stats"] = _compute_distribution_stats(be["iou_scores"], is_abs=False)
-                del be["iou_scores"]
 
             # Boundary-residual bias / reliability landscape
             if "fuzzy_metrics" in be:
