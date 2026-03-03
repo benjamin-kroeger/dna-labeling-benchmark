@@ -33,7 +33,7 @@ from .metrics.frameshift import plot_frameshift_percentage_bar
 from .metrics.ml import plot_ml_metrics_bar
 from .metrics.iou import plot_iou_metrics
 from .metrics.boundary import plot_boundary_precision_landscapes
-from .metrics.transitions import plot_transition_matrices
+from .metrics.transitions import plot_transition_matrices, plot_false_transitions
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +75,16 @@ def compare_multiple_predictions(
     rows: list[list] = []
     figures: dict[str, plt.Figure] = {}
 
+    # Collect false transition data across all methods for combined plotting
+    all_false_transition_data: dict[str, dict] = {}
+
     for method_name, benchmark_results in per_method_benchmark_res.items():
         transition_matrices = benchmark_results.pop("transition_failures")
         fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
         if fig_transitions is not None:
              figures[f"{method_name}_transition_matrices"] = fig_transitions
+
+        all_false_transition_data[method_name] = benchmark_results.pop("false_transitions")
         
         for class_name, metric_groupings in benchmark_results.items():
             class_name_str = class_name if isinstance(class_name, str) else str(class_name)
@@ -96,15 +101,18 @@ def compare_multiple_predictions(
                         value,
                     ])
 
+    # ---- Combined false-transition plot (all methods) --------------------
+    fig_false = plot_false_transitions(all_false_transition_data, label_config)
+    if fig_false is not None:
+        figures["false_transitions"] = fig_false
+
     if not rows:
         logger.warning("No benchmark data collected — nothing to plot.")
-        return {}
+        return figures
 
     df = pd.DataFrame(
         rows, columns=["method_name", "measured_class", "metric_group", "metric_key", "value"],
     )
-
-    figures: dict[str, plt.Figure] = {}
 
     for class_token in classes:
         class_name = label_config.name_of(class_token)

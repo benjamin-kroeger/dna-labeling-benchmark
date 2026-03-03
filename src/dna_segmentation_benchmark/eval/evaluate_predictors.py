@@ -125,8 +125,12 @@ def benchmark_gt_vs_pred_single(
 
     metric_results: dict[str, dict] = {}
 
-    transition_failure_confusion_maps = _compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
-    metric_results["transition_failures"] = transition_failure_confusion_maps
+    transition_analysis = _compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
+    metric_results["transition_failures"] = transition_analysis.gt_transition_matrices
+    metric_results["false_transitions"] = {
+        "matrices": transition_analysis.false_transition_matrices,
+        "totals": transition_analysis.false_transition_totals,
+    }
 
     for class_token in classes:
         class_name = label_config.name_of(class_token)
@@ -315,6 +319,14 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
     """
     for _class_name, class_results in aggregated.items():
         if _class_name == "transition_failures":
+            continue
+        if _class_name == "false_transitions":
+            # recursive_merge sums np.ndarray (matrices) element-wise already.
+            # It wraps int values (totals) into lists — sum them back.
+            class_results["totals"] = {
+                k: sum(v) if isinstance(v, list) else v
+                for k, v in class_results["totals"].items()
+            }
             continue
 
         # -- REGION_DISCOVERY: precision & recall per strictness level ------

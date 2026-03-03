@@ -27,13 +27,13 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
         metrics=metrics,
     )
 
-    filtered_keys = set(benchmark_results.keys()) - {"transition_failures"}
+    filtered_keys = set(benchmark_results.keys()) - {"transition_failures", "false_transitions"}
     assert filtered_keys == set(expected_errors.keys()), (
         f"The benchmark keys do not match the expected keys. Expected {expected_errors.keys()}, got {filtered_keys}"
     )
 
     for class_key in benchmark_results:
-        if class_key == "transition_failures":
+        if class_key in ("transition_failures", "false_transitions"):
             continue
         class_results = benchmark_results[class_key]
         expected_results = expected_errors[class_key]
@@ -55,13 +55,13 @@ def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, classes, metri
         metrics=metrics,
     )
 
-    filtered_keys = set(benchmark_results.keys()) - {"transition_failures"}
+    filtered_keys = set(benchmark_results.keys()) - {"transition_failures", "false_transitions"}
     assert filtered_keys == set(expected_errors.keys()), (
         f"The benchmark keys do not match the expected keys. Expected {expected_errors.keys()}, got {filtered_keys}"
     )
 
     for class_key in benchmark_results:
-        if class_key == "transition_failures":
+        if class_key in ("transition_failures", "false_transitions"):
             continue
         class_results = benchmark_results[class_key]
         expected_results = expected_errors[class_key]
