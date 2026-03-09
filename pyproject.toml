@@ -20,6 +20,9 @@ dependencies = [
     "pyyaml>=6.0.2",
 ]
 
+[project.optional-dependencies]
+wandb = ["wandb>=0.16"]
+
 [dependency-groups]
 dev = [
     "ipykernel>=6.29.5",
