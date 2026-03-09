@@ -116,11 +116,7 @@ def benchmark_gt_vs_pred_single(
 
     background_value = label_config.background_label
 
-    # Pad with one background sentinel on each side for safe look-ahead/-behind
-    gt_labels = np.concatenate(([background_value], gt_labels, [background_value]))
-    pred_labels = np.concatenate(([background_value], pred_labels, [background_value]))
-
-    # Row 0 = GT, Row 1 = prediction
+    # Row 0 = GT, Row 1 = prediction  (NO sentinel padding here)
     arr = np.stack((gt_labels, pred_labels), axis=0)
 
     metric_results: dict[str, dict] = {}
@@ -154,14 +150,24 @@ def benchmark_gt_vs_pred_single(
 
         # ---- INDEL metrics ------------------------------------------------
         if EvalMetrics.INDEL in metrics or _needs_section_analysis(metrics):
+            # _classify_mismatches looks one position before/after each group,
+            # so pad with one background sentinel on each side for safe access.
+            padded_gt = np.concatenate(([background_value], gt_labels, [background_value]))
+            padded_pred = np.concatenate(([background_value], pred_labels, [background_value]))
+            padded_arr = np.stack((padded_gt, padded_pred), axis=0)
+
+            # Shift indices by +1 to match the padded array layout
+            padded_insertions = [g + 1 for g in grouped_insertions]
+            padded_deletions = [g + 1 for g in grouped_deletions]
+
             ext5, ext3, joined, whole_ins = _classify_mismatches(
-                grouped_indices=grouped_insertions,
-                gt_pred_arr=arr,
+                grouped_indices=padded_insertions,
+                gt_pred_arr=padded_arr,
                 class_value=class_token,
             )
             del5, del3, split, whole_del = _classify_mismatches(
-                grouped_indices=grouped_deletions,
-                gt_pred_arr=arr,
+                grouped_indices=padded_deletions,
+                gt_pred_arr=padded_arr,
                 class_value=class_token,
             )
 
@@ -435,8 +441,8 @@ def _compute_nucleotide_level_confusion(
     binary_gt = np.where(gt_labels == class_value, 1, 0)
     binary_pred = np.where(pred_labels == class_value, 1, 0)
 
-    # labels=[0, 1] ensures a 2x2 matrix; [1:-1] slices off prepended/appended tags.
-    cm = confusion_matrix(binary_gt[1:-1], binary_pred[1:-1], labels=[0, 1])
+    # labels=[0, 1] ensures a 2x2 matrix
+    cm = confusion_matrix(binary_gt, binary_pred, labels=[0, 1])
     nuc_tn, nuc_fp, nuc_fn, nuc_tp = map(int, cm.ravel())
     
     return {"tn": nuc_tn, "fp": nuc_fp, "fn": nuc_fn, "tp": nuc_tp}
