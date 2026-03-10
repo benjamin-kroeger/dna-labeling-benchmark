@@ -61,6 +61,88 @@ SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
         np.array(
             [
+                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
+                [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
+            ]
+        ),
+        BEND_LABEL_CONFIG,
+        [EXON],
+        [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+        {
+            "EXON": {
+                "INDEL": {
+                    "5_prime_extensions": [],
+                    "3_prime_extensions": [],
+                    "whole_insertions": [],
+                    "5_prime_deletions": [],
+                    "3_prime_deletions": [],
+                    "whole_deletions": [np.array([3,4,5,6,7]),np.array([12,13,14,15,16]),np.array([19,20])],
+                    "split": [],
+                    "joined": [],
+                },
+                "REGION_DISCOVERY": {
+                    "neighborhood_hit": {"tp": 0, "fn": 3, "fp": 0},
+                    "internal_hit": {"tp": 0, "fn": 3},
+                    "full_coverage_hit": {"tp": 0, "fn": 3},
+                    "perfect_boundary_hit": {"tp": 0, "fn": 3, "fp": 0},
+                },
+                "BOUNDARY_EXACTNESS": {
+                    "inner_section_boundaries": {"tp": 0, "fp": 0, "fn": 1, "tn": 0},
+                    "all_section_boundaries": {"tp": 0, "fp": 0, "fn": 1, "tn": 0},
+                    "first_sec_correct_3_prime_boundary": 0,
+                    "last_sec_correct_5_prime_boundary": 0,
+                },
+                "NUCLEOTIDE_CLASSIFICATION": {
+                    "nucleotide": {"tn": 13, "fp": 0, "fn": 12, "tp": 0},
+                },
+            }
+        },
+        id="empty_pred",
+    ),
+    pytest.param(
+        np.array(
+            [
+                [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
+                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
+            ]
+        ),
+        BEND_LABEL_CONFIG,
+        [EXON],
+        [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+        {
+            "EXON": {
+                "INDEL": {
+                    "5_prime_extensions": [],
+                    "3_prime_extensions": [],
+                    "whole_insertions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
+                    "5_prime_deletions": [],
+                    "3_prime_deletions": [],
+                    "whole_deletions": [] ,
+                    "split": [],
+                    "joined": [],
+                },
+                "REGION_DISCOVERY": {
+                    "neighborhood_hit": {"tp": 0, "fn": 0, "fp": 3},
+                    "internal_hit": {"tp": 0, "fn": 0},
+                    "full_coverage_hit": {"tp": 0, "fn": 0},
+                    "perfect_boundary_hit": {"tp": 0, "fn": 0, "fp": 3},
+                },
+                "BOUNDARY_EXACTNESS": {
+                    "inner_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
+                    "all_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
+                    "first_sec_correct_3_prime_boundary": 0,
+                    "last_sec_correct_5_prime_boundary": 0,
+                },
+                "NUCLEOTIDE_CLASSIFICATION": {
+                    "nucleotide": {"tn": 13, "fp": 12, "fn": 0, "tp": 0},
+                },
+            }
+        },
+        id="empty_gt",
+    ),
+    pytest.param(
+        np.array(
+            [
                 [8, 8, 8, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8, 8],
                 [0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8, 8, 8],
             ]
@@ -390,9 +472,9 @@ SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
         np.array(
             [
-                [8, 0, 0, 0, 2, 2,  0, 0, 2, 2,     2, 2, 0, 0, 8, 8],
-                [8, 0, 0, 0, 2, 2,  0, 0, 0, 0,     2, 2, 0, 0, 8, 8],
-                [0, 0, 0, 0, 0, 0,  1, 1, 1, 1,     0, 0, 0, 0, 0, 0],
+                [8, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 2, 0, 0, 8, 8],
+                [8, 0, 0, 0, 2, 2, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8],
+                [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
             ]
         ),
         BEND_LABEL_CONFIG,

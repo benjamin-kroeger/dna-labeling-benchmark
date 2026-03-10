@@ -452,80 +452,122 @@ def _analyze_section_overlap_and_boundaries(
         grouped_gt_section_indices: list[np.ndarray],
         grouped_pred_section_indices: list[np.ndarray],
 ) -> dict:
-    """Analyze overlap and boundary precision between section groups."""
+    """Analyze overlap and boundary precision between section groups.
+
+    Uses ``np.searchsorted`` on sorted section endpoints to restrict the
+    inner comparison to only the predicted sections that *can* overlap each
+    GT section, bringing typical complexity from O(G × P) down to O(G + P).
+    """
     total_gt = len(grouped_gt_section_indices)
     total_pred = len(grouped_pred_section_indices)
 
     gt_hit_overlap = np.zeros(total_gt, dtype=bool)
     pred_hit_overlap = np.zeros(total_pred, dtype=bool)
-    gt_hit_envelop = np.zeros(total_gt, dtype=bool)  # Forgives Under-pred
+    gt_hit_envelop = np.zeros(total_gt, dtype=bool)   # Forgives Under-pred
     gt_hit_encompass = np.zeros(total_gt, dtype=bool)  # Forgives Over-pred
     gt_hit_strict = np.zeros(total_gt, dtype=bool)
     pred_hit_strict = np.zeros(total_pred, dtype=bool)
 
-    # Initialize this at the start of _get_metrics_across_levels
-    boundary_residuals = []
-
-    # Iou Scores
-    iou_scores = []
+    boundary_residuals: list[tuple[int, int]] = []
+    iou_scores: list[float] = []
 
     fully_matching_sections = 0
     inner_boundary_matching_sections = 0
     first_sec_correct_3_prime = 0
     last_sec_correct_5_prime = 0
 
-    # ---- 3. Mapping Logic -------------------------------------------------
-    for g_idx, gt_section in enumerate(grouped_gt_section_indices):
-        gt_min, gt_max = np.min(gt_section), np.max(gt_section)
+    # ---- 3. Mapping Logic (searchsorted sweep) ----------------------------
+    # for every gt section, check if it overlaps with any predicted section,
+    # then classify the overlap.
+    if total_gt > 0 and total_pred > 0:
+        # Pre-compute (min, max) bounds arrays — sections are already sorted
+        # by position because they come from contiguous-group splitting.
+        pred_mins = np.array([s[0] for s in grouped_pred_section_indices])
+        pred_maxs = np.array([s[-1] for s in grouped_pred_section_indices])
 
-        for p_idx, pred_section in enumerate(grouped_pred_section_indices):
-            p_min, p_max = np.min(pred_section), np.max(pred_section)
+        for g_idx, gt_section in enumerate(grouped_gt_section_indices):
+            gt_min = int(gt_section[0])
+            gt_max = int(gt_section[-1])
 
-            # --- A. Overlap (Any contact) ---
-            if not (p_max < gt_min or p_min > gt_max):
-                gt_hit_overlap[g_idx] = True
-                pred_hit_overlap[p_idx] = True
+            # Find the range of pred sections that could overlap [gt_min, gt_max]:
+            #   pred_min <= gt_max  →  candidates start from index 0 up to right_bound
+            #   pred_max >= gt_min  →  candidates start from left_bound onward
+            left_bound = np.searchsorted(pred_maxs, gt_min, side="left")
+            right_bound = np.searchsorted(pred_mins, gt_max, side="right")
 
-                # residual collecitons
-                res_5p = p_min - gt_min  # Negative = Upstream, Positive = Downstream
-                res_3p = p_max - gt_max  # Negative = Upstream, Positive = Downstream
-                boundary_residuals.append((res_5p, res_3p))
+            # iterate over all possible pred sections which overlap the gt section
+            for p_idx in range(left_bound, right_bound):
+                p_min = int(pred_mins[p_idx])
+                p_max = int(pred_maxs[p_idx])
 
-                # --- Metrics: IoU ----
-                iou_scores.append(_compute_intersection_over_union_score(gt_start=gt_min, gt_end=gt_max, pred_start=p_min, pred_end=p_max))
+                # --- A. Overlap (Any contact) ---
+                if not (p_max < gt_min or p_min > gt_max):
+                    gt_hit_overlap[g_idx] = True
+                    pred_hit_overlap[p_idx] = True
 
-                # --- B. Envelop (Prediction is entirely INSIDE GT) ---
-                if p_min >= gt_min and p_max <= gt_max:
-                    gt_hit_envelop[g_idx] = True
+                    # Boundary residuals
+                    res_5p = p_min - gt_min
+                    res_3p = p_max - gt_max
+                    boundary_residuals.append((res_5p, res_3p))
 
-                # --- C. Encompass (Prediction fully COVERS GT) ---
-                if p_min <= gt_min and p_max >= gt_max:
-                    gt_hit_encompass[g_idx] = True
+                    # IoU
+                    iou_scores.append(
+                        _compute_intersection_over_union_score(
+                            gt_start=gt_min, gt_end=gt_max,
+                            pred_start=p_min, pred_end=p_max,
+                        )
+                    )
 
-            # --- D. Strict Match (Coordinates match exactly) ---
-            if p_min == gt_min and p_max == gt_max:
-                gt_hit_strict[g_idx] = True
-                pred_hit_strict[p_idx] = True
-                fully_matching_sections += 1
+                    # --- B. Envelop (Prediction entirely INSIDE GT) ---
+                    if p_min >= gt_min and p_max <= gt_max:
+                        gt_hit_envelop[g_idx] = True
 
-                # Internal/Boundary Analysis
-                if 0 < g_idx < total_gt - 1:
-                    inner_boundary_matching_sections += 1
-            if g_idx == 0 and p_max == gt_max:
-                first_sec_correct_3_prime = 1
+                    # --- C. Encompass (Prediction fully COVERS GT) ---
+                    if p_min <= gt_min and p_max >= gt_max:
+                        gt_hit_encompass[g_idx] = True
+
+                # --- D. Strict Match (Coordinates match exactly) ---
+                if p_min == gt_min and p_max == gt_max:
+                    gt_hit_strict[g_idx] = True
+                    pred_hit_strict[p_idx] = True
+                    fully_matching_sections += 1
+
+                    # Internal/Boundary Analysis
+                    if 0 < g_idx < total_gt - 1:
+                        inner_boundary_matching_sections += 1
+
+                if g_idx == 0 and p_max == gt_max:
+                    first_sec_correct_3_prime = 1
 
                 # For the last exon, the left boundary (min) is the 5' end.
-            if g_idx == total_gt - 1 and p_min == gt_min:
-                last_sec_correct_5_prime = 1
+                if g_idx == total_gt - 1 and p_min == gt_min:
+                    last_sec_correct_5_prime = 1
 
     # ---- 4. Sequence-Level Aggregates -------------------------------------
     num_inner_expected = total_gt - 2 if total_gt > 2 else (1 if total_gt == 2 else 0)
-    inner_boundaries = {
-        "tp": 1 if total_gt > 1 and inner_boundary_matching_sections == num_inner_expected and total_pred > 0 else 0,
-        "fp": 1 if total_gt > 1 and inner_boundary_matching_sections != num_inner_expected and total_pred > 0 else 0,
-        "fn": 1 if total_gt > 1 and total_pred == 0 else 0,
-        "tn": 0,
-    } if total_gt > 1 else {"tn": 0, "fp": 0, "fn": 0, "tp": 0}
+    if total_gt > 1:
+        inner_boundaries = {
+            "tp": 1 if inner_boundary_matching_sections == num_inner_expected and total_pred > 0 else 0,
+            "fp": 1 if inner_boundary_matching_sections != num_inner_expected and total_pred > 0 else 0,
+            "fn": 1 if total_pred == 0 else 0,
+            "tn": 0,
+        }
+    elif total_gt == 0 and total_pred > 0:
+        # No GT sections but predictions exist → false positive
+        inner_boundaries = {"tp": 0, "fp": 1, "fn": 0, "tn": 0}
+        all_section_boundaries = {"tp": 0, "fp": 1, "fn": 0, "tn": 0}
+    else:
+        # total_gt <= 1 and no spurious predictions → nothing to evaluate
+        inner_boundaries = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+
+    if total_gt > 0:
+        all_section_boundaries = {
+            "tp": 1 if fully_matching_sections == total_gt else 0,
+            "fp": 1 if (fully_matching_sections != total_gt and total_pred > 0) or (total_gt == 0 and total_pred > 0) else 0,
+            "fn": 1 if total_pred == 0 else 0,
+            "tn": 0,
+        }
+
 
     return {
         "neighborhood_hit": {
@@ -549,12 +591,7 @@ def _analyze_section_overlap_and_boundaries(
             "fp": int(total_pred - np.sum(pred_hit_strict))
         },
         "inner_section_boundaries": inner_boundaries,
-        "all_section_boundaries": {
-            "tp": 1 if total_gt > 0 and fully_matching_sections == total_gt else 0,
-            "fp": 1 if total_gt > 0 and fully_matching_sections != total_gt and total_pred > 0 else 0,
-            "fn": 1 if total_gt > 0 and total_pred == 0 else 0,
-            "tn": 0
-        },
+        "all_section_boundaries": all_section_boundaries,
         "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
         "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
         "iou_scores": iou_scores,
