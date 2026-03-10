@@ -61,6 +61,47 @@ SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
         np.array(
             [
+                [8, 8, 8,   0, 0, 0, 0, 0,   2, 2, 2, 2,    0, 0, 0, 0, 0,   2, 2,  0, 0,    8, 8, 8, 8],
+                [8, 8, 8,   0, 2, 0, 2, 0,   2, 0, 2, 2,    0, 2, 0, 2, 0,   2, 2,  0, 0,    8, 8, 0, 8],
+            ]
+        ),
+        BEND_LABEL_CONFIG,
+        [EXON],
+        [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+        {
+            "EXON": {
+                "INDEL": {
+                    "5_prime_extensions": [],
+                    "3_prime_extensions": [],
+                    "whole_insertions": [np.array([9]), np.array([23])],
+                    "5_prime_deletions": [],
+                    "3_prime_deletions": [],
+                    "whole_deletions": [],
+                    "split": [np.array([4]), np.array([6]), np.array([13]), np.array(15)],
+                    "joined": [],
+                },
+                "REGION_DISCOVERY": {
+                    "neighborhood_hit": {"tp": 3, "fn": 0, "fp": 6},
+                    "internal_hit": {"tp": 3, "fn": 0, "fp":6},
+                    "full_coverage_hit": {"tp": 1, "fn": 2, "fp":6},
+                    "perfect_boundary_hit": {"tp": 1, "fn": 2, "fp": 8},
+                },
+                "BOUNDARY_EXACTNESS": {
+                    "inner_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
+                    "all_section_boundaries": {"tp": 0, "fp": 1, "fn": 0, "tn": 0},
+                    "first_sec_correct_3_prime_boundary": 1,
+                    "last_sec_correct_5_prime_boundary": 1,
+                },
+                "NUCLEOTIDE_CLASSIFICATION": {
+                    "nucleotide": {"tn": 11, "fp": 2, "fn": 4, "tp": 8},
+                },
+            }
+        },
+        id="uncertain_predictions",
+    ),
+    pytest.param(
+        np.array(
+            [
                 [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
                 [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
             ]
@@ -76,7 +117,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
                     "whole_insertions": [],
                     "5_prime_deletions": [],
                     "3_prime_deletions": [],
-                    "whole_deletions": [np.array([3,4,5,6,7]),np.array([12,13,14,15,16]),np.array([19,20])],
+                    "whole_deletions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
                     "split": [],
                     "joined": [],
                 },
@@ -117,7 +158,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
                     "whole_insertions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
                     "5_prime_deletions": [],
                     "3_prime_deletions": [],
-                    "whole_deletions": [] ,
+                    "whole_deletions": [],
                     "split": [],
                     "joined": [],
                 },
@@ -194,7 +235,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
                     "joined": [np.array([4, 5, 6])],
                 },
                 "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 2, "fn": 0, "fp": 0},
+                    "neighborhood_hit": {"tp": 1, "fn": 1, "fp": 0},
                     "internal_hit": {"tp": 0, "fn": 2},
                     "full_coverage_hit": {"tp": 0, "fn": 2},
                     "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
@@ -506,7 +547,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
 MULTI_SEQUENCE_TEST_CASES = [
     pytest.param(
         [np.array([8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8])],
-        [np.array([8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])],
+                [np.array([8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])],
         BEND_LABEL_CONFIG,
         [EXON],
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
@@ -528,8 +569,8 @@ MULTI_SEQUENCE_TEST_CASES = [
                 },
                 "REGION_DISCOVERY": {
                     "neighborhood_hit": {"precision": 0, "recall": 0.0},
-                    "internal_hit": {"precision": None, "recall": 0.0},
-                    "full_coverage_hit": {"precision": None, "recall": 0.0},
+                    "internal_hit": {"precision": 0.0, "recall": 0.0},
+                    "full_coverage_hit": {"precision": 0.0, "recall": 0.0},
                     "perfect_boundary_hit": {"precision": 0, "recall": 0.0},
                 },
                 "BOUNDARY_EXACTNESS": {

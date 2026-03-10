@@ -457,14 +457,22 @@ def _analyze_section_overlap_and_boundaries(
     Uses ``np.searchsorted`` on sorted section endpoints to restrict the
     inner comparison to only the predicted sections that *can* overlap each
     GT section, bringing typical complexity from O(G × P) down to O(G + P).
+
+    Region-discovery metrics (``neighborhood_hit``, ``internal_hit``,
+    ``full_coverage_hit``) use greedy **1:1 matching** based on maximum
+    overlap length so that each GT section is claimed by at most one
+    prediction.  Predictions that cannot be matched because a better-
+    fitting prediction already claimed the GT are counted as false
+    positives.
+
+    ``perfect_boundary_hit`` uses a per-prediction sweep: any prediction
+    that exactly matches *some* GT section counts as a TP regardless of
+    matching assignment.
     """
     total_gt = len(grouped_gt_section_indices)
     total_pred = len(grouped_pred_section_indices)
 
-    gt_hit_overlap = np.zeros(total_gt, dtype=bool)
-    pred_hit_overlap = np.zeros(total_pred, dtype=bool)
-    gt_hit_envelop = np.zeros(total_gt, dtype=bool)   # Forgives Under-pred
-    gt_hit_encompass = np.zeros(total_gt, dtype=bool)  # Forgives Over-pred
+    # Per-prediction flags for perfect-boundary (sweep-based, no 1:1 matching)
     gt_hit_strict = np.zeros(total_gt, dtype=bool)
     pred_hit_strict = np.zeros(total_pred, dtype=bool)
 
@@ -476,15 +484,17 @@ def _analyze_section_overlap_and_boundaries(
     first_sec_correct_3_prime = 0
     last_sec_correct_5_prime = 0
 
-    # ---- 3. Mapping Logic (searchsorted sweep) ----------------------------
-    # for every gt section, check if it overlaps with any predicted section,
-    # then classify the overlap.
+    # Overlap candidates for 1:1 matching
+    candidates: list[tuple[int, int, int]] = []  # (overlap_len, g_idx, p_idx)
+
+    # ---- 1. Sweep — collect candidates & populate sweep-based metrics -----
     if total_gt > 0 and total_pred > 0:
         # Pre-compute (min, max) bounds arrays — sections are already sorted
         # by position because they come from contiguous-group splitting.
         pred_mins = np.array([s[0] for s in grouped_pred_section_indices])
         pred_maxs = np.array([s[-1] for s in grouped_pred_section_indices])
 
+        # iterate over each ground truth section
         for g_idx, gt_section in enumerate(grouped_gt_section_indices):
             gt_min = int(gt_section[0])
             gt_max = int(gt_section[-1])
@@ -502,15 +512,12 @@ def _analyze_section_overlap_and_boundaries(
 
                 # --- A. Overlap (Any contact) ---
                 if not (p_max < gt_min or p_min > gt_max):
-                    gt_hit_overlap[g_idx] = True
-                    pred_hit_overlap[p_idx] = True
-
-                    # Boundary residuals
+                    # Boundary residuals (computed for every overlapping pair)
                     res_5p = p_min - gt_min
                     res_3p = p_max - gt_max
                     boundary_residuals.append((res_5p, res_3p))
 
-                    # IoU
+                    # IoU (computed for every overlapping pair)
                     iou_scores.append(
                         _compute_intersection_over_union_score(
                             gt_start=gt_min, gt_end=gt_max,
@@ -518,15 +525,15 @@ def _analyze_section_overlap_and_boundaries(
                         )
                     )
 
-                    # --- B. Envelop (Prediction entirely INSIDE GT) ---
-                    if p_min >= gt_min and p_max <= gt_max:
-                        gt_hit_envelop[g_idx] = True
+                    # Collect candidate for 1:1 matching
+                    overlap_start = max(gt_min, p_min)
+                    overlap_end = min(gt_max, p_max)
+                    overlap_len = overlap_end - overlap_start + 1
+                    # add discovered overlap to list of candidates
+                    # store the indices of the gt and pred exon
+                    candidates.append((overlap_len, g_idx, p_idx))
 
-                    # --- C. Encompass (Prediction fully COVERS GT) ---
-                    if p_min <= gt_min and p_max >= gt_max:
-                        gt_hit_encompass[g_idx] = True
-
-                # --- D. Strict Match (Coordinates match exactly) ---
+                # --- B. Strict Match (sweep-based, for perfect_boundary_hit) ---
                 if p_min == gt_min and p_max == gt_max:
                     gt_hit_strict[g_idx] = True
                     pred_hit_strict[p_idx] = True
@@ -542,6 +549,49 @@ def _analyze_section_overlap_and_boundaries(
                 # For the last exon, the left boundary (min) is the 5' end.
                 if g_idx == total_gt - 1 and p_min == gt_min:
                     last_sec_correct_5_prime = 1
+
+    # ---- 2. Greedy 1:1 matching (largest overlap first) -------------------
+    # handle internal_hit neighborhood hit and full coverage hit
+    candidates.sort(key=lambda x: x[0], reverse=True)
+
+    claimed_gt: set[int] = set()
+    claimed_pred: set[int] = set()
+    matches: list[tuple[int, int]] = []  # (g_idx, p_idx)
+
+    # iterate over all candidates
+    for _overlap_len, g_idx, p_idx in candidates:
+        # since its ordered best fits come first
+        # claim set gt section and mark pred as assigend
+        if g_idx not in claimed_gt and p_idx not in claimed_pred:
+            claimed_gt.add(g_idx)
+            claimed_pred.add(p_idx)
+            matches.append((g_idx, p_idx))
+
+    num_unmatched_pred = total_pred - len(matches)
+
+    # ---- 3. Classify matched pairs for discovery tiers --------------------
+    matched_neighborhood = 0   # All matches have overlap by definition
+    matched_internal = 0       # Pred entirely inside GT
+    matched_full_coverage = 0  # Pred fully covers GT
+
+    for g_idx, p_idx in matches:
+        gt_section = grouped_gt_section_indices[g_idx]
+        pred_section = grouped_pred_section_indices[p_idx]
+        gt_min = int(gt_section[0])
+        gt_max = int(gt_section[-1])
+        p_min = int(pred_section[0])
+        p_max = int(pred_section[-1])
+
+        # Every matched pair has overlap → neighborhood TP
+        matched_neighborhood += 1
+
+        # Internal / Envelop (prediction entirely INSIDE GT)
+        if p_min >= gt_min and p_max <= gt_max:
+            matched_internal += 1
+
+        # Full Coverage / Encompass (prediction fully COVERS GT)
+        if p_min <= gt_min and p_max >= gt_max:
+            matched_full_coverage += 1
 
     # ---- 4. Sequence-Level Aggregates -------------------------------------
     num_inner_expected = total_gt - 2 if total_gt > 2 else (1 if total_gt == 2 else 0)
@@ -559,6 +609,7 @@ def _analyze_section_overlap_and_boundaries(
     else:
         # total_gt <= 1 and no spurious predictions → nothing to evaluate
         inner_boundaries = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+        all_section_boundaries = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
 
     if total_gt > 0:
         all_section_boundaries = {
@@ -568,23 +619,26 @@ def _analyze_section_overlap_and_boundaries(
             "tn": 0,
         }
 
-
     return {
+        # 1:1-matched discovery metrics
         "neighborhood_hit": {
-            "tp": int(np.sum(gt_hit_overlap)),
-            "fn": int(total_gt - np.sum(gt_hit_overlap)),
-            "fp": int(total_pred - np.sum(pred_hit_overlap))
+            "tp": matched_neighborhood,
+            "fn": total_gt - matched_neighborhood,
+            "fp": num_unmatched_pred,
         },
-        # Forgives under-prediction (prediction segment is inside GT).
+        # Forgives under-prediction (matched prediction is inside GT).
         "internal_hit": {
-            "tp": int(np.sum(gt_hit_envelop)),
-            "fn": int(total_gt - np.sum(gt_hit_envelop)),
+            "tp": matched_internal,
+            "fn": total_gt - matched_internal,
+            "fp": num_unmatched_pred,
         },
-        # Forgives over-prediction (prediction segment covers GT).
+        # Forgives over-prediction (matched prediction covers GT).
         "full_coverage_hit": {
-            "tp": int(np.sum(gt_hit_encompass)),
-            "fn": int(total_gt - np.sum(gt_hit_encompass)),
+            "tp": matched_full_coverage,
+            "fn": total_gt - matched_full_coverage,
+            "fp": num_unmatched_pred,
         },
+        # Sweep-based (no 1:1 matching) — handles fragmented predictions well
         "perfect_boundary_hit": {
             "tp": int(np.sum(gt_hit_strict)),
             "fn": int(total_gt - np.sum(gt_hit_strict)),

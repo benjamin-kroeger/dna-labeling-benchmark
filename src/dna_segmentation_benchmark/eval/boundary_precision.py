@@ -52,16 +52,17 @@ def _compute_boundary_precision_landscape(
         columns=pd.Index(bias_ticks, name="3' Residual (Pred − GT)"),
     )
 
-    # --- Matrix 2: Reliability Matrix (The 'Cumulative' Heatmap) ---
+    # --- Matrix 2: Reliability Matrix (vectorized broadcast) ---
     abs_res = np.abs(res_arr)
-    reliability_values = np.zeros((max_range + 1, max_range + 1))
+    # Broadcast: tolerance thresholds (T, 1) against residual values (N,)
+    tol_5 = tolerance_ticks.reshape(-1, 1, 1)     # (T, 1, 1)
+    tol_3 = tolerance_ticks.reshape(1, -1, 1)     # (1, T, 1)
+    abs_5 = abs_res[:, 0].reshape(1, 1, -1)       # (1, 1, N)
+    abs_3 = abs_res[:, 1].reshape(1, 1, -1)       # (1, 1, N)
 
-    for d5 in range(max_range + 1):
-        for d3 in range(max_range + 1):
-            successes = np.sum((abs_res[:, 0] <= d5) & (abs_res[:, 1] <= d3))
-            reliability_values[d5, d3] = (
-                successes / total_gt_count if total_gt_count > 0 else 0
-            )
+    reliability_values = np.sum((abs_5 <= tol_5) & (abs_3 <= tol_3), axis=2).astype(float)
+    if total_gt_count > 0:
+        reliability_values /= total_gt_count
 
     reliability_matrix = pd.DataFrame(
         reliability_values,
