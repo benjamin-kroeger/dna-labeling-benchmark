@@ -1,18 +1,28 @@
 [project]
 name = "dna-segmentation-benchmark"
-version = "0.0.3"
-description = "A collection of different evaluators for dna nucleodtide level labeling"
+version = "0.1.0"
+description = "Metrics for nucleotide-level DNA segmentation benchmarking"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Benjamin Kroeger" },
+]
+keywords = ["genomics", "gene prediction", "benchmarking", "segmentation", "bioinformatics"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: OS Independent",
+]
 dependencies = [
-    "biopython>=1.85",
     "bokeh>=3.7.0",
     "click>=8.0",
     "matplotlib>=3.10.1",
     "numpy>=2.2.4",
     "pydantic>=2.0",
     "pandas>=2.2.3",
-    "pytest>=8.3.5",
     "scikit-learn>=1.6.1",
     "seaborn>=0.13.2",
     "tqdm>=4.67.1",
@@ -30,6 +40,7 @@ dev = [
     "jupyter>=1.1.1",
     "notebook>=7.4.2",
     "pyarrow>=23.0.1",
+    "pytest>=8.3.5",
     "ruff>=0.11.2",
 ]
 
@@ -39,9 +50,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["dna_segmentation_benchmark.wandb*"]
 
 [tool.setuptools]
-include-package-data = true # Ensure this is true
+include-package-data = true
 
 [tool.setuptools.package-data]
 "dna_segmentation_benchmark" = ["icons/*.png"]
@@ -54,3 +66,4 @@ dna-benchmark = "dna_segmentation_benchmark.cli:cli"
 
 [project.urls]
 "Source Code" = "https://github.com/PredictProtein/benchmark"
+"Bug Tracker" = "https://github.com/PredictProtein/benchmark/issues"
