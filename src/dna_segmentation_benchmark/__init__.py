@@ -24,6 +24,7 @@ from .wandb_logger import (
     log_benchmark_full,
     init_wandb_with_presets,
 )
+from .pipeline import benchmark_from_gff
 
 __all__ = [
     "LabelConfig",
@@ -31,6 +32,7 @@ __all__ = [
     "EvalMetrics",
     "benchmark_gt_vs_pred_single",
     "benchmark_gt_vs_pred_multiple",
+    "benchmark_from_gff",
     "compare_multiple_predictions",
     "log_benchmark_scalars",
     "log_benchmark_full",
