@@ -14,7 +14,14 @@ def _get_frame_shift_metrics(
     if len(gt_exon_indices) == 0 or len(pred_exon_indices) == 0:
         return {"gt_frames": []}
 
-    assert len(gt_exon_indices) % 3 == 0, "There is no clear codon usage"
+    if len(pred_exon_indices) < 3:
+        return {"gt_frames": []}
+
+    if len(gt_exon_indices) % 3 != 0:
+        raise ValueError(
+            f"GT exon indices ({len(gt_exon_indices)}) are not divisible by 3 — "
+            f"cannot form complete codons."
+        )
 
     gt_codons = gt_exon_indices.reshape(-1, 3)
     possible_pred_codons = sliding_window_view(pred_exon_indices, 3)

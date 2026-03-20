@@ -1,101 +1,143 @@
-# DNA segmentation benchmark
-This benchmark provides easy metrics for segmentation tasks beyond the common scores. It is highly flexible and easily adaptable to 
-all kinds of annotations.
+# DNA Segmentation Benchmark
 
-## Insertion / Deletion / Excision / Incision metric
-Looking at the kind of error models make when segmenting can reveal systematic biases and issues. Furthermore this package allows to also look
-at the lengths of the different errors.
-### Error counts
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/total_error_count_comparisson.png)
-### Error lengths
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/error_length_distribution.png)
+Diagnostic evaluation toolkit for nucleotide-level DNA segmentation models (gene finders like Augustus, Helixer, Tiberius, SegmentNT) against reference annotations (e.g., GENCODE).
 
-## Precision / Recall across different levels
-Similar to the tool [gffcompare](https://ccb.jhu.edu/software/stringtie/gffcompare.shtml), this package offers precision / recall evaluation at different 
-levels. \
-As this benchmark is flexible and not limited to just evaluating exons any class can be chosen as the _positive_ label, but for the coming examples 
-I will stick to referring to exons as positives.
-### Nucleotide level
-
-- TP : A ground truth exon nucleotide being predicted as exon
-- FP : A ground truth **non** exon nucleotide being predicted as exon
-- TN : Any other label being not predicted as exon
-- FN : Any other label being predicted as exon
-
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/nucleotide_level_metrics.png)
-
-### Encompassing sections
-
-- TP : A continuous sequence of ground truth exon nucleotides being contained in a continuous sequence of predicted exon nucleotides
-- FP : A continuous sequence of ground truth exon nucleotides not being contained on both sides in a continuous sequence of predicted exon nucleotides
-- TN : 
-- FN : A continuous sequence of predicted exon nucleotides not overlapping with any ground truth exon section
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/encompassing_section_match.png)
-### Strict sections
-
-- TP : A continuous sequence of ground truth exon nucleotides exactly matching a continuous sequence of predicted exon nucleotides
-- FP : A continuous sequence of ground truth exon nucleotides not exactly matching a continuous sequence of predicted exon nucleotides
-- TN : 
-- FN : A continuous sequence of predicted exon nucleotides not overlapping with any ground truth exon section
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/strict_section_metrics.png)
-### All inner section boundaries are correct (only for multi exon transcript)
-
-- TP : A set of predicted exon sections where all the inner boundaries are correct
-- FP : A set of predicted exon sections where not all the inner boundaries are correct
-- TN :
-- FN : No prediction for exons being made despite ground truth exon annotations
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/correct_inner_section_boundaries_metrics.png)
-### Total section boundary correctness 
-
-- TP : A set of predicted exon sections where all the boundaries are correct
-- FP : A set of predicted exon sections where not all the boundaries are correct
-- TN :
-- FN : No prediction for exons being made despite ground truth exon annotations
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/correct_section_boundaries_metrics.png)
-
-## Frameshift metrics
-When looking at segmented DNA we're often interested in how well the chained exon transcript (assuming no alternate splicing) fits to
-the protein sequence of a gene. However, to properly evaluate this each gene needs to be mapped to a protein sequence, which is not the case
-for arbitrary inputs. 
-This metric offers to evaluate the frameshift that is introduced across a sequence segmentation.
-
-Again, this metric can be incredibly insightful, but you have to be careful how you use it. Unless you
-are sure that all exons are part of the final transcript for all the benchmarked sequences **DON'T USE IT**.
-Your results will be skewed and hold no value. 
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/reading_frame_metrics.png)
-
-# Extra Visualizations 
-For debugging single sequences and analyzing the predictions in detail this package also contains a module to render interactive
-webpages `example_data/genome_annotation_comparison_enhanced.html`
-![image](https://raw.githubusercontent.com/PredictProtein/benchmark/main/example_plots/interactive.png)
-# Usage
+Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias analysis**, **IoU distributions**, and **state transition diagnostics** -- metrics not available in gffcompare, Mikado, or EGASP.
 
 ```
 pip install dna-segmentation-benchmark
 ```
-```python
-# load the module
-from enum import Enum
-# define the labels of the data
-class CustomLabelDef(Enum):
-    NONCODING = 8
-    EXON = 0
-    INTRON = 2
-```
-As previously mentioned, one of the strengths of this package is its ability to run the evaluations on any specified label. So
-in the following example the evaluation will be run for introns and exons alike. (although most of the metrics are tailored to exons)
+
+## Quick Start
+
+### From GFF/GTF files
 
 ```python
-from dna_segmentation_benchmark import evaluate_predictors as ep
-chosen_eval_metrics = [ep.EvalMetrics.INDEL, ep.EvalMetrics.FRAMESHIFT]
-classes_to_eval = [CustomLabelDef.EXON, CustomLabelDef.INTRON]
+from dna_segmentation_benchmark import (
+    LabelConfig, EvalMetrics, benchmark_from_gff, compare_multiple_predictions,
+)
 
-example_gt_seq = [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8]
-example_pred_seq = [0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, 8]
+label_config = LabelConfig(
+    labels={0: "CDS", 8: "NONCODING"},
+    background_label=8,
+    coding_label=0,
+)
 
-evaluation = ep.benchmark_gt_vs_pred_single(gt_labels=example_gt_seq, pred_labels=example_pred_seq, labels=CustomLabelDef,
-                                            classes=classes_to_eval,
-                                            metrics=chosen_eval_metrics)
+results = benchmark_from_gff(
+    gt_path="ground_truth.gtf",
+    pred_paths={"augustus": "predictions.gff"},
+    label_config=label_config,
+    classes=[0],
+    metrics=[EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+    exclude_features=["gene"],
+)
+
+figures = compare_multiple_predictions(
+    per_method_benchmark_res=results,
+    label_config=label_config,
+    classes=[0],
+    metrics_to_eval=[EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+)
 ```
 
-There are more extensive examples in the examples folder
+### From label arrays
+
+```python
+from dna_segmentation_benchmark import (
+    LabelConfig, EvalMetrics, benchmark_gt_vs_pred_multiple, compare_multiple_predictions,
+)
+
+label_config = LabelConfig(
+    labels={0: "EXON", 2: "INTRON", 8: "NONCODING"},
+    background_label=8,
+    coding_label=0,
+)
+
+results = benchmark_gt_vs_pred_multiple(
+    gt_labels=gt_arrays,       # list[np.ndarray]
+    pred_labels=pred_arrays,   # list[np.ndarray]
+    label_config=label_config,
+    classes=[0],
+    metrics=[EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+)
+```
+
+### CLI
+
+```bash
+dna-benchmark run \
+    --gt ground_truth.gtf \
+    --pred augustus:predictions.gff \
+    --config label_config.yaml \
+    --classes 0 \
+    --exclude-features gene \
+    --output results.json
+```
+
+## Metrics
+
+### INDEL Error Taxonomy
+
+Classifies mismatch regions into 8 structural error types: 5'/3' extensions, whole insertions, joins, 5'/3' deletions, whole deletions, and splits. Reveals systematic biases in model predictions.
+
+![INDEL error counts](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_indel_counts.png)
+
+![INDEL error lengths](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_indel_lengths.png)
+
+### Region Discovery (4-level Precision/Recall)
+
+Evaluates section matching at increasing strictness: neighborhood overlap, internal containment, full coverage, and perfect boundary match.
+
+![Region discovery - neighborhood](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_region_discovery_neighborhood_hit.png)
+
+![Region discovery - perfect boundary](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_region_discovery_perfect_boundary_hit.png)
+
+### Nucleotide-Level Classification
+
+Per-base TP/TN/FP/FN with precision, recall, and F1.
+
+![Nucleotide classification](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_nucleotide_classification_nucleotide.png)
+
+### Boundary Exactness (IoU)
+
+Per-section IoU scores with average comparison and survival-curve distributions.
+
+![IoU average](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_iou_average.png)
+
+![IoU distribution](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_iou_distribution.png)
+
+## W&B Integration
+
+Log metrics during training and full diagnostic reports after:
+
+```python
+from dna_segmentation_benchmark import init_wandb_with_presets, log_benchmark_scalars, log_benchmark_full
+
+run = init_wandb_with_presets("my-project", "run-name", label_config, classes=[0])
+
+# During training -- lightweight scalar logging per epoch
+log_benchmark_scalars(val_results, label_config, step=epoch, method_prefix="val")
+
+# After training -- full report with figures
+log_benchmark_full({"my_model": final_results}, figures, label_config)
+```
+
+Install with: `pip install dna-segmentation-benchmark[wandb]`
+
+## Examples
+
+See the [`examples/`](examples/) folder:
+
+- **[GTF programmatic example](examples/gtf_programmatic_example.ipynb)** -- end-to-end GFF/GTF evaluation
+- **[Array benchmark example](examples/array_benchmark_example.ipynb)** -- starting from numpy label arrays
+- **[W&B training loop](examples/wandb_training_loop.ipynb)** -- integration with Weights & Biases
+
+## Updating README Plots
+
+The plots in this README are auto-generated. To refresh them:
+
+```bash
+python scripts/generate_readme_plots.py
+```
+
+This writes PNGs to `docs/images/` which are referenced by the README.

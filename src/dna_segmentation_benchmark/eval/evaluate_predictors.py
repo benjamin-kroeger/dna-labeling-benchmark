@@ -276,12 +276,15 @@ def benchmark_gt_vs_pred_multiple(
     dict | list[dict]
         Aggregated (default) or per-sequence results.
     """
-    assert len(gt_labels) == len(pred_labels), (
-        "There must be equally many ground-truth and prediction sequences."
-    )
-    if mask_labels is not None:
-        assert len(mask_labels) == len(gt_labels), (
-            "Mask list must be the same length as GT list."
+    if len(gt_labels) != len(pred_labels):
+        raise ValueError(
+            f"GT and prediction lists must have equal length, "
+            f"got {len(gt_labels)} vs {len(pred_labels)}."
+        )
+    if mask_labels is not None and len(mask_labels) != len(gt_labels):
+        raise ValueError(
+            f"Mask list length ({len(mask_labels)}) must match "
+            f"GT list length ({len(gt_labels)})."
         )
 
     metrics = deepcopy(metrics) if metrics is not None else list(_DEFAULT_METRICS)
