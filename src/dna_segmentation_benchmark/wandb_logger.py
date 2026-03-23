@@ -55,6 +55,8 @@ _GROUP_DISPLAY_NAMES = {
     "NUCLEOTIDE_CLASSIFICATION": "Nucleotide Classification",
     "INDEL": "INDELs",
     "FRAMESHIFT": "Frameshift",
+    "STRUCTURAL_COHERENCE": "Structural Coherence",
+    "DIAGNOSTIC_DEPTH": "Diagnostic Depth",
 }
 
 

@@ -9,7 +9,12 @@ from dna_segmentation_benchmark.eval.evaluate_predictors import (
     EvalMetrics,
 )
 
-from benchmark_test_cases import SINGLE_SEQUENCE_TEST_CASES, MULTI_SEQUENCE_TEST_CASES
+from benchmark_test_cases import (
+    SINGLE_SEQUENCE_TEST_CASES,
+    MULTI_SEQUENCE_TEST_CASES,
+    STRUCTURAL_COHERENCE_TEST_CASES,
+    DIAGNOSTIC_DEPTH_TEST_CASES,
+)
 
 
 @pytest.mark.parametrize(
@@ -35,6 +40,48 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
     for class_key in benchmark_results:
         if class_key in ("transition_failures", "false_transitions"):
             continue
+        class_results = benchmark_results[class_key]
+        expected_results = expected_errors[class_key]
+        for metric in metrics:
+            _METRIC_EVAL_DISPATCH[metric](expected_results[metric.name], class_results[metric.name])
+
+
+@pytest.mark.parametrize(
+    "gt_pred_array, label_config, classes, metrics, expected_errors",
+    STRUCTURAL_COHERENCE_TEST_CASES,
+)
+def test_structural_coherence(gt_pred_array, label_config, classes, metrics, expected_errors):
+    """Test structural coherence metrics (gap chain, transcript classification)."""
+    benchmark_results = benchmark_gt_vs_pred_single(
+        gt_labels=gt_pred_array[0],
+        pred_labels=gt_pred_array[1],
+        label_config=label_config,
+        classes=classes,
+        metrics=metrics,
+    )
+
+    for class_key in expected_errors:
+        class_results = benchmark_results[class_key]
+        expected_results = expected_errors[class_key]
+        for metric in metrics:
+            _METRIC_EVAL_DISPATCH[metric](expected_results[metric.name], class_results[metric.name])
+
+
+@pytest.mark.parametrize(
+    "gt_pred_array, label_config, classes, metrics, expected_errors",
+    DIAGNOSTIC_DEPTH_TEST_CASES,
+)
+def test_diagnostic_depth(gt_pred_array, label_config, classes, metrics, expected_errors):
+    """Test diagnostic depth metrics (junction errors, correlations, structural summary)."""
+    benchmark_results = benchmark_gt_vs_pred_single(
+        gt_labels=gt_pred_array[0],
+        pred_labels=gt_pred_array[1],
+        label_config=label_config,
+        classes=classes,
+        metrics=metrics,
+    )
+
+    for class_key in expected_errors:
         class_results = benchmark_results[class_key]
         expected_results = expected_errors[class_key]
         for metric in metrics:
@@ -198,6 +245,30 @@ def _eval_frameshift_metrics(expected_frameshift, computed_frameshift):
         )
 
 
+def _eval_structural_coherence(expected, computed):
+    """Verify structural coherence metrics (gap chain, transcript classification)."""
+    expected_keys = set(expected.keys())
+    computed_keys = set(computed.keys())
+
+    assert expected_keys.issubset(computed_keys), (
+        f"Structural coherence computed metrics are missing expected keys. Missing: {expected_keys - computed_keys}"
+    )
+    for key in expected:
+        _assert_metric_value_equal(expected[key], computed[key], key)
+
+
+def _eval_diagnostic_depth(expected, computed):
+    """Verify diagnostic depth metrics (junction errors, correlations, structural summary)."""
+    expected_keys = set(expected.keys())
+    computed_keys = set(computed.keys())
+
+    assert expected_keys.issubset(computed_keys), (
+        f"Diagnostic depth computed metrics are missing expected keys. Missing: {expected_keys - computed_keys}"
+    )
+    for key in expected:
+        _assert_metric_value_equal(expected[key], computed[key], key)
+
+
 def _assert_metric_value_equal(expected, computed, key_name: str):
     """Compare a single metric value, handling dicts, lists, scalars, and None."""
     if isinstance(expected, dict):
@@ -234,4 +305,6 @@ _METRIC_EVAL_DISPATCH = {
     EvalMetrics.BOUNDARY_EXACTNESS: _eval_boundary_exactness,
     EvalMetrics.NUCLEOTIDE_CLASSIFICATION: _eval_nucleotide_classification,
     EvalMetrics.FRAMESHIFT: _eval_frameshift_metrics,
+    EvalMetrics.STRUCTURAL_COHERENCE: _eval_structural_coherence,
+    EvalMetrics.DIAGNOSTIC_DEPTH: _eval_diagnostic_depth,
 }

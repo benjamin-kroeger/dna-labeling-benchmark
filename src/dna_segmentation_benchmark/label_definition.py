@@ -38,6 +38,9 @@ class LabelConfig(BaseModel):
     splice_acceptor_label : int | None
         Token for the acceptor splice-site.
         Reserved for future splice-junction metrics.
+    intron_label : int | None
+        Token that represents intronic nucleotides.
+        Token that represents intronic nucleotides.
 
     Examples
     --------
@@ -57,6 +60,7 @@ class LabelConfig(BaseModel):
     coding_label: Optional[int] = None
     splice_donor_label: Optional[int] = None
     splice_acceptor_label: Optional[int] = None
+    intron_label: Optional[int] = None
 
     # ------------------------------------------------------------------
     # Validation
@@ -66,7 +70,8 @@ class LabelConfig(BaseModel):
     def _validate_special_labels_exist_in_labels(self) -> "LabelConfig":
         """Ensure every declared role token actually exists in ``labels``."""
         for field_name in ("background_label", "coding_label",
-                           "splice_donor_label", "splice_acceptor_label"):
+                           "splice_donor_label", "splice_acceptor_label",
+                           "intron_label"):
             value = getattr(self, field_name)
             if value is not None and value not in self.labels:
                 raise ValueError(
@@ -98,6 +103,13 @@ class LabelConfig(BaseModel):
             return None
         return self.labels[self.coding_label]
 
+    @property
+    def intron_name(self) -> Optional[str]:
+        """Human-readable name of the intron label, or ``None``."""
+        if self.intron_label is None:
+            return None
+        return self.labels[self.intron_label]
+
 
 # ------------------------------------------------------------------
 # Pre-built configs for common label sets
@@ -109,6 +121,7 @@ BEND_LABEL_CONFIG = LabelConfig(
     coding_label=0,
     splice_donor_label=1,
     splice_acceptor_label=3,
+    intron_label=2,
 )
 
 
@@ -135,6 +148,8 @@ class EvalMetrics(Enum):
     BOUNDARY_EXACTNESS = 2
     NUCLEOTIDE_CLASSIFICATION = 3
     FRAMESHIFT = 4
+    STRUCTURAL_COHERENCE = 5
+    DIAGNOSTIC_DEPTH = 6
 
 
 _DEFAULT_METRICS = [
@@ -149,4 +164,6 @@ _FULL_SWEEP_METRICS = [
     EvalMetrics.BOUNDARY_EXACTNESS,
     EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
     EvalMetrics.FRAMESHIFT,
+    EvalMetrics.STRUCTURAL_COHERENCE,
+    EvalMetrics.DIAGNOSTIC_DEPTH,
 ]

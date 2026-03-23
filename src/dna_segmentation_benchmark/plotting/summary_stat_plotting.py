@@ -33,6 +33,15 @@ from .metrics.frameshift import plot_frameshift_percentage_bar
 from .metrics.ml import plot_ml_metrics_bar
 from .metrics.iou import plot_iou_metrics
 from .metrics.boundary import plot_boundary_precision_landscapes
+from .metrics.diagnostic import (
+    plot_junction_error_taxonomy,
+    plot_position_bias,
+)
+from .metrics.structural import (
+    plot_gap_chain_metrics,
+    plot_transcript_match_distribution,
+    plot_segment_count_delta,
+)
 from .metrics.transitions import plot_transition_matrices, plot_false_transitions
 
 logger = logging.getLogger(__name__)
@@ -226,5 +235,61 @@ def compare_multiple_predictions(
                 )
                 if fig is not None:
                     figures[f"{class_name}_frameshift"] = fig
+
+        # ---- Structural coherence plots ------------------------------------
+        if EvalMetrics.STRUCTURAL_COHERENCE in metrics_to_eval:
+            df_sc = df[
+                (df["measured_class"] == class_name)
+                & (df["metric_group"] == EvalMetrics.STRUCTURAL_COHERENCE.name)
+                ].copy()
+
+            if not df_sc.empty:
+                fig = plot_gap_chain_metrics(
+                    df_sc, class_name,
+                    save_path=(output_dir / f"{class_name}_gap_chain.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("gap_chain"),
+                )
+                if fig is not None:
+                    figures[f"{class_name}_gap_chain"] = fig
+
+                fig = plot_transcript_match_distribution(
+                    df_sc, class_name,
+                    save_path=(output_dir / f"{class_name}_transcript_match.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("transcript_match"),
+                )
+                if fig is not None:
+                    figures[f"{class_name}_transcript_match"] = fig
+
+                fig = plot_segment_count_delta(
+                    df_sc, class_name,
+                    save_path=(output_dir / f"{class_name}_segment_count_delta.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("segment_count_delta"),
+                )
+                if fig is not None:
+                    figures[f"{class_name}_segment_count_delta"] = fig
+
+        # ---- Diagnostic depth plots ----------------------------------------
+        if EvalMetrics.DIAGNOSTIC_DEPTH in metrics_to_eval:
+            df_dd = df[
+                (df["measured_class"] == class_name)
+                & (df["metric_group"] == EvalMetrics.DIAGNOSTIC_DEPTH.name)
+                ].copy()
+
+            if not df_dd.empty:
+                fig = plot_junction_error_taxonomy(
+                    df_dd, class_name,
+                    save_path=(output_dir / f"{class_name}_junction_errors.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("junction_errors"),
+                )
+                if fig is not None:
+                    figures[f"{class_name}_junction_errors"] = fig
+
+                fig = plot_position_bias(
+                    df_dd, class_name,
+                    save_path=(output_dir / f"{class_name}_position_bias.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("position_bias"),
+                )
+                if fig is not None:
+                    figures[f"{class_name}_position_bias"] = fig
 
     return figures

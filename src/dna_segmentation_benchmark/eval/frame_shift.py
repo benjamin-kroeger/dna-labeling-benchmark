@@ -44,4 +44,4 @@ def _get_frame_shift_metrics(
 
     frame_list[valid_mask] = np.abs(pred_cumsum[valid_mask] - gt_cumsum[valid_mask]) % 3
 
-    return {"gt_frames": frame_list}
+    return {"gt_frames": frame_list.tolist()}

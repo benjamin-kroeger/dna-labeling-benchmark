@@ -41,7 +41,7 @@ def plot_frameshift_percentage_bar(
                 "Frame": ["Ground Truth (0)", "Shift 1 (1)", "Shift 2 (2)"],
                 "Percentage": [0.0, 0.0, 0.0],
             })
-        flat = np.concatenate(frame_list)
+        flat = np.asarray(frame_list, dtype=float)
         flat = flat[np.isfinite(flat)].astype(int)
         counts = np.bincount(flat, minlength=3)[:3] if flat.size else np.zeros(3, dtype=int)
         total = counts.sum()

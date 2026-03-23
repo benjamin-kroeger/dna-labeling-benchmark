@@ -8,8 +8,7 @@ and computes a rich set of metrics:
 * **REGION_DISCOVERY** – precision & recall at four overlap strictness
   levels (neighbourhood, internal, full-coverage, perfect-boundary).
 * **BOUNDARY_EXACTNESS** – IoU statistics, boundary-residual bias /
-  reliability landscape, inner / all section-boundary precision & recall,
-  terminal-boundary flags.
+  reliability landscape, terminal-boundary flags.
 * **NUCLEOTIDE_CLASSIFICATION** – per-base precision, recall, and F1.
 * **FRAMESHIFT** – per-position reading-frame deviation between GT and
   predicted exon chains.
@@ -30,9 +29,14 @@ from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 
 from .boundary_precision import _compute_boundary_precision_landscape
+from .chain_comparison import _compute_gap_chain_metrics
 from .frame_shift import _get_frame_shift_metrics
 from .intersection_over_union import _compute_intersection_over_union_score
+from .junction_errors import _classify_junction_errors, _compute_error_correlations
 from .state_transitions import _compute_state_change_errors
+from .structure import extract_structure
+from .structural_summary import _compute_structural_summary
+from .transcript_classification import _classify_transcript_match
 from .utils import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
 
@@ -128,6 +132,15 @@ def benchmark_gt_vs_pred_single(
         "totals": transition_analysis.false_transition_totals,
     }
 
+    # ---- Extract structures once (shared by STRUCTURAL_COHERENCE & DIAGNOSTIC_DEPTH)
+    _needs_structure = (
+        EvalMetrics.STRUCTURAL_COHERENCE in metrics
+        or EvalMetrics.DIAGNOSTIC_DEPTH in metrics
+    )
+    if _needs_structure:
+        gt_struct = extract_structure(gt_labels, label_config)
+        pred_struct = extract_structure(pred_labels, label_config)
+
     for class_token in classes:
         class_name = label_config.name_of(class_token)
         metric_results[class_name] = {}
@@ -203,8 +216,6 @@ def benchmark_gt_vs_pred_single(
             # -- BOUNDARY_EXACTNESS: IoU, boundary residuals, section-boundary flags
             if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
                 metric_results[class_name][EvalMetrics.BOUNDARY_EXACTNESS.name] = {
-                    "inner_section_boundaries": section_data["inner_section_boundaries"],
-                    "all_section_boundaries": section_data["all_section_boundaries"],
                     "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
                     "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
                     "iou_scores": section_data["iou_scores"],
@@ -235,6 +246,34 @@ def benchmark_gt_vs_pred_single(
                         coding_value=coding_value,
                     )
                 )
+
+        # ---- STRUCTURAL_COHERENCE: gap chain + transcript classification
+        if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
+            gap_chain = _compute_gap_chain_metrics(gt_struct, pred_struct, class_token)
+            match_cls = _classify_transcript_match(
+                gt_struct, pred_struct, class_token,
+            )
+            sc_result = {**gap_chain}
+            if match_cls is not None:
+                sc_result["transcript_match_class"] = match_cls.value
+            metric_results[class_name][EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
+
+        # ---- DIAGNOSTIC_DEPTH: junction errors, correlations, structural summary
+        if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
+            junctions = _classify_junction_errors(
+                gt_struct, pred_struct, class_token,
+            )
+            correlations = _compute_error_correlations(
+                gt_struct, pred_struct, class_token, junctions,
+            )
+            summary = _compute_structural_summary(
+                gt_struct, pred_struct, class_token,
+            )
+            metric_results[class_name][EvalMetrics.DIAGNOSTIC_DEPTH.name] = {
+                **junctions,
+                **correlations,
+                **summary,
+            }
 
     return metric_results
 
@@ -345,13 +384,9 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
                               "full_coverage_hit", "perfect_boundary_hit"):
                 rd[level_key] = _compute_summary_statistics(**rd[level_key])
 
-        # -- BOUNDARY_EXACTNESS: IoU stats + landscape + section boundaries -
+        # -- BOUNDARY_EXACTNESS: IoU stats + landscape -
         if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
             be = class_results[EvalMetrics.BOUNDARY_EXACTNESS.name]
-
-            # Inner / all section boundary precision & recall
-            for boundary_key in ("inner_section_boundaries", "all_section_boundaries"):
-                be[boundary_key] = _compute_summary_statistics(**be[boundary_key])
 
             # IoU distribution statistics
             if "iou_scores" in be:
@@ -373,6 +408,95 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
             p, r = summary.get("precision", 0), summary.get("recall", 0)
             summary["f1"] = (2 * p * r / (p + r)) if (p + r) > 0 else 0.0
             nc["nucleotide"] = summary
+
+        # -- STRUCTURAL_COHERENCE: chain, grammar, transcript classification --
+        if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
+            sc = class_results.get(EvalMetrics.STRUCTURAL_COHERENCE.name, {})
+            if sc:
+                # Segment count delta distribution
+                if "segment_count_delta" in sc and isinstance(sc["segment_count_delta"], list):
+                    sc["segment_count_delta"] = _compute_distribution_stats(
+                        sc["segment_count_delta"], is_abs=True,
+                    )
+
+                # Sum raw counts
+                for key in ("segment_count_gt", "segment_count_pred",
+                            "gap_count_gt", "gap_count_pred"):
+                    if key in sc and isinstance(sc[key], list):
+                        sc[key] = sum(sc[key])
+
+                # Gap chain metrics
+                if "gap_chain_match" in sc and isinstance(sc["gap_chain_match"], list):
+                    total = len(sc["gap_chain_match"])
+                    sc["gap_chain_match_rate"] = (
+                        sum(sc["gap_chain_match"]) / total if total > 0 else 0.0
+                    )
+                if "gap_count_match" in sc and isinstance(sc["gap_count_match"], list):
+                    total = len(sc["gap_count_match"])
+                    sc["gap_count_match_rate"] = (
+                        sum(sc["gap_count_match"]) / total if total > 0 else 0.0
+                    )
+                if "gap_chain_lcs_ratio" in sc and isinstance(sc["gap_chain_lcs_ratio"], list):
+                    sc["gap_chain_lcs_ratio"] = _compute_distribution_stats(
+                        sc["gap_chain_lcs_ratio"], is_abs=False,
+                    )
+
+                # Transcript match classification distribution
+                if "transcript_match_class" in sc and isinstance(sc["transcript_match_class"], list):
+                    from collections import Counter
+                    counts = Counter(sc["transcript_match_class"])
+                    total = sum(counts.values())
+                    sc["transcript_match_distribution"] = dict(counts)
+                    sc["exact_match_rate"] = (
+                        counts.get("exact", 0) / total if total > 0 else 0.0
+                    )
+
+        # -- DIAGNOSTIC_DEPTH: junction errors, correlations, structural summary
+        if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
+            dd = class_results.get(EvalMetrics.DIAGNOSTIC_DEPTH.name, {})
+            if dd:
+                # Junction error counts → sum + rates
+                total_errors = sum(dd["total_junction_errors"]) if isinstance(dd.get("total_junction_errors"), list) else dd.get("total_junction_errors", 0)
+                for key in ("exon_skip_count", "segment_retention_count",
+                            "novel_insertion_count", "cascade_shift_count",
+                            "compensating_error_count"):
+                    if key in dd and isinstance(dd[key], list):
+                        dd[key] = sum(dd[key])
+                        dd[f"{key}_rate"] = (
+                            dd[key] / total_errors if total_errors > 0 else 0.0
+                        )
+                if isinstance(dd.get("total_junction_errors"), list):
+                    dd["total_junction_errors"] = total_errors
+
+                # Error correlations
+                if "error_clustering_coefficient" in dd and isinstance(dd["error_clustering_coefficient"], list):
+                    dd["error_clustering_coefficient"] = float(
+                        np.mean(dd["error_clustering_coefficient"])
+                    )
+                if "cascade_lengths" in dd and isinstance(dd["cascade_lengths"], list):
+                    dd["cascade_lengths"] = _compute_distribution_stats(
+                        dd["cascade_lengths"], is_abs=False,
+                    )
+                if "compensating_error_rate" in dd and isinstance(dd["compensating_error_rate"], list):
+                    dd["compensating_error_rate"] = float(
+                        np.mean(dd["compensating_error_rate"])
+                    )
+
+                # Length EMD distribution
+                if "length_emd" in dd and isinstance(dd["length_emd"], list):
+                    dd["length_emd"] = _compute_distribution_stats(
+                        dd["length_emd"], is_abs=False,
+                    )
+
+                # Position bias → mean across sequences
+                for key in ("position_bias_5prime_match_rate",
+                            "position_bias_interior_match_rate",
+                            "position_bias_3prime_match_rate"):
+                    if key in dd and isinstance(dd[key], list):
+                        dd[key] = float(np.mean(dd[key]))
+
+                # Segment length lists — keep for plotting
+                # (already extended by recursive_merge)
 
     return aggregated
 
@@ -482,8 +606,6 @@ def _analyze_section_overlap_and_boundaries(
     boundary_residuals: list[tuple[int, int]] = []
     iou_scores: list[float] = []
 
-    fully_matching_sections = 0
-    inner_boundary_matching_sections = 0
     first_sec_correct_3_prime = 0
     last_sec_correct_5_prime = 0
 
@@ -540,11 +662,6 @@ def _analyze_section_overlap_and_boundaries(
                 if p_min == gt_min and p_max == gt_max:
                     gt_hit_strict[g_idx] = True
                     pred_hit_strict[p_idx] = True
-                    fully_matching_sections += 1
-
-                    # Internal/Boundary Analysis
-                    if 0 < g_idx < total_gt - 1:
-                        inner_boundary_matching_sections += 1
 
                 if g_idx == 0 and p_max == gt_max:
                     first_sec_correct_3_prime = 1
@@ -596,32 +713,6 @@ def _analyze_section_overlap_and_boundaries(
         if p_min <= gt_min and p_max >= gt_max:
             matched_full_coverage += 1
 
-    # ---- 4. Sequence-Level Aggregates -------------------------------------
-    num_inner_expected = total_gt - 2 if total_gt > 2 else (1 if total_gt == 2 else 0)
-    if total_gt > 1:
-        inner_boundaries = {
-            "tp": 1 if inner_boundary_matching_sections == num_inner_expected and total_pred > 0 else 0,
-            "fp": 1 if inner_boundary_matching_sections != num_inner_expected and total_pred > 0 else 0,
-            "fn": 1 if total_pred == 0 else 0,
-            "tn": 0,
-        }
-    elif total_gt == 0 and total_pred > 0:
-        # No GT sections but predictions exist → false positive
-        inner_boundaries = {"tp": 0, "fp": 1, "fn": 0, "tn": 0}
-        all_section_boundaries = {"tp": 0, "fp": 1, "fn": 0, "tn": 0}
-    else:
-        # total_gt <= 1 and no spurious predictions → nothing to evaluate
-        inner_boundaries = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
-        all_section_boundaries = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
-
-    if total_gt > 0:
-        all_section_boundaries = {
-            "tp": 1 if fully_matching_sections == total_gt else 0,
-            "fp": 1 if (fully_matching_sections != total_gt and total_pred > 0) or (total_gt == 0 and total_pred > 0) else 0,
-            "fn": 1 if total_pred == 0 else 0,
-            "tn": 0,
-        }
-
     return {
         # 1:1-matched discovery metrics
         "neighborhood_hit": {
@@ -647,8 +738,6 @@ def _analyze_section_overlap_and_boundaries(
             "fn": int(total_gt - np.sum(gt_hit_strict)),
             "fp": int(total_pred - np.sum(pred_hit_strict))
         },
-        "inner_section_boundaries": inner_boundaries,
-        "all_section_boundaries": all_section_boundaries,
         "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
         "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
         "iou_scores": iou_scores,

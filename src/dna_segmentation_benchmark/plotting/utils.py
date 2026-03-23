@@ -57,6 +57,8 @@ def _add_pictogram_panel(
     has_content = (
             metadata.icon_path is not None
             or metadata.description
+            or metadata.bullet_points
+            or metadata.caveat
             or metadata.show_tp_tn_fp_fn
             or metadata.display_name
     )
@@ -148,59 +150,86 @@ def _add_pictogram_panel(
             )
 
     # --- Description text ---
+    wrap_width = 30
+    text_x_left = panel_x0 + panel_w * 0.05
+    line_step = panel_h * 0.04
+
     if metadata.description:
-        wrapped = textwrap.fill(metadata.description, width=26)
-        text_x = panel_x0 + panel_w / 2
+        wrapped = textwrap.fill(metadata.description, width=wrap_width)
         fig.text(
-            text_x, y_cursor, wrapped,
-            ha="center", va="top", fontsize=9,
+            text_x_left, y_cursor, wrapped,
+            ha="left", va="top", fontsize=11,
             linespacing=1.4,
+            style="italic",
         )
         n_lines = wrapped.count("\n") + 1
-        y_cursor -= n_lines * panel_h * 0.05 + panel_h * 0.04  # Move cursor down past description and add spacing
+        y_cursor -= n_lines * line_step + panel_h * 0.03
+
+    # --- Bullet points ---
+    if metadata.bullet_points:
+        for bullet in metadata.bullet_points:
+            bullet_text = textwrap.fill(
+                f"\u2022 {bullet}", width=wrap_width + 4,
+                subsequent_indent="  ",
+            )
+            fig.text(
+                text_x_left, y_cursor, bullet_text,
+                ha="left", va="top", fontsize=10,
+                linespacing=1.3,
+            )
+            n_lines = bullet_text.count("\n") + 1
+            y_cursor -= n_lines * line_step * 0.85
+
+        y_cursor -= panel_h * 0.02  # spacing after bullets
+
+    # --- Caveat box ---
+    if metadata.caveat:
+        caveat_text = textwrap.fill(
+            f"\u26A0 {metadata.caveat}", width=wrap_width + 4,
+            subsequent_indent="  ",
+        )
+        fig.text(
+            text_x_left, y_cursor, caveat_text,
+            ha="left", va="top", fontsize=8,
+            linespacing=1.3,
+            color="#8B6914",
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                facecolor="#FFF8DC",
+                edgecolor="#DAA520",
+                alpha=0.9,
+            ),
+        )
+        n_lines = caveat_text.count("\n") + 1
+        y_cursor -= n_lines * line_step + panel_h * 0.03
 
     # --- TP / TN / FP / FN definitions (placed at bottom of panel) ---
     if metadata.show_tp_tn_fp_fn:
         parts = []
-        if getattr(metadata, "tp_definition", None):
-            parts.append(f"\u2022 TP: {metadata.tp_definition}")
-        else:
-            parts.append("\u2022 TP: Correctly predicted")
-            
-        if getattr(metadata, "tn_definition", None):
-            parts.append(f"\u2022 TN: {metadata.tn_definition}")
-        else:
-            parts.append("\u2022 TN: Correctly absent")
-            
-        if getattr(metadata, "fp_definition", None):
-            parts.append(f"\u2022 FP: {metadata.fp_definition}")
-        else:
-            parts.append("\u2022 FP: Falsely predicted")
-            
-        if getattr(metadata, "fn_definition", None):
-            parts.append(f"\u2022 FN: {metadata.fn_definition}")
-        else:
-            parts.append("\u2022 FN: Falsely missed")
-            
-        # Optional: Word wrap longer definitions so they don't overrun the panel box
-        wrapped_parts = [textwrap.fill(p, width=40, subsequent_indent="  ") for p in parts]
-        definitions = "\n".join(wrapped_parts)
-        
-        # Place at fixed position near the bottom to avoid overlap
-        # Calculate bottom-aligned y-position for definitions block
-        tp_y_bottom = panel_y0 + panel_h * 0.05  # 5% from bottom of panel
-        # Estimate height of definitions block (4 lines * line_height_factor)
-        # This is a rough estimate, actual height depends on font size and dpi
-        estimated_line_height_fig_frac = 0.025 * (fig_h_in / DEFAULT_FIG_SIZE[1])  # Scale by figure height
-        estimated_block_height_fig_frac = 4 * estimated_line_height_fig_frac * 1.5  # 4 lines, linespacing 1.5
-        tp_y_top = tp_y_bottom + estimated_block_height_fig_frac
+        for label, attr, default in (
+            ("TP", "tp_definition", "Correctly predicted"),
+            ("TN", "tn_definition", "Correctly absent"),
+            ("FP", "fp_definition", "Falsely predicted"),
+            ("FN", "fn_definition", "Falsely missed"),
+        ):
+            defn = getattr(metadata, attr, None) or default
+            parts.append(f"\u2022 {label}: {defn}")
 
-        # Ensure it doesn't overlap with content above
-        final_tp_y = min(y_cursor - panel_h * 0.02, tp_y_top)  # 2% buffer from above content
+        wrapped_parts = [
+            textwrap.fill(p, width=wrap_width + 8, subsequent_indent="  ")
+            for p in parts
+        ]
+        definitions = "\n".join(wrapped_parts)
+
+        # Place at fixed position near the bottom to avoid overlap
+        tp_y_bottom = panel_y0 + panel_h * 0.05
+        estimated_line_height = 0.025 * (fig_h_in / DEFAULT_FIG_SIZE[1])
+        tp_y_top = tp_y_bottom + 4 * estimated_line_height * 1.5
+        final_tp_y = min(y_cursor - panel_h * 0.02, tp_y_top)
 
         fig.text(
-            panel_x0 + panel_w * 0.05, final_tp_y, definitions,
-            ha="left", va="top", fontsize=9,
+            text_x_left, final_tp_y, definitions,
+            ha="left", va="top", fontsize=8,
             linespacing=1.5,
             family="monospace",
             bbox=dict(
