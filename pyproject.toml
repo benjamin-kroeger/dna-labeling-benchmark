@@ -4,14 +4,13 @@ version = "0.1.0"
 description = "Metrics for nucleotide-level DNA segmentation benchmarking"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "Benjamin Kroeger" },
 ]
 keywords = ["genomics", "gene prediction", "benchmarking", "segmentation", "bioinformatics"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Operating System :: OS Independent",
