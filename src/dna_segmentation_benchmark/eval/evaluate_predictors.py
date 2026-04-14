@@ -29,17 +29,16 @@ from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 
 from .boundary_precision import _compute_boundary_precision_landscape
-from .chain_comparison import _compute_gap_chain_metrics
+from .chain_comparison import _compute_intron_chain_metrics
 from .frame_shift import _get_frame_shift_metrics
 from .intersection_over_union import _compute_intersection_over_union_score
 from .junction_errors import _classify_junction_errors, _compute_error_correlations
 from .state_transitions import _compute_state_change_errors
 from .structure import extract_structure
 from .structural_summary import _compute_structural_summary
-from .transcript_classification import _classify_transcript_match
+from .transcript_classification import _classify_transcript_match, _compute_transcript_level_pr
 from .utils import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
-
 
 # ---------------------------------------------------------------------------
 # Helpers — which groups need section overlap to be computed
@@ -65,7 +64,6 @@ def benchmark_gt_vs_pred_single(
         gt_labels: np.ndarray,
         pred_labels: np.ndarray,
         label_config: LabelConfig,
-        classes: list[int],
         metrics: Optional[list[EvalMetrics]] = None,
         mask_labels: Optional[np.ndarray] = None,
 ) -> dict[str, dict[str, dict]]:
@@ -98,7 +96,7 @@ def benchmark_gt_vs_pred_single(
         padded = np.pad(is_valid, (1, 1), mode='constant', constant_values=False)
         starts = np.where(~padded[:-1] & padded[1:])[0]
         ends = np.where(padded[:-1] & ~padded[1:])[0]
-        
+
         chunk_results = []
         for s, e in zip(starts, ends):
             if e > s:
@@ -107,12 +105,11 @@ def benchmark_gt_vs_pred_single(
                     gt_labels=gt_labels[s:e],
                     pred_labels=pred_labels[s:e],
                     label_config=label_config,
-                    classes=classes,
                     metrics=metrics,
                     mask_labels=None,
                 )
                 chunk_results.append(chunk_res)
-        
+
         return functools.reduce(recursive_merge, chunk_results, {}) if chunk_results else {}
 
     if metrics is None:
@@ -129,151 +126,152 @@ def benchmark_gt_vs_pred_single(
     metric_results["transition_failures"] = transition_analysis.gt_transition_matrices
     metric_results["false_transitions"] = {
         "matrices": transition_analysis.false_transition_matrices,
-        "totals": transition_analysis.false_transition_totals,
+        "stable_position_counts": transition_analysis.stable_position_counts,
     }
 
+    class_name = label_config.name_of(label_config.coding_label)
+    metric_results[class_name] = {}
+
+    # Boolean masks for insertions / deletions coding label
+    insertion_mask = (arr[0, :] != label_config.coding_label) & (arr[1, :] == label_config.coding_label)
+    insertion_indices = np.where(insertion_mask)[0]
+
+    deletion_mask = (arr[0, :] == label_config.coding_label) & (arr[1, :] != label_config.coding_label)
+    deletion_indices = np.where(deletion_mask)[0]
+
+    # Contiguous sections in GT and prediction
+    gt_section_indices = np.where(arr[0, :] == label_config.coding_label)[0]
+    pred_section_indices = np.where(arr[1, :] == label_config.coding_label)[0]
+
+    grouped_insertions = get_contiguous_groups(insertion_indices)
+    grouped_deletions = get_contiguous_groups(deletion_indices)
+    grouped_gt_sections = get_contiguous_groups(gt_section_indices)
+    grouped_pred_sections = get_contiguous_groups(pred_section_indices)
+
+    # ---- INDEL metrics ------------------------------------------------
+    if EvalMetrics.INDEL in metrics or _needs_section_analysis(metrics):
+        # _classify_mismatches looks one position before/after each group,
+        # so pad with one background sentinel on each side for safe access.
+        padded_gt = np.concatenate(([background_value], gt_labels, [background_value]))
+        padded_pred = np.concatenate(([background_value], pred_labels, [background_value]))
+        padded_arr = np.stack((padded_gt, padded_pred), axis=0)
+
+        # Shift indices by +1 to match the padded array layout
+        padded_insertions = [g + 1 for g in grouped_insertions]
+        padded_deletions = [g + 1 for g in grouped_deletions]
+
+        ext5, ext3, joined, whole_ins = _classify_mismatches(
+            grouped_indices=padded_insertions,
+            gt_pred_arr=padded_arr,
+            class_value=label_config.coding_label,
+        )
+        del5, del3, split, whole_del = _classify_mismatches(
+            grouped_indices=padded_deletions,
+            gt_pred_arr=padded_arr,
+            class_value=label_config.coding_label,
+        )
+
+        indel_results = {
+            "5_prime_extensions": ext5,
+            "3_prime_extensions": ext3,
+            "whole_insertions": whole_ins,
+            "joined": joined,
+            "5_prime_deletions": del5,
+            "3_prime_deletions": del3,
+            "whole_deletions": whole_del,
+            "split": split,
+        }
+        if EvalMetrics.INDEL in metrics:
+            metric_results[class_name][EvalMetrics.INDEL.name] = indel_results
+
+    # ---- Section-overlap analysis (shared by REGION_DISCOVERY & BOUNDARY_EXACTNESS)
+    if _needs_section_analysis(metrics):
+        section_data = _analyze_section_overlap_and_boundaries(
+            grouped_gt_section_indices=grouped_gt_sections,
+            grouped_pred_section_indices=grouped_pred_sections,
+        )
+
+        # -- REGION_DISCOVERY: precision & recall at four strictness levels
+        if EvalMetrics.REGION_DISCOVERY in metrics:
+            metric_results[class_name][EvalMetrics.REGION_DISCOVERY.name] = {
+                "neighborhood_hit": section_data["neighborhood_hit"],
+                "internal_hit": section_data["internal_hit"],
+                "full_coverage_hit": section_data["full_coverage_hit"],
+                "perfect_boundary_hit": section_data["perfect_boundary_hit"],
+            }
+
+        # -- BOUNDARY_EXACTNESS: IoU, boundary residuals, section-boundary flags
+        if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
+            metric_results[class_name][EvalMetrics.BOUNDARY_EXACTNESS.name] = {
+                "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
+                "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
+                "iou_scores": section_data["iou_scores"],
+                "fuzzy_metrics": section_data["fuzzy_metrics"],
+            }
+
+    # ---- NUCLEOTIDE_CLASSIFICATION: per-base precision, recall, F1 ----
+    if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
+        nuc_confusion = _compute_nucleotide_level_confusion(gt_labels, pred_labels, label_config.coding_label)
+        metric_results[class_name][EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
+            "nucleotide": nuc_confusion,
+        }
+
+    # ---- Frameshift metrics -------------------------------------------
+    if EvalMetrics.FRAMESHIFT in metrics:
+
+        if label_config.coding_label is None:
+            raise ValueError(
+                "FRAMESHIFT metric requested but LabelConfig.coding_label "
+                "is not set.  Provide a coding_label when constructing "
+                "your LabelConfig."
+            )
+
+        metric_results[class_name][EvalMetrics.FRAMESHIFT.name] = (
+                _get_frame_shift_metrics(
+                    gt_labels=gt_labels,
+                    pred_labels=pred_labels,
+                    coding_value=label_config.coding_label,
+                )
+            )
+
     # ---- Extract structures once (shared by STRUCTURAL_COHERENCE & DIAGNOSTIC_DEPTH)
-    _needs_structure = (
-        EvalMetrics.STRUCTURAL_COHERENCE in metrics
-        or EvalMetrics.DIAGNOSTIC_DEPTH in metrics
-    )
-    if _needs_structure:
+    if EvalMetrics.STRUCTURAL_COHERENCE in metrics or EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
         gt_struct = extract_structure(gt_labels, label_config)
         pred_struct = extract_structure(pred_labels, label_config)
 
-    for class_token in classes:
-        class_name = label_config.name_of(class_token)
-        metric_results[class_name] = {}
+    # ---- STRUCTURAL_COHERENCE: intron chain + transcript classification
+    if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
+        intron_chain = _compute_intron_chain_metrics(gt_struct, pred_struct, label_config)
+        sc_result = {"intron_chain": intron_chain}
 
-        # Boolean masks for insertions / deletions
-        insertion_mask = (arr[0, :] != class_token) & (arr[1, :] == class_token)
-        insertion_indices = np.where(insertion_mask)[0]
+        match_cls, boundary_shift_count, boundary_shift_total, n_gt, n_pred = _classify_transcript_match(
+            gt_struct, pred_struct, label_config.coding_label,
+        )
+        if match_cls is not None:
+            sc_result["transcript_match_class"] = match_cls.value
+            sc_result["segment_count_delta"] = n_pred - n_gt
 
-        deletion_mask = (arr[0, :] == class_token) & (arr[1, :] != class_token)
-        deletion_indices = np.where(deletion_mask)[0]
+        transcript_pr = _compute_transcript_level_pr(match_cls, boundary_shift_count, boundary_shift_total)
+        if transcript_pr is not None:
+            sc_result.update(transcript_pr)
+        metric_results[class_name][EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
 
-        # Contiguous sections in GT and prediction
-        gt_section_indices = np.where(arr[0, :] == class_token)[0]
-        pred_section_indices = np.where(arr[1, :] == class_token)[0]
-
-        grouped_insertions = get_contiguous_groups(insertion_indices)
-        grouped_deletions = get_contiguous_groups(deletion_indices)
-        grouped_gt_sections = get_contiguous_groups(gt_section_indices)
-        grouped_pred_sections = get_contiguous_groups(pred_section_indices)
-
-        # ---- INDEL metrics ------------------------------------------------
-        if EvalMetrics.INDEL in metrics or _needs_section_analysis(metrics):
-            # _classify_mismatches looks one position before/after each group,
-            # so pad with one background sentinel on each side for safe access.
-            padded_gt = np.concatenate(([background_value], gt_labels, [background_value]))
-            padded_pred = np.concatenate(([background_value], pred_labels, [background_value]))
-            padded_arr = np.stack((padded_gt, padded_pred), axis=0)
-
-            # Shift indices by +1 to match the padded array layout
-            padded_insertions = [g + 1 for g in grouped_insertions]
-            padded_deletions = [g + 1 for g in grouped_deletions]
-
-            ext5, ext3, joined, whole_ins = _classify_mismatches(
-                grouped_indices=padded_insertions,
-                gt_pred_arr=padded_arr,
-                class_value=class_token,
-            )
-            del5, del3, split, whole_del = _classify_mismatches(
-                grouped_indices=padded_deletions,
-                gt_pred_arr=padded_arr,
-                class_value=class_token,
-            )
-
-            indel_results = {
-                "5_prime_extensions": ext5,
-                "3_prime_extensions": ext3,
-                "whole_insertions": whole_ins,
-                "joined": joined,
-                "5_prime_deletions": del5,
-                "3_prime_deletions": del3,
-                "whole_deletions": whole_del,
-                "split": split,
-            }
-            if EvalMetrics.INDEL in metrics:
-                metric_results[class_name][EvalMetrics.INDEL.name] = indel_results
-
-        # ---- Section-overlap analysis (shared by REGION_DISCOVERY & BOUNDARY_EXACTNESS)
-        if _needs_section_analysis(metrics):
-            section_data = _analyze_section_overlap_and_boundaries(
-                grouped_gt_section_indices=grouped_gt_sections,
-                grouped_pred_section_indices=grouped_pred_sections,
-            )
-
-            # -- REGION_DISCOVERY: precision & recall at four strictness levels
-            if EvalMetrics.REGION_DISCOVERY in metrics:
-                metric_results[class_name][EvalMetrics.REGION_DISCOVERY.name] = {
-                    "neighborhood_hit": section_data["neighborhood_hit"],
-                    "internal_hit": section_data["internal_hit"],
-                    "full_coverage_hit": section_data["full_coverage_hit"],
-                    "perfect_boundary_hit": section_data["perfect_boundary_hit"],
-                }
-
-            # -- BOUNDARY_EXACTNESS: IoU, boundary residuals, section-boundary flags
-            if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
-                metric_results[class_name][EvalMetrics.BOUNDARY_EXACTNESS.name] = {
-                    "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
-                    "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
-                    "iou_scores": section_data["iou_scores"],
-                    "fuzzy_metrics": section_data["fuzzy_metrics"],
-                }
-
-        # ---- NUCLEOTIDE_CLASSIFICATION: per-base precision, recall, F1 ----
-        if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
-            nuc_confusion = _compute_nucleotide_level_confusion(gt_labels, pred_labels, class_token)
-            metric_results[class_name][EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
-                "nucleotide": nuc_confusion,
-            }
-
-        # ---- Frameshift metrics -------------------------------------------
-        if EvalMetrics.FRAMESHIFT in metrics:
-            coding_value = label_config.coding_label
-            if coding_value is None:
-                raise ValueError(
-                    "FRAMESHIFT metric requested but LabelConfig.coding_label "
-                    "is not set.  Provide a coding_label when constructing "
-                    "your LabelConfig."
-                )
-            if class_token == coding_value:
-                metric_results[class_name][EvalMetrics.FRAMESHIFT.name] = (
-                    _get_frame_shift_metrics(
-                        gt_labels=gt_labels,
-                        pred_labels=pred_labels,
-                        coding_value=coding_value,
-                    )
-                )
-
-        # ---- STRUCTURAL_COHERENCE: gap chain + transcript classification
-        if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
-            gap_chain = _compute_gap_chain_metrics(gt_struct, pred_struct, class_token)
-            match_cls = _classify_transcript_match(
-                gt_struct, pred_struct, class_token,
-            )
-            sc_result = {**gap_chain}
-            if match_cls is not None:
-                sc_result["transcript_match_class"] = match_cls.value
-            metric_results[class_name][EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
-
-        # ---- DIAGNOSTIC_DEPTH: junction errors, correlations, structural summary
-        if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
-            junctions = _classify_junction_errors(
-                gt_struct, pred_struct, class_token,
-            )
-            correlations = _compute_error_correlations(
-                gt_struct, pred_struct, class_token, junctions,
-            )
-            summary = _compute_structural_summary(
-                gt_struct, pred_struct, class_token,
-            )
-            metric_results[class_name][EvalMetrics.DIAGNOSTIC_DEPTH.name] = {
-                **junctions,
-                **correlations,
-                **summary,
-            }
+    # ---- DIAGNOSTIC_DEPTH: junction errors, correlations, structural summary
+    if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
+        junctions = _classify_junction_errors(
+            gt_struct, pred_struct, label_config.coding_label,
+        )
+        correlations = _compute_error_correlations(
+            gt_struct, pred_struct, label_config.coding_label, junctions,
+        )
+        summary = _compute_structural_summary(
+            gt_struct, pred_struct, label_config.coding_label,
+        )
+        metric_results[class_name][EvalMetrics.DIAGNOSTIC_DEPTH.name] = {
+            **junctions,
+            **correlations,
+            **summary,
+        }
 
     return metric_results
 
@@ -287,7 +285,6 @@ def benchmark_gt_vs_pred_multiple(
         gt_labels: list[np.ndarray],
         pred_labels: list[np.ndarray],
         label_config: LabelConfig,
-        classes: list[int],
         metrics: Optional[list[EvalMetrics]] = None,
         return_individual_results: bool = False,
         mask_labels: Optional[list[np.ndarray]] = None,
@@ -342,7 +339,6 @@ def benchmark_gt_vs_pred_multiple(
             gt_labels=gt_labels[i],
             pred_labels=pred_labels[i],
             label_config=label_config,
-            classes=classes,
             metrics=metrics,
             mask_labels=mask_labels[i] if mask_labels is not None else None,
         )
@@ -371,9 +367,9 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
         if _class_name == "false_transitions":
             # recursive_merge sums np.ndarray (matrices) element-wise already.
             # It wraps int values (totals) into lists — sum them back.
-            class_results["totals"] = {
+            class_results["stable_position_counts"] = {
                 k: sum(v) if isinstance(v, list) else v
-                for k, v in class_results["totals"].items()
+                for k, v in class_results["stable_position_counts"].items()
             }
             continue
 
@@ -412,51 +408,45 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
         # -- STRUCTURAL_COHERENCE: chain, grammar, transcript classification --
         if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
             sc = class_results.get(EvalMetrics.STRUCTURAL_COHERENCE.name, {})
-            if sc:
-                # Segment count delta distribution
-                if "segment_count_delta" in sc and isinstance(sc["segment_count_delta"], list):
-                    sc["segment_count_delta"] = _compute_distribution_stats(
-                        sc["segment_count_delta"], is_abs=True,
-                    )
+            sc["intron_chain"] = _compute_summary_statistics(**sc["intron_chain"])
 
-                # Sum raw counts
-                for key in ("segment_count_gt", "segment_count_pred",
-                            "gap_count_gt", "gap_count_pred"):
-                    if key in sc and isinstance(sc[key], list):
-                        sc[key] = sum(sc[key])
+            # Segment count delta distribution
+            if "segment_count_delta" in sc and isinstance(sc["segment_count_delta"], list):
+                sc["segment_count_delta"] = _compute_distribution_stats(
+                    sc["segment_count_delta"], is_abs=False,
+                )
 
-                # Gap chain metrics
-                if "gap_chain_match" in sc and isinstance(sc["gap_chain_match"], list):
-                    total = len(sc["gap_chain_match"])
-                    sc["gap_chain_match_rate"] = (
-                        sum(sc["gap_chain_match"]) / total if total > 0 else 0.0
-                    )
-                if "gap_count_match" in sc and isinstance(sc["gap_count_match"], list):
-                    total = len(sc["gap_count_match"])
-                    sc["gap_count_match_rate"] = (
-                        sum(sc["gap_count_match"]) / total if total > 0 else 0.0
-                    )
-                if "gap_chain_lcs_ratio" in sc and isinstance(sc["gap_chain_lcs_ratio"], list):
-                    sc["gap_chain_lcs_ratio"] = _compute_distribution_stats(
-                        sc["gap_chain_lcs_ratio"], is_abs=False,
-                    )
+            # Sum raw counts
+            for key in ("segment_count_gt", "segment_count_pred",
+                        "intron_count_gt", "intron_count_pred"):
+                if key in sc and isinstance(sc[key], list):
+                    sc[key] = sum(sc[key])
 
-                # Transcript match classification distribution
-                if "transcript_match_class" in sc and isinstance(sc["transcript_match_class"], list):
-                    from collections import Counter
-                    counts = Counter(sc["transcript_match_class"])
-                    total = sum(counts.values())
-                    sc["transcript_match_distribution"] = dict(counts)
-                    sc["exact_match_rate"] = (
-                        counts.get("exact", 0) / total if total > 0 else 0.0
-                    )
+
+
+            # Transcript match classification distribution
+            if "transcript_match_class" in sc and isinstance(sc["transcript_match_class"], list):
+                from collections import Counter
+                counts = Counter(sc["transcript_match_class"])
+                total = sum(counts.values())
+                sc["transcript_match_distribution"] = dict(counts)
+                sc["exact_match_rate"] = (
+                    counts.get("exact", 0) / total if total > 0 else 0.0
+                )
+
+            # Transcript-level P/R tiers
+            for tier_key in ("transcript_exact",
+                             "pred_is_superset", "pred_is_subset"):
+                if tier_key in sc:
+                    sc[tier_key] = _compute_summary_statistics(**sc[tier_key])
 
         # -- DIAGNOSTIC_DEPTH: junction errors, correlations, structural summary
         if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
             dd = class_results.get(EvalMetrics.DIAGNOSTIC_DEPTH.name, {})
             if dd:
                 # Junction error counts → sum + rates
-                total_errors = sum(dd["total_junction_errors"]) if isinstance(dd.get("total_junction_errors"), list) else dd.get("total_junction_errors", 0)
+                total_errors = sum(dd["total_junction_errors"]) if isinstance(dd.get("total_junction_errors"), list) else dd.get(
+                    "total_junction_errors", 0)
                 for key in ("exon_skip_count", "segment_retention_count",
                             "novel_insertion_count", "cascade_shift_count",
                             "compensating_error_count"):
@@ -508,7 +498,7 @@ def _classify_mismatches(
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray]]:
     """Sort contiguous mismatch groups into four categories.
 
-    Depending on whether the caller is analysing insertions or deletions the
+    Depending on whether the caller is analyzing insertions or deletions the
     four buckets correspond to:
 
     * 5'-extensions / 5'-deletions
@@ -571,7 +561,7 @@ def _compute_nucleotide_level_confusion(
     # labels=[0, 1] ensures a 2x2 matrix
     cm = confusion_matrix(binary_gt, binary_pred, labels=[0, 1])
     nuc_tn, nuc_fp, nuc_fn, nuc_tp = map(int, cm.ravel())
-    
+
     return {"tn": nuc_tn, "fp": nuc_fp, "fn": nuc_fn, "tp": nuc_tp}
 
 
@@ -690,8 +680,8 @@ def _analyze_section_overlap_and_boundaries(
     num_unmatched_pred = total_pred - len(matches)
 
     # ---- 3. Classify matched pairs for discovery tiers --------------------
-    matched_neighborhood = 0   # All matches have overlap by definition
-    matched_internal = 0       # Pred entirely inside GT
+    matched_neighborhood = 0  # All matches have overlap by definition
+    matched_internal = 0  # Pred entirely inside GT
     matched_full_coverage = 0  # Pred fully covers GT
 
     for g_idx, p_idx in matches:

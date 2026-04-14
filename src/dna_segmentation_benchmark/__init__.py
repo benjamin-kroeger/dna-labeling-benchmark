@@ -25,11 +25,13 @@ from .wandb_logger import (
     init_wandb_with_presets,
 )
 from .pipeline import benchmark_from_gff
+from .transcript_mapping import LocusMatchingMode
 
 __all__ = [
     "LabelConfig",
     "BEND_LABEL_CONFIG",
     "EvalMetrics",
+    "LocusMatchingMode",
     "benchmark_gt_vs_pred_single",
     "benchmark_gt_vs_pred_multiple",
     "benchmark_from_gff",

@@ -1,13 +1,17 @@
 """Label configuration for the DNA segmentation benchmark.
 
-This module provides :class:`LabelConfig`, a Pydantic model that serves as the
-single source of truth for what integer tokens mean in the benchmark.  No enums
-are used – labels are defined as a plain ``dict[int, str]`` mapping token
-values to human-readable names.
+This module provides :class:`LabelConfig`, a Pydantic model that is the single
+source of truth for what integer tokens mean in the benchmark and which GFF
+feature types to treat as exons.
 
-Specialised metrics declare their data requirements as optional fields on
-``LabelConfig``.  Validators ensure the required tokens are present before a
-confusing runtime error can occur.
+Each semantic role is a named field rather than an entry in a generic dict.
+This makes the YAML config self-documenting and avoids the need to pass a
+``classes`` list or ``exon_types`` list separately — both are derived from the
+config at runtime.
+
+Backward-compatible properties (``coding_label``, ``labels``) are provided so
+that internal modules (``state_transitions``, plotting, ``io_utils``, …) require
+no changes.
 """
 
 from __future__ import annotations
@@ -15,70 +19,149 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class LabelConfig(BaseModel):
     """Complete label definition for a benchmarking run.
 
-    Attributes
-    ----------
-    labels : dict[int, str]
-        Mapping of every token integer to a human-readable name.
-        Example: ``{0: "EXON", 1: "DONOR", 2: "INTRON", 3: "ACCEPTOR", 8: "NONCODING"}``
+    Required fields
+    ---------------
     background_label : int
-        Token used for non-coding / intergenic / background regions.
-        Used as the sentinel value for boundary padding.
-    coding_label : int | None
-        Token that represents coding (exon / CDS) nucleotides.
-        Required only when the ``FRAMESHIFT`` metric is requested.
-    splice_donor_label : int | None
-        Token for the donor splice-site.
-        Reserved for future splice-junction metrics.
-    splice_acceptor_label : int | None
-        Token for the acceptor splice-site.
-        Reserved for future splice-junction metrics.
+        Token for non-coding / intergenic / background regions.
+        Used as the sentinel value for padding and null arrays.
+    exon_label : int
+        Token for exon / CDS nucleotides.
+
+    Optional semantic roles
+    -----------------------
     intron_label : int | None
-        Token that represents intronic nucleotides.
-        Token that represents intronic nucleotides.
+        Token for intronic nucleotides.
+    splice_donor_label : int | None
+        Token for the 5' donor splice site.
+    splice_acceptor_label : int | None
+        Token for the 3' acceptor splice site.
+
+    GFF feature selection
+    ---------------------
+    exon_feature_type : list[str]
+        GFF/GTF feature types to treat as exons when parsing annotations.
+        Accepts a single string (``"exon"``) or a list (``["exon", "CDS"]``).
+        Defaults to ``["exon"]``.  Use ``["CDS"]`` for tools like Augustus
+        that emit CDS features instead of exon features.
 
     Examples
     --------
+    >>> # Helixer / SegmentNT — uses "exon" features
     >>> config = LabelConfig(
-    ...     labels={0: "EXON", 2: "INTRON", 8: "NONCODING"},
     ...     background_label=8,
-    ...     coding_label=0,
+    ...     exon_label=0,
+    ...     intron_label=2,
+    ...     splice_donor_label=1,
+    ...     splice_acceptor_label=3,
     ... )
-    >>> config.background_name
-    'NONCODING'
+
+    >>> # Augustus — uses "CDS" features
+    >>> config = LabelConfig(
+    ...     background_label=8,
+    ...     exon_label=0,
+    ...     exon_feature_type=["CDS"],
+    ... )
     """
 
     model_config = {"frozen": True}
 
-    labels: dict[int, str]
     background_label: int
-    coding_label: Optional[int] = None
+    exon_label: int
+    intron_label: Optional[int] = None
     splice_donor_label: Optional[int] = None
     splice_acceptor_label: Optional[int] = None
-    intron_label: Optional[int] = None
+    exon_feature_type: list[str] = ["exon"]
+
+    # ------------------------------------------------------------------
+    # Normalisation: accept plain string → list[str]
+    # ------------------------------------------------------------------
+
+    @field_validator("exon_feature_type", mode="before")
+    @classmethod
+    def _coerce_to_list(cls, v: object) -> list[str]:
+        if isinstance(v, str):
+            return [v]
+        return v  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
 
     @model_validator(mode="after")
-    def _validate_special_labels_exist_in_labels(self) -> "LabelConfig":
-        """Ensure every declared role token actually exists in ``labels``."""
-        for field_name in ("background_label", "coding_label",
-                           "splice_donor_label", "splice_acceptor_label",
-                           "intron_label"):
-            value = getattr(self, field_name)
-            if value is not None and value not in self.labels:
+    def _validate_unique_labels(self) -> "LabelConfig":
+        """All non-None label integers must be distinct."""
+        candidates = [
+            ("background_label", self.background_label),
+            ("exon_label", self.exon_label),
+            ("intron_label", self.intron_label),
+            ("splice_donor_label", self.splice_donor_label),
+            ("splice_acceptor_label", self.splice_acceptor_label),
+        ]
+        seen: dict[int, str] = {}
+        for field_name, value in candidates:
+            if value is None:
+                continue
+            if value in seen:
                 raise ValueError(
-                    f"{field_name}={value} is not present in `labels`. "
-                    f"Available tokens: {list(self.labels.keys())}"
+                    f"{field_name}={value} duplicates {seen[value]}={value}. "
+                    "All label integers must be unique."
                 )
+            seen[value] = field_name
         return self
+
+    # ------------------------------------------------------------------
+    # Derived properties — allow callers that use the old API to work unchanged
+    # ------------------------------------------------------------------
+
+    @property
+    def coding_label(self) -> int:
+        """Alias for ``exon_label``.
+
+        Used by ``transcript_mapping``, ``global_metrics``, and ``io_utils``
+        which were written against the old ``coding_label`` field name.
+        """
+        return self.exon_label
+
+    @property
+    def labels(self) -> dict[int, str]:
+        """Full ``{token: name}`` dict for all defined labels.
+
+        Provides backward compatibility for ``state_transitions.py`` and
+        the transition plotting code which iterate over all label IDs.
+        """
+        result: dict[int, str] = {
+            self.background_label: "NONCODING",
+            self.exon_label: "EXON",
+        }
+        if self.intron_label is not None:
+            result[self.intron_label] = "INTRON"
+        if self.splice_donor_label is not None:
+            result[self.splice_donor_label] = "SPLICE_DONOR"
+        if self.splice_acceptor_label is not None:
+            result[self.splice_acceptor_label] = "SPLICE_ACCEPTOR"
+        return result
+
+    @property
+    def evaluation_labels(self) -> dict[int, str]:
+        """Labels to compute per-class metrics for (excludes background).
+
+        Used by :func:`~dna_segmentation_benchmark.eval.evaluate_predictors.\
+benchmark_gt_vs_pred_single` when ``classes`` is not specified.
+        """
+        result: dict[int, str] = {self.exon_label: "EXON"}
+        if self.intron_label is not None:
+            result[self.intron_label] = "INTRON"
+        if self.splice_donor_label is not None:
+            result[self.splice_donor_label] = "SPLICE_DONOR"
+        if self.splice_acceptor_label is not None:
+            result[self.splice_acceptor_label] = "SPLICE_ACCEPTOR"
+        return result
 
     # ------------------------------------------------------------------
     # Convenience helpers
@@ -87,28 +170,24 @@ class LabelConfig(BaseModel):
     def name_of(self, token: int) -> str:
         """Return the human-readable name for *token*.
 
-        Raises ``KeyError`` if *token* is not in ``labels``.
+        Falls back to ``str(token)`` for unknown tokens rather than raising.
         """
-        return self.labels[token]
+        return self.labels.get(token, str(token))
 
     @property
     def background_name(self) -> str:
         """Human-readable name of the background label."""
-        return self.labels[self.background_label]
+        return "NONCODING"
 
     @property
-    def coding_name(self) -> Optional[str]:
-        """Human-readable name of the coding label, or ``None``."""
-        if self.coding_label is None:
-            return None
-        return self.labels[self.coding_label]
+    def coding_name(self) -> str:
+        """Human-readable name of the exon/coding label."""
+        return "EXON"
 
     @property
     def intron_name(self) -> Optional[str]:
         """Human-readable name of the intron label, or ``None``."""
-        if self.intron_label is None:
-            return None
-        return self.labels[self.intron_label]
+        return "INTRON" if self.intron_label is not None else None
 
 
 # ------------------------------------------------------------------
@@ -116,12 +195,11 @@ class LabelConfig(BaseModel):
 # ------------------------------------------------------------------
 
 BEND_LABEL_CONFIG = LabelConfig(
-    labels={0: "EXON", 1: "DONOR", 2: "INTRON", 3: "ACCEPTOR", 8: "NONCODING"},
     background_label=8,
-    coding_label=0,
+    exon_label=0,
+    intron_label=2,
     splice_donor_label=1,
     splice_acceptor_label=3,
-    intron_label=2,
 )
 
 

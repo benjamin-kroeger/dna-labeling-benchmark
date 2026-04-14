@@ -1,22 +1,21 @@
-"""Gap-chain comparison metrics.
+"""Intron-chain comparison metrics.
 
-Compares the ordered sequence of gaps between consecutive segments of a
-class between ground-truth and predicted label arrays.  For exon segments
-the gaps correspond to introns, making this the label-agnostic equivalent
-of an intron chain comparison.
+Compares the set of intron boundaries between consecutive exon segments of a
+class between ground-truth and predicted label arrays.  For exon segments the
+gaps between segments correspond to introns, making this the label-array
+equivalent of an intron chain comparison.
 
 Metrics
 -------
-* **Gap chain match** — exact equality of gap boundary sequences.
-* **Gap chain LCS ratio** — longest common subsequence of gap boundary
-  pairs as a fraction of the longer chain.  Provides ordering-aware
-  partial credit.
+* **Intron precision** — fraction of predicted intron positions present in GT.
+* **Intron recall** — fraction of GT intron positions found in the prediction.
 * **Segment count delta** — over-/under-segmentation indicator.
 """
 
 from __future__ import annotations
 
 from .structure import ExtractedStructure, Segment
+from .. import LabelConfig
 
 
 # ---------------------------------------------------------------------------
@@ -24,19 +23,25 @@ from .structure import ExtractedStructure, Segment
 # ---------------------------------------------------------------------------
 
 
-def _compute_gap_chain_metrics(
-    gt_structure: ExtractedStructure,
-    pred_structure: ExtractedStructure,
-    class_token: int,
+def _compute_intron_chain_metrics(
+        gt_structure: ExtractedStructure,
+        pred_structure: ExtractedStructure,
+        label_config: LabelConfig,
 ) -> dict:
-    """Compare gap chains (inter-segment boundaries) for a single class.
+    """Compare intron chains (inter-segment boundaries) for a single class.
 
-    The gap chain is the ordered sequence of ``(end_i, start_{i+1})`` pairs
-    between consecutive segments of *class_token*.  For exon segments these
-    gaps correspond to introns, but the metric is label-agnostic.
+    Each intron is the ``(end_i, start_{i+1})`` boundary pair between two
+    consecutive segments of *class_token*.  For exon segments these gaps
+    correspond to introns.
 
-    Also reports segment counts and delta for over-/under-segmentation
-    diagnosis.
+    Precision and recall are computed over the **set** of intron positions:
+
+    * ``intron_precision`` — of the predicted introns, what fraction match a GT intron?
+    * ``intron_recall``    — of the GT introns, what fraction appear in the prediction?
+
+    Single-exon edge cases: if neither side has introns both scores are 1.0;
+    if only one side has introns the other side scores 1.0 vacuously (nothing
+    to miss / nothing to be wrong about).
 
     Parameters
     ----------
@@ -48,35 +53,31 @@ def _compute_gap_chain_metrics(
     Returns
     -------
     dict
-        Keys: ``gap_chain_match`` (bool), ``gap_chain_lcs_ratio`` (float),
-        ``gap_count_match`` (bool), ``gap_count_gt`` (int),
-        ``gap_count_pred`` (int), ``segment_count_gt`` (int),
-        ``segment_count_pred`` (int), ``segment_count_delta`` (int).
+        Keys: ``intron_precision`` (float), ``intron_recall`` (float),
+        ``intron_count_gt`` (int), ``intron_count_pred`` (int),
+        ``segment_count_gt`` (int), ``segment_count_pred`` (int),
+        ``segment_count_delta`` (int).
     """
-    gt_segs = gt_structure.filter_by_label(class_token)
-    pred_segs = pred_structure.filter_by_label(class_token)
+    if not label_config.intron_label:
+        raise ValueError("Intron-chain comparison requires an intron label.")
 
-    gt_gaps = _gap_chain(gt_segs)
-    pred_gaps = _gap_chain(pred_segs)
+    gt_segs = gt_structure.filter_by_label(label_config.intron_label)
+    pred_segs = pred_structure.filter_by_label(label_config.intron_label)
 
-    n_gt_gaps = len(gt_gaps)
-    n_pred_gaps = len(pred_gaps)
-    max_len = max(n_gt_gaps, n_pred_gaps)
+    gt_introns: set[tuple[int, int]] = set(_intron_chain(gt_segs))
+    pred_introns: set[tuple[int, int]] = set(_intron_chain(pred_segs))
 
-    lcs_len = _lcs_length(gt_gaps, pred_gaps) if max_len > 0 else 0
-
-    n_gt_segs = len(gt_segs)
-    n_pred_segs = len(pred_segs)
+    if len(gt_introns) == 0:
+        return {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+        }
 
     return {
-        "gap_chain_match": gt_gaps == pred_gaps,
-        "gap_chain_lcs_ratio": lcs_len / max_len if max_len > 0 else 1.0,
-        "gap_count_match": n_gt_gaps == n_pred_gaps,
-        "gap_count_gt": n_gt_gaps,
-        "gap_count_pred": n_pred_gaps,
-        "segment_count_gt": n_gt_segs,
-        "segment_count_pred": n_pred_segs,
-        "segment_count_delta": n_pred_segs - n_gt_segs,
+        "tp": 1 if gt_introns == pred_introns else 0,
+        "fp": 1 if gt_introns != pred_introns else 0,
+        "fn": 1 if gt_introns != pred_introns else 0,
     }
 
 
@@ -85,10 +86,10 @@ def _compute_gap_chain_metrics(
 # ---------------------------------------------------------------------------
 
 
-def _gap_chain(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
-    """Return ordered gap boundaries between consecutive segments.
+def _intron_chain(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
+    """Return ordered intron boundaries between consecutive segments.
 
-    Each gap is ``(end_of_segment_i, start_of_segment_{i+1})``.
+    Each intron is ``(end_of_segment_i, start_of_segment_{i+1})``.
     """
     return [(segments[i].end, segments[i + 1].start) for i in range(len(segments) - 1)]
 
@@ -99,17 +100,14 @@ def _boundaries(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
 
 
 def _lcs_length(
-    seq_a: list[tuple[int, int]],
-    seq_b: list[tuple[int, int]],
+        seq_a: list[tuple[int, int]],
+        seq_b: list[tuple[int, int]],
 ) -> int:
     """Length of the longest common subsequence of boundary pairs."""
     n = len(seq_a)
     m = len(seq_b)
-
-    # Two-row DP
     prev = [0] * (m + 1)
     curr = [0] * (m + 1)
-
     for i in range(1, n + 1):
         for j in range(1, m + 1):
             if seq_a[i - 1] == seq_b[j - 1]:
@@ -117,5 +115,4 @@ def _lcs_length(
             else:
                 curr[j] = max(prev[j], curr[j - 1])
         prev, curr = curr, [0] * (m + 1)
-
     return max(prev)

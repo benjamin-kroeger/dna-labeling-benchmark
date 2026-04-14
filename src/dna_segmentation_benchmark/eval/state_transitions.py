@@ -33,14 +33,14 @@ class TransitionAnalysis:
     false_transition_matrices : dict[int, np.ndarray]
         Per GT-stable label, a 1-D array of length ``L`` counting how many
         times the predictor falsely transitioned *to* each target label.
-    false_transition_totals : dict[int, int]
+    stable_position_counts : dict[int, int]
         Per label: total number of GT-stable positions (denominator for
         the false-transition rate).
     """
 
     gt_transition_matrices: dict[int, np.ndarray]
     false_transition_matrices: dict[int, np.ndarray]
-    false_transition_totals: dict[int, int]
+    stable_position_counts: dict[int, int]
 
 
 def _compute_state_change_errors(
@@ -60,7 +60,7 @@ def _compute_state_change_errors(
     -------
     TransitionAnalysis
         Frozen dataclass with ``gt_transition_matrices``,
-        ``false_transition_matrices``, and ``false_transition_totals``.
+        ``false_transition_matrices``, and ``stable_position_counts``.
     """
     label_ids = sorted(label_config.labels.keys())
     num_labels = len(label_ids)
@@ -71,12 +71,12 @@ def _compute_state_change_errors(
         gt_pred_arr, (2, 2),
     )[0]
 
-    gt_src = nuc_transitions[:, 0, 0]   # GT label at position i
-    gt_tgt = nuc_transitions[:, 0, 1]   # GT label at position i+1
-    pred_src = nuc_transitions[:, 1, 0]  # Pred label at position i
-    pred_tgt = nuc_transitions[:, 1, 1]  # Pred label at position i+1
+    gt_src = nuc_transitions[:, 0, 0]  # all GT labels at position i
+    gt_tgt = nuc_transitions[:, 0, 1]  # all GT labels at position i+1
+    pred_src = nuc_transitions[:, 1, 0]  # all Pred labels at position i
+    pred_tgt = nuc_transitions[:, 1, 1]  # all Pred labels at position i+1
 
-    gt_transition_mask = gt_src != gt_tgt
+    gt_transition_mask = gt_src != gt_tgt  # state transition in the gt
     gt_stable_mask = ~gt_transition_mask
 
     # ---- 1. GT transition confusion matrices ----------------------------
@@ -84,12 +84,15 @@ def _compute_state_change_errors(
         lid: [] for lid in label_ids
     }
 
+    # iterate over all windows where there was a gt transition
     for window in nuc_transitions[gt_transition_mask]:
         source = int(window[0, 0])
         gt_target = int(window[0, 1])
         pred_target = int(window[1, 1])
+        # store from which label it should have been transitioned
         per_label_pairs[source].append((gt_target, pred_target))
 
+    # convert to confusion matrix per staring label
     gt_transition_matrices: dict[int, np.ndarray] = {}
     for label_id, pairs in per_label_pairs.items():
         if len(pairs) == 0:
@@ -98,28 +101,33 @@ def _compute_state_change_errors(
             )
             continue
 
+        # create confusion matrix over transition targets and save under source id
         gt_targets, pred_targets = zip(*pairs)
         gt_transition_matrices[label_id] = confusion_matrix(
             gt_targets, pred_targets, labels=label_ids,
         ).astype(np.int64)
 
     # ---- 2. False transition target matrices ----------------------------
+    # Eval transitions which are only present in pred
+
     false_transition_matrices: dict[int, np.ndarray] = {}
-    false_transition_totals: dict[int, int] = {}
+    stable_position_counts: dict[int, int] = {}
 
     # Mask for false transitions: GT is stable AND pred changes
-    false_mask = gt_stable_mask & (pred_src != pred_tgt)
+    false_transition_mask = gt_stable_mask & (pred_src != pred_tgt)
 
     for label_id in label_ids:
         # All GT-stable positions for this label
         label_stable_mask = gt_stable_mask & (gt_src == label_id)
-        false_transition_totals[label_id] = int(label_stable_mask.sum())
+        # count the total number of stable transitions
+        stable_position_counts[label_id] = int(label_stable_mask.sum())
 
-        # Among those, where pred falsely transitions
-        label_false_mask = false_mask & (gt_src == label_id)
+        # Build mask where a false transition exists and the source is the current label
+        label_false_mask = false_transition_mask & (gt_src == label_id)
+        # get the predicted targets for this label
         false_targets = pred_tgt[label_false_mask]
 
-        # Build a target-distribution vector
+        # extract how often transitions into each label happened
         target_counts = np.zeros(num_labels, dtype=np.int64)
         for idx, lid in enumerate(label_ids):
             target_counts[idx] = int((false_targets == lid).sum())
@@ -129,5 +137,5 @@ def _compute_state_change_errors(
     return TransitionAnalysis(
         gt_transition_matrices=gt_transition_matrices,
         false_transition_matrices=false_transition_matrices,
-        false_transition_totals=false_transition_totals,
+        stable_position_counts=stable_position_counts,
     )
