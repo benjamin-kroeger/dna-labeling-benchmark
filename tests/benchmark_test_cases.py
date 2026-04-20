@@ -11,9 +11,8 @@ EXON, DONOR, INTRON, ACCEPTOR, NONCODING = 0, 1, 2, 3, 8
 
 # A second label set to prove label-agnosticism
 CUSTOM_CONFIG = LabelConfig(
-    labels={-1: "NONCODING", 5: "CDS", 3: "PROMOTER"},
     background_label=-1,
-    coding_label=5,
+    exon_label=5,
 )
 
 SINGLE_SEQUENCE_TEST_CASES = [
@@ -25,7 +24,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -64,7 +62,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -103,7 +100,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -142,7 +138,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -181,7 +176,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -210,7 +204,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -249,7 +243,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -278,7 +271,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -307,34 +299,8 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [INTRON, EXON],
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "INTRON": {
-                "INDEL": {
-                    "5_prime_extensions": [np.array([4])],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [np.array([7, 8])],
-                    "whole_deletions": [],
-                    "split": [],
-                    "joined": [],
-                },
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 1, "fn": 0, "fp": 0},
-                    "internal_hit": {"tp": 0, "fn": 1},
-                    "full_coverage_hit": {"tp": 0, "fn": 1},
-                    "perfect_boundary_hit": {"tp": 0, "fn": 1, "fp": 1},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 0,
-                    "last_sec_correct_5_prime_boundary": 0,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 6, "fp": 1, "fn": 2, "tp": 2},
-                },
-            },
             "EXON": {
                 "INDEL": {
                     "5_prime_extensions": [],
@@ -361,86 +327,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
                 },
             },
         },
-        id="exon_intron_combination_test",
-    ),
-    pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 0, 0, 8, 8],
-                [8, 8, 8, 0, 0, 0, 1, 2, 2, 2, 2, 3, 3, 0, 0, 0, 8, 8],
-            ]
-        ),
-        BEND_LABEL_CONFIG,
-        [EXON, DONOR, ACCEPTOR],
-        [EvalMetrics.INDEL],
-        {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [np.array([13])],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [],
-                    "whole_deletions": [],
-                    "split": [],
-                    "joined": [],
-                },
-            },
-            "DONOR": {
-                "INDEL": {
-                    "5_prime_extensions": [],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [np.array([7])],
-                    "whole_deletions": [],
-                    "split": [],
-                    "joined": [],
-                },
-            },
-            "ACCEPTOR": {
-                "INDEL": {
-                    "5_prime_extensions": [],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [np.array([13])],
-                    "whole_deletions": [],
-                    "split": [],
-                    "joined": [],
-                },
-            },
-        },
-        id="splice_sites_detection",
-    ),
-    pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 0, 2, 2, 2, 2, 0, 0, 8, 8],
-                [8, 8, 8, 0, 0, 0, 2, 2, 2, 2, 0, 0, 8, 8],
-            ]
-        ),
-        BEND_LABEL_CONFIG,
-        [INTRON],
-        [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
-        {
-            "INTRON": {
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 1, "fn": 0, "fp": 0},
-                    "internal_hit": {"tp": 1, "fn": 0},
-                    "full_coverage_hit": {"tp": 1, "fn": 0},
-                    "perfect_boundary_hit": {"tp": 1, "fn": 0, "fp": 0},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 1,
-                    "last_sec_correct_5_prime_boundary": 1,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 10, "fp": 0, "fn": 0, "tp": 4},
-                },
-            }
-        },
-        id="Intron_section_test",
+        id="exon_test2",
     ),
     pytest.param(
         np.array(
@@ -450,7 +337,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.FRAMESHIFT],
         {
             "EXON": {
@@ -472,10 +358,9 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         CUSTOM_CONFIG,
-        [5],  # CDS token
         [EvalMetrics.INDEL],
         {
-            "CDS": {
+            "EXON": {
                 "INDEL": {
                     "5_prime_extensions": [np.array([0, 1, 2])],
                     "3_prime_extensions": [np.array([17, 18])],
@@ -499,7 +384,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {
@@ -527,117 +412,134 @@ SINGLE_SEQUENCE_TEST_CASES = [
 # ------------------------------------------------------------------
 
 STRUCTURAL_COHERENCE_TEST_CASES = [
-    # -- Exact match: identical 3-exon segment chains
-    # GT/pred exons: (2,4), (7,9), (12,13) → gaps: [(4,7), (9,12)]
+    # -----------------------------------------------------------------------
+    # Transcript match classification + tier P/R test cases
+    #
+    # Each case verifies four structural-coherence sub-metrics for a single
+    # transcript pair:
+    #   intron_chain   — binary intron-set equality (tp/fp/fn)
+    #   transcript_exact    — TP only when chains are identical
+    #   pred_is_superset    — TP for EXACT | BOUNDARY_SHIFT | EXTRA_SEGMENTS
+    #   pred_is_subset      — TP for EXACT | BOUNDARY_SHIFT | MISSING_SEGMENTS
+    #
+    # NOTE on superset/subset having identical P/R in production data:
+    #   precision_superset == precision_subset iff
+    #   count(EXTRA_SEGMENTS) == count(MISSING_SEGMENTS) across all sequences.
+    #   This is a dataset property, not a bug.  The single-pair tests below
+    #   confirm that exact=1.0 for a perfect match and 0.0 otherwise, which
+    #   is correct — the low "exact" value in production simply reflects that
+    #   very few predicted transcripts have identical splice-site boundaries.
+    # -----------------------------------------------------------------------
+
+    # -- Case 1: EXACT — identical 3-exon chains
+    # GT/pred exons: [2,5), [7,10), [12,14)  introns: [5,7), [10,12)
+    # intron chain link: (7, 10) — same on both sides → tp=1
+    # All tiers: TP
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": True,
-                    "gap_chain_lcs_ratio": 1.0,
-                    "gap_count_match": True,
-                    "gap_count_gt": 2,
-                    "gap_count_pred": 2,
-                    "segment_count_gt": 3,
-                    "segment_count_pred": 3,
-                    "segment_count_delta": 0,
+                    "intron_chain": {"tp": 1, "fp": 0, "fn": 0},
                     "transcript_match_class": "exact",
+                    "segment_count_delta": 0,
+                    "transcript_exact": {"tp": 1, "fn": 0, "fp": 0},
+                    "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
+                    "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                    "boundary_shift_count": 0,
+                    "boundary_shift_total": 0,
                 },
             }
         },
         id="sc_exact_match",
     ),
-    # -- Boundary shift: same 3-exon count, shifted boundaries
-    # GT exons: (2,4), (7,9), (12,13)  → gaps: [(4,7), (9,12)]
-    # Pred exons: (1,4), (7,8), (12,14) → gaps: [(4,7), (8,12)]
-    # Gap LCS: only (4,7) matches → 1/2 = 0.5
+    # -- Case 2: BOUNDARY_SHIFT — same exon count, boundaries off by 1 bp each
+    # GT  exons: [2,5), [7,10), [12,14)   pred exons: [1,5), [7,9), [12,15)
+    # GT  intron chain link: (7,10)        pred: (7,9) → mismatch → tp=0
+    # segment_count_delta = 0 (n=3 both)
+    # All boundaries counted: seg0.start(2≠1), seg1.end(10≠9), seg2.end(14≠15) → count=3, total=3
+    # BOUNDARY_SHIFT is FP for superset AND subset: a shifted boundary means
+    # that GT segment is absent from pred and pred segment is absent from GT,
+    # so neither strict containment holds.
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
             [8, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": False,
-                    "gap_chain_lcs_ratio": 0.5,
-                    "gap_count_match": True,
-                    "gap_count_gt": 2,
-                    "gap_count_pred": 2,
-                    "segment_count_gt": 3,
-                    "segment_count_pred": 3,
-                    "segment_count_delta": 0,
+                    "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                     "transcript_match_class": "boundary_shift",
+                    "segment_count_delta": 0,
+                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                    "boundary_shift_count": 3,
+                    "boundary_shift_total": 3,
                 },
             }
         },
         id="sc_boundary_shift",
     ),
-    # -- Missing segments: pred has 2 of GT's 3 exons (middle exon absent)
-    # GT exons: (2,4), (7,9), (12,13)  → bounds: [(2,4),(7,9),(12,13)]
-    # Pred exons: (2,4), (12,13)        → bounds: [(2,4),(12,13)]
-    # Boundary LCS = 2 = n_pred < n_gt → MISSING_SEGMENTS
-    # Gap chain GT: [(4,7),(9,12)], pred: [(4,12)] → LCS=0, ratio=0.0
+    # -- Case 3: MISSING_SEGMENTS — pred skips the middle GT exon
+    # GT  exons: [2,5), [7,10), [12,14)   pred exons: [2,5), [12,14)
+    # GT has intron chain link (7,10); pred has single intron [5,12) → no chain
+    # LCS=2=n_pred < n_gt=3 → MISSING_SEGMENTS
+    # superset: FP (GT not fully in pred)   subset: TP (all pred segs in GT)
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
             [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": False,
-                    "gap_chain_lcs_ratio": 0.0,
-                    "gap_count_match": False,
-                    "gap_count_gt": 2,
-                    "gap_count_pred": 1,
-                    "segment_count_gt": 3,
-                    "segment_count_pred": 2,
-                    "segment_count_delta": -1,
+                    "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                     "transcript_match_class": "missing_segments",
+                    "segment_count_delta": -1,
+                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                    "boundary_shift_count": 0,
+                    "boundary_shift_total": 0,
                 },
             }
         },
         id="sc_missing_segments",
     ),
-    # -- Extra segments: pred has 3 exons, GT has 2 (pred inserts middle exon)
-    # GT exons: (2,4), (12,13)           → bounds: [(2,4),(12,13)]
-    # Pred exons: (2,4), (7,9), (12,13)  → bounds: [(2,4),(7,9),(12,13)]
-    # Boundary LCS = 2 = n_gt < n_pred → EXTRA_SEGMENTS
-    # Gap chain GT: [(4,12)], pred: [(4,7),(9,12)] → LCS=0, ratio=0.0
+    # -- Case 4: EXTRA_SEGMENTS — pred inserts a middle exon not in GT
+    # GT  exons: [2,5), [12,14)   pred exons: [2,5), [7,10), [12,14)
+    # GT has single intron [5,12) → no intron chain → tp=fp=fn=0 (vacuous)
+    # LCS=2=n_gt < n_pred=3 → EXTRA_SEGMENTS
+    # superset: TP (GT fully in pred)   subset: FP (pred has extra)
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8],
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": False,
-                    "gap_chain_lcs_ratio": 0.0,
-                    "gap_count_match": False,
-                    "gap_count_gt": 1,
-                    "gap_count_pred": 2,
-                    "segment_count_gt": 2,
-                    "segment_count_pred": 3,
-                    "segment_count_delta": 1,
+                    "intron_chain": {"tp": 0, "fp": 0, "fn": 0},  # GT has single intron → no chain
                     "transcript_match_class": "extra_segments",
+                    "segment_count_delta": 1,
+                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
+                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                    "boundary_shift_count": 0,
+                    "boundary_shift_total": 0,
                 },
             }
         },
@@ -653,74 +555,62 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             [8, 8, 8, 8, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": False,
-                    "gap_chain_lcs_ratio": 0.0,
-                    "gap_count_match": False,
-                    "gap_count_gt": 2,
-                    "gap_count_pred": 1,
-                    "segment_count_gt": 3,
-                    "segment_count_pred": 2,
-                    "segment_count_delta": -1,
+                    "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                     "transcript_match_class": "structurally_different",
+                    "segment_count_delta": -1,
+                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                    "boundary_shift_count": 0,
+                    "boundary_shift_total": 0,
                 },
             }
         },
         id="sc_structurally_different",
     ),
     # -- Missed: GT has 2 exons, pred is all noncoding
-    # GT exons: (2,4), (7,9) → 1 gap: [(4,7)]
-    # Pred exons: none        → 0 gaps
+    # Single intron in GT → no intron chain → tp=fp=fn=0 (vacuous)
+    # fp=0 on all tiers because has_pred=False (MISSED class)
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
             [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": False,
-                    "gap_chain_lcs_ratio": 0.0,
-                    "gap_count_match": False,
-                    "gap_count_gt": 1,
-                    "gap_count_pred": 0,
-                    "segment_count_gt": 2,
-                    "segment_count_pred": 0,
-                    "segment_count_delta": -2,
+                    "intron_chain": {"tp": 0, "fp": 0, "fn": 0},  # single intron, no chain
                     "transcript_match_class": "missed",
+                    "segment_count_delta": -2,
+                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 0},
+                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 0},
+                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 0},
+                    "boundary_shift_count": 0,
+                    "boundary_shift_total": 0,
                 },
             }
         },
         id="sc_missed",
     ),
     # -- No GT segments: all noncoding GT, pred has a spurious exon
-    # transcript_match_class should be absent (None → not stored)
+    # match_cls=None → transcript_match_class and tiers are absent from output
     pytest.param(
         np.array([
             [8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
             [8, 8, 0, 0, 0, 8, 8, 8, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": True,
-                    "gap_chain_lcs_ratio": 1.0,
-                    "gap_count_match": True,
-                    "gap_count_gt": 0,
-                    "gap_count_pred": 0,
-                    "segment_count_gt": 0,
-                    "segment_count_pred": 1,
-                    "segment_count_delta": 1,
+                    "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
                 },
             }
         },
@@ -737,20 +627,20 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             [0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": False,
-                    "gap_chain_lcs_ratio": 0.6,
-                    "gap_count_match": False,
-                    "gap_count_gt": 5,
-                    "gap_count_pred": 4,
-                    "segment_count_gt": 6,
-                    "segment_count_pred": 5,
-                    "segment_count_delta": -1,
+                    # GT intron chain: (5,7),(9,11),(13,15),(17,19) — pred misses (5,7)
+                    "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                     "transcript_match_class": "structurally_different",
+                    "segment_count_delta": -1,
+                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
+                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                    "boundary_shift_count": 0,
+                    "boundary_shift_total": 0,
                 },
             }
         },
@@ -764,20 +654,20 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             [8, 8, 0, 0, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
             "EXON": {
                 "STRUCTURAL_COHERENCE": {
-                    "gap_chain_match": True,
-                    "gap_chain_lcs_ratio": 1.0,
-                    "gap_count_match": True,
-                    "gap_count_gt": 0,
-                    "gap_count_pred": 0,
-                    "segment_count_gt": 1,
-                    "segment_count_pred": 1,
-                    "segment_count_delta": 0,
+                    # Single exon on both sides → no introns → no chain (vacuous tp=fp=fn=0)
+                    "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
                     "transcript_match_class": "exact",
+                    "segment_count_delta": 0,
+                    "transcript_exact": {"tp": 1, "fn": 0, "fp": 0},
+                    "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
+                    "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                    "boundary_shift_count": 0,
+                    "boundary_shift_total": 0,
                 },
             }
         },
@@ -790,126 +680,116 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
 # ------------------------------------------------------------------
 
 DIAGNOSTIC_DEPTH_TEST_CASES = [
-    # -- No errors: identical 2-exon predictions
-    # All segments match 1:1 with zero residuals
+    # -- No structural summary errors: identical 2-exon predictions
+    # Length distributions match and no unmatched segments contribute to position bias.
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
             "EXON": {
                 "DIAGNOSTIC_DEPTH": {
-                    "exon_skip_count": 0,
-                    "segment_retention_count": 0,
-                    "novel_insertion_count": 0,
-                    "cascade_shift_count": 0,
-                    "compensating_error_count": 0,
-                    "total_junction_errors": 0,
+                    "gt_segment_lengths": [3, 3],
+                    "pred_segment_lengths": [3, 3],
+                    "length_emd": 0.0,
+                    "position_bias_histogram": [0] * 100,
                 },
             }
         },
         id="dd_no_errors",
     ),
-    # -- Exon skip: middle exon of 3 is absent from pred
+    # -- Missing middle exon: middle GT coding segment is absent from pred
     # GT exons: (1,2), (5,6), (9,10) — pred exons: (1,2), (9,10)
-    # GT seg 1 unmatched, not absorbed → exon_skip
+    # The unmatched middle GT segment fills the middle position-bias bins.
     pytest.param(
         np.array([
             [8, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 8],
             [8, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
             "EXON": {
                 "DIAGNOSTIC_DEPTH": {
-                    "exon_skip_count": 1,
-                    "segment_retention_count": 0,
-                    "novel_insertion_count": 0,
-                    "cascade_shift_count": 0,
-                    "compensating_error_count": 0,
-                    "total_junction_errors": 1,
+                    "gt_segment_lengths": [2, 2, 2],
+                    "pred_segment_lengths": [2, 2],
+                    "length_emd": 0.0,
+                    "position_bias_histogram": [0] * 40 + [1] * 21 + [0] * 39,
                 },
             }
         },
         id="dd_exon_skip",
     ),
-    # -- Novel insertion: pred splits one GT exon into two
+    # -- Predicted split: pred splits one GT exon into two shorter segments
     # GT exon: (1,9) — pred exons: (1,3) and (6,9)
-    # GT matched to pred(6,9) (overlap=4), pred(1,3) unmatched → inside GT → novel insertion
+    # One pred segment is unmatched and contributes to early position-bias bins.
     pytest.param(
         np.array([
             [8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8],
             [8, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
             "EXON": {
                 "DIAGNOSTIC_DEPTH": {
-                    "exon_skip_count": 0,
-                    "segment_retention_count": 0,
-                    "novel_insertion_count": 1,
-                    "cascade_shift_count": 0,
-                    "compensating_error_count": 0,
-                    "total_junction_errors": 1,
+                    "gt_segment_lengths": [9],
+                    "pred_segment_lengths": [3, 4],
+                    "length_emd": 5.5,
+                    "position_bias_histogram": [1] * 34 + [0] * 66,
                 },
             }
         },
         id="dd_novel_insertion",
     ),
-    # -- Cascade shift: 4 exons all shifted right by 1 position
+    # -- Uniform boundary shift: 4 exons all shifted right by 1 position
     # GT exons: (1,3),(6,8),(11,13),(16,18)
     # Pred exons: (2,4),(7,9),(12,14),(17,19)
-    # All 5' residuals = +1 → run of 4 same-sign → 1 cascade
+    # Segment lengths are unchanged, and all pred segments still match a GT segment.
     pytest.param(
         np.array([
             [8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8, 8],
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
             "EXON": {
                 "DIAGNOSTIC_DEPTH": {
-                    "exon_skip_count": 0,
-                    "segment_retention_count": 0,
-                    "novel_insertion_count": 0,
-                    "cascade_shift_count": 1,
-                    "compensating_error_count": 0,
-                    "total_junction_errors": 1,
+                    "gt_segment_lengths": [3, 3, 3, 3],
+                    "pred_segment_lengths": [3, 3, 3, 3],
+                    "length_emd": 0.0,
+                    "position_bias_histogram": [0] * 100,
                 },
             }
         },
         id="dd_cascade_shift",
     ),
-    # -- Compensating errors: exon 1 extends right by 1, exon 2 starts left by 1
+    # -- Balanced extensions: both predicted exons are one base longer
     # GT exons: (1,3),(7,9) — pred exons: (1,4),(6,9)
-    # Residuals: (0,+1), (-1,0) → res_3p[0]+res_5p[1] = 1+(-1) = 0
+    # Both segments still match, but the predicted length distribution shifts by +1.
     pytest.param(
         np.array([
             [8, 0, 0, 0, 2, 2, 2, 0, 0, 0, 8],
             [8, 0, 0, 0, 0, 2, 0, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
             "EXON": {
                 "DIAGNOSTIC_DEPTH": {
-                    "exon_skip_count": 0,
-                    "segment_retention_count": 0,
-                    "novel_insertion_count": 0,
-                    "cascade_shift_count": 0,
-                    "compensating_error_count": 1,
-                    "total_junction_errors": 1,
+                    "gt_segment_lengths": [3, 3],
+                    "pred_segment_lengths": [4, 4],
+                    "length_emd": 1.0,
+                    "position_bias_histogram": [0] * 100,
                 },
             }
         },
@@ -922,7 +802,7 @@ MULTI_SEQUENCE_TEST_CASES = [
         [np.array([8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8])],
                 [np.array([8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])],
         BEND_LABEL_CONFIG,
-        [EXON],
+        
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "EXON": {

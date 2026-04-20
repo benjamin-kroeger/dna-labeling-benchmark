@@ -29,10 +29,12 @@ from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 
 from .boundary_precision import _compute_boundary_precision_landscape
-from .chain_comparison import _compute_intron_chain_metrics
+from .chain_comparison import (
+    _compute_intron_chain_metrics,
+    _compute_per_transcript_exon_soft_metrics,
+)
 from .frame_shift import _get_frame_shift_metrics
 from .intersection_over_union import _compute_intersection_over_union_score
-from .junction_errors import _classify_junction_errors, _compute_error_correlations
 from .state_transitions import _compute_state_change_errors
 from .structure import extract_structure
 from .structural_summary import _compute_structural_summary
@@ -77,9 +79,6 @@ def benchmark_gt_vs_pred_single(
         1-D array of predicted integer tokens (same length as *gt_labels*).
     label_config : LabelConfig
         Maps integer tokens to names and declares semantic roles.
-    classes : list[int]
-        Which token values to compute metrics for (e.g. ``[0, 2]`` for
-        EXON and INTRON).
     metrics : list[EvalMetrics] | None
         Which metric groups to compute.  Defaults to
         ``[REGION_DISCOVERY, BOUNDARY_EXACTNESS, NUCLEOTIDE_CLASSIFICATION]``.
@@ -89,7 +88,33 @@ def benchmark_gt_vs_pred_single(
     Returns
     -------
     dict
-        Nested dict keyed by human-readable class name → metric group → results.
+        Nested dict keyed by human-readable class name → metric group →
+        results.  When ``STRUCTURAL_COHERENCE`` is requested the inner
+        dict contains:
+
+        * ``intron_chain`` — strict binary TP/FP/FN (1 iff the entire
+          GT and pred intron sets are identical), aggregated to corpus
+          precision/recall across sequences.
+        * ``exon_recall_per_transcript`` — float in [0, 1]: fraction of
+          GT exons whose ``(start, end)`` was recovered exactly.  Kept
+          as a raw per-sequence list so downstream plotting can draw
+          the distribution across transcripts.
+        * ``hallucinated_exon_count_per_transcript`` — int ≥ 0: number
+          of predicted exons whose ``(start, end)`` is absent from GT.
+          Also kept as a raw list for histograms.
+        * ``transcript_match_class`` — holistic class from
+          :class:`TranscriptMatchClass` (``exact``, ``boundary_shift``,
+          ``missing_segments``, ``extra_segments``,
+          ``structurally_different``, ``missed``).
+        * ``transcript_exact`` / ``pred_is_superset`` / ``pred_is_subset``
+          — transcript-level TP/FN/FP tiers aggregated to P/R across
+          sequences.
+        * ``segment_count_delta`` — ``pred_count - gt_count``
+          (positive = over-segmentation).
+        * ``boundary_shift_count`` / ``boundary_shift_total`` — number
+          of shifted internal splice-site boundary positions and their
+          summed absolute offset in bp (non-zero only for
+          ``BOUNDARY_SHIFT`` transcripts).
     """
     if mask_labels is not None:
         is_valid = ~mask_labels.astype(bool)
@@ -244,6 +269,9 @@ def benchmark_gt_vs_pred_single(
         intron_chain = _compute_intron_chain_metrics(gt_struct, pred_struct, label_config)
         sc_result = {"intron_chain": intron_chain}
 
+        soft = _compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, label_config)
+        sc_result.update(soft)
+
         match_cls, boundary_shift_count, boundary_shift_total, n_gt, n_pred = _classify_transcript_match(
             gt_struct, pred_struct, label_config.coding_label,
         )
@@ -256,22 +284,12 @@ def benchmark_gt_vs_pred_single(
             sc_result.update(transcript_pr)
         metric_results[class_name][EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
 
-    # ---- DIAGNOSTIC_DEPTH: junction errors, correlations, structural summary
+    # ---- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
-        junctions = _classify_junction_errors(
-            gt_struct, pred_struct, label_config.coding_label,
-        )
-        correlations = _compute_error_correlations(
-            gt_struct, pred_struct, label_config.coding_label, junctions,
-        )
         summary = _compute_structural_summary(
             gt_struct, pred_struct, label_config.coding_label,
         )
-        metric_results[class_name][EvalMetrics.DIAGNOSTIC_DEPTH.name] = {
-            **junctions,
-            **correlations,
-            **summary,
-        }
+        metric_results[class_name][EvalMetrics.DIAGNOSTIC_DEPTH.name] = summary
 
     return metric_results
 
@@ -409,6 +427,10 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
         if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
             sc = class_results.get(EvalMetrics.STRUCTURAL_COHERENCE.name, {})
             sc["intron_chain"] = _compute_summary_statistics(**sc["intron_chain"])
+            # Per-transcript soft-exon metrics (exon_recall_per_transcript,
+            # hallucinated_exon_count_per_transcript) stay as raw lists so the
+            # distribution plot can draw histograms — same pattern as
+            # boundary_shift_count.
 
             # Segment count delta distribution
             if "segment_count_delta" in sc and isinstance(sc["segment_count_delta"], list):
@@ -440,50 +462,24 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
                 if tier_key in sc:
                     sc[tier_key] = _compute_summary_statistics(**sc[tier_key])
 
-        # -- DIAGNOSTIC_DEPTH: junction errors, correlations, structural summary
+        # -- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
         if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
             dd = class_results.get(EvalMetrics.DIAGNOSTIC_DEPTH.name, {})
             if dd:
-                # Junction error counts → sum + rates
-                total_errors = sum(dd["total_junction_errors"]) if isinstance(dd.get("total_junction_errors"), list) else dd.get(
-                    "total_junction_errors", 0)
-                for key in ("exon_skip_count", "segment_retention_count",
-                            "novel_insertion_count", "cascade_shift_count",
-                            "compensating_error_count"):
-                    if key in dd and isinstance(dd[key], list):
-                        dd[key] = sum(dd[key])
-                        dd[f"{key}_rate"] = (
-                            dd[key] / total_errors if total_errors > 0 else 0.0
-                        )
-                if isinstance(dd.get("total_junction_errors"), list):
-                    dd["total_junction_errors"] = total_errors
-
-                # Error correlations
-                if "error_clustering_coefficient" in dd and isinstance(dd["error_clustering_coefficient"], list):
-                    dd["error_clustering_coefficient"] = float(
-                        np.mean(dd["error_clustering_coefficient"])
-                    )
-                if "cascade_lengths" in dd and isinstance(dd["cascade_lengths"], list):
-                    dd["cascade_lengths"] = _compute_distribution_stats(
-                        dd["cascade_lengths"], is_abs=False,
-                    )
-                if "compensating_error_rate" in dd and isinstance(dd["compensating_error_rate"], list):
-                    dd["compensating_error_rate"] = float(
-                        np.mean(dd["compensating_error_rate"])
-                    )
-
                 # Length EMD distribution
                 if "length_emd" in dd and isinstance(dd["length_emd"], list):
                     dd["length_emd"] = _compute_distribution_stats(
                         dd["length_emd"], is_abs=False,
                     )
 
-                # Position bias → mean across sequences
-                for key in ("position_bias_5prime_match_rate",
-                            "position_bias_interior_match_rate",
-                            "position_bias_3prime_match_rate"):
-                    if key in dd and isinstance(dd[key], list):
-                        dd[key] = float(np.mean(dd[key]))
+                # Position bias histogram — element-wise sum across sequences.
+                # recursive_merge concatenates the per-sequence lists, giving a
+                # flat list of length 100 × N.  Reshape and sum column-wise.
+                if "position_bias_histogram" in dd and isinstance(dd["position_bias_histogram"], list):
+                    raw = dd["position_bias_histogram"]
+                    if len(raw) > 100:
+                        arr = np.array(raw).reshape(-1, 100)
+                        dd["position_bias_histogram"] = arr.sum(axis=0).tolist()
 
                 # Segment length lists — keep for plotting
                 # (already extended by recursive_merge)

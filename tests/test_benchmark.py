@@ -18,17 +18,16 @@ from benchmark_test_cases import (
 
 
 @pytest.mark.parametrize(
-    "gt_pred_array, label_config, classes, metrics, expected_errors",
+    "gt_pred_array, label_config, metrics, expected_errors",
     SINGLE_SEQUENCE_TEST_CASES,
 )
-def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expected_errors):
+def test_benchmark_single(gt_pred_array, label_config, metrics, expected_errors):
     """Test single-sequence benchmark with various label configs and metrics."""
     benchmark_results = benchmark_gt_vs_pred_single(
         gt_labels=gt_pred_array[0],
         pred_labels=gt_pred_array[1],
         mask_labels=gt_pred_array[2] if gt_pred_array.shape[0] > 2 else None,
         label_config=label_config,
-        classes=classes,
         metrics=metrics,
     )
 
@@ -47,16 +46,15 @@ def test_benchmark_single(gt_pred_array, label_config, classes, metrics, expecte
 
 
 @pytest.mark.parametrize(
-    "gt_pred_array, label_config, classes, metrics, expected_errors",
+    "gt_pred_array, label_config, metrics, expected_errors",
     STRUCTURAL_COHERENCE_TEST_CASES,
 )
-def test_structural_coherence(gt_pred_array, label_config, classes, metrics, expected_errors):
+def test_structural_coherence(gt_pred_array, label_config, metrics, expected_errors):
     """Test structural coherence metrics (gap chain, transcript classification)."""
     benchmark_results = benchmark_gt_vs_pred_single(
         gt_labels=gt_pred_array[0],
         pred_labels=gt_pred_array[1],
         label_config=label_config,
-        classes=classes,
         metrics=metrics,
     )
 
@@ -68,16 +66,15 @@ def test_structural_coherence(gt_pred_array, label_config, classes, metrics, exp
 
 
 @pytest.mark.parametrize(
-    "gt_pred_array, label_config, classes, metrics, expected_errors",
+    "gt_pred_array, label_config, metrics, expected_errors",
     DIAGNOSTIC_DEPTH_TEST_CASES,
 )
-def test_diagnostic_depth(gt_pred_array, label_config, classes, metrics, expected_errors):
+def test_diagnostic_depth(gt_pred_array, label_config, metrics, expected_errors):
     """Test diagnostic depth metrics (junction errors, correlations, structural summary)."""
     benchmark_results = benchmark_gt_vs_pred_single(
         gt_labels=gt_pred_array[0],
         pred_labels=gt_pred_array[1],
         label_config=label_config,
-        classes=classes,
         metrics=metrics,
     )
 
@@ -89,16 +86,15 @@ def test_diagnostic_depth(gt_pred_array, label_config, classes, metrics, expecte
 
 
 @pytest.mark.parametrize(
-    "gt_arrays, pred_arrays, label_config, classes, metrics, expected_errors",
+    "gt_arrays, pred_arrays, label_config, metrics, expected_errors",
     MULTI_SEQUENCE_TEST_CASES,
 )
-def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, classes, metrics, expected_errors):
+def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, metrics, expected_errors):
     """Test multi-sequence benchmark with aggregation and summary metrics."""
     benchmark_results = benchmark_gt_vs_pred_multiple(
         gt_labels=gt_arrays,
         pred_labels=pred_arrays,
         label_config=label_config,
-        classes=classes,
         metrics=metrics,
     )
 
@@ -127,50 +123,41 @@ class TestLabelConfig:
     """Tests for the LabelConfig pydantic model."""
 
     def test_basic_construction(self):
-        config = LabelConfig(
-            labels={0: "EXON", 8: "NONCODING"},
-            background_label=8,
-        )
+        config = LabelConfig(background_label=8, exon_label=0)
         assert config.background_label == 8
+        assert config.exon_label == 0
         assert config.background_name == "NONCODING"
 
     def test_coding_name(self):
-        config = LabelConfig(
-            labels={0: "EXON", 8: "BG"},
-            background_label=8,
-            coding_label=0,
-        )
+        config = LabelConfig(background_label=8, exon_label=0)
         assert config.coding_name == "EXON"
         assert config.coding_label == 0
 
-    def test_coding_label_none_by_default(self):
-        config = LabelConfig(labels={8: "BG"}, background_label=8)
-        assert config.coding_label is None
-        assert config.coding_name is None
+    def test_optional_labels(self):
+        config = LabelConfig(background_label=8, exon_label=0)
+        assert config.intron_label is None
+        assert config.splice_donor_label is None
+        assert config.splice_acceptor_label is None
 
-    def test_special_label_not_in_labels_raises(self):
-        with pytest.raises(ValueError, match="background_label=99"):
-            LabelConfig(labels={0: "EXON"}, background_label=99)
+    def test_duplicate_labels_raises(self):
+        with pytest.raises(ValueError, match="duplicates"):
+            LabelConfig(background_label=0, exon_label=0)
 
-    def test_coding_label_not_in_labels_raises(self):
-        with pytest.raises(ValueError, match="coding_label=42"):
-            LabelConfig(labels={0: "EXON", 8: "BG"}, background_label=8, coding_label=42)
+    def test_exon_feature_type_coercion(self):
+        config = LabelConfig(background_label=8, exon_label=0, exon_feature_type="CDS")
+        assert config.exon_feature_type == ["CDS"]
 
     def test_name_of(self):
         config = BEND_LABEL_CONFIG
         assert config.name_of(0) == "EXON"
         assert config.name_of(2) == "INTRON"
 
-    def test_frameshift_without_coding_label_raises(self):
-        config = LabelConfig(labels={0: "X", 8: "BG"}, background_label=8)
-        with pytest.raises(ValueError, match="coding_label"):
-            benchmark_gt_vs_pred_single(
-                gt_labels=np.array([8, 8, 0, 0, 0, 8, 8]),
-                pred_labels=np.array([8, 8, 0, 0, 0, 8, 8]),
-                label_config=config,
-                classes=[0],
-                metrics=[EvalMetrics.FRAMESHIFT],
-            )
+    def test_labels_property_backward_compat(self):
+        config = BEND_LABEL_CONFIG
+        labels = config.labels
+        assert labels[8] == "NONCODING"
+        assert labels[0] == "EXON"
+        assert labels[2] == "INTRON"
 
     def test_frozen(self):
         config = BEND_LABEL_CONFIG

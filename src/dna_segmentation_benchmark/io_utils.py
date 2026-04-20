@@ -1,9 +1,13 @@
 """I/O utilities for DNA segmentation benchmark.
 
-Handles reading of GFF3 and GTF annotations via Polars.  All GFF parsing
-is done through :func:`_lazy_read_gff` which recognises both GFF3
-(``ID=``/``Parent=``) and GTF (``transcript_id``/``gene_id``) attribute
-conventions.
+Handles reading of GFF3 and GTF annotations via PyRanges. Format is
+detected from the file extension (.gtf → GTF, everything else → GFF3).
+
+Returned DataFrames use **1-based, inclusive** coordinates (GFF convention)
+with unified ``gff_id`` and ``parent`` columns that work for both formats:
+
+- GTF: both columns are set to ``transcript_id``
+- GFF3: ``gff_id`` ← ``ID``, ``parent`` ← ``Parent``
 
 .. note::
 
@@ -18,7 +22,8 @@ import logging
 from pathlib import Path
 
 import numpy as np
-import polars as pl
+import pandas as pd
+import pyranges1 as pr
 
 from .label_definition import LabelConfig
 
@@ -27,101 +32,52 @@ logger = logging.getLogger(__name__)
 # Default GFF feature types that denote a "transcript" row.
 DEFAULT_TRANSCRIPT_TYPES: list[str] = ["mRNA", "transcript"]
 
-# Minimum character length for a GFF/GTF line to be considered valid.
-# A well-formed line has 9 tab-separated fields; even with single-char
-# values and 8 tabs the minimum is 17 characters.  We use a conservative
-# lower bound to filter blank or truncated lines without risking false
-# positives.
-_MIN_GFF_LINE_LENGTH = 10
-
 
 # ------------------------------------------------------------------
 # Internal: GFF parsing
 # ------------------------------------------------------------------
 
 
-def _lazy_read_gff(gff_path: str) -> pl.LazyFrame:
-    """Build a Polars LazyFrame from a raw GFF3 or GTF file.
+def _detect_format(path: Path) -> str:
+    """Return ``'gtf'`` or ``'gff3'`` based on file extension."""
+    suffixes = {s.lower() for s in path.suffixes}
+    return "gtf" if ".gtf" in suffixes else "gff3"
 
-    The GFF/GTF format is notoriously variable.  To avoid ``ShapeError``
-    from ragged columns we read each line as a single string, strip
-    comments, then split by tab.
 
-    Both GFF3 (``ID=``/``Parent=``) and GTF (``transcript_id``) attribute
-    conventions are recognised.  For GTF files, ``transcript_id`` is used
-    as both the feature identifier and the parent link (since in GTF a
-    child exon carries the same ``transcript_id`` as its parent
-    transcript row).
+def _normalise_pyranges_df(gr_df: pd.DataFrame, fmt: str) -> pd.DataFrame:
+    """Convert a PyRanges DataFrame to the internal normalised format.
 
-    Returns
-    -------
-    pl.LazyFrame
-        Columns: ``seqid``, ``source``, ``type``, ``start`` (Int64),
-        ``end`` (Int64), ``score``, ``strand``, ``phase``, ``attributes``,
-        ``gff_id``, ``parent``.
+    PyRanges uses 0-based half-open coordinates; this function converts
+    them back to 1-based inclusive (GFF convention) and renames columns
+    to the internal schema.
+
+    Returns columns: ``seqid``, ``type``, ``start``, ``end``, ``strand``,
+    ``gff_id``, ``parent``.
     """
-    col_name = "column_1"
+    df = gr_df.rename(columns={
+        "Chromosome": "seqid",
+        "Feature": "type",
+        "Strand": "strand",
+    })
 
-    # Read entire file as a single-column DataFrame, then convert to lazy.
-    # Using read_csv instead of scan_csv because scan_csv hangs with the
-    # unit-separator trick needed to force single-column parsing.
-    df = pl.read_csv(
-        gff_path,
-        has_header=False,
-        separator="\x1f",  # never occurs in GFF → forces single column
-        truncate_ragged_lines=True,
-        quote_char=None,
-    )
+    # PyRanges 0-based half-open → 1-based inclusive
+    df["start"] = df["Start"] + 1
+    df["end"] = df["End"]
 
-    ldf = (
-        df.lazy()
-        # Drop comments and blank / too-short lines
-        .filter(~pl.col(col_name).str.starts_with("#"))
-        .filter(pl.col(col_name).str.len_chars() >= _MIN_GFF_LINE_LENGTH)
-        # Split by tab into the 9 canonical GFF columns
-        .with_columns(
-            pl.col(col_name).str.split_exact("\t", 8).alias("fields")
-        )
-        .unnest("fields")
-        .rename({
-            "field_0": "seqid",
-            "field_1": "source",
-            "field_2": "type",
-            "field_3": "start",
-            "field_4": "end",
-            "field_5": "score",
-            "field_6": "strand",
-            "field_7": "phase",
-            "field_8": "attributes",
-        })
-        .with_columns([
-            pl.col("start").cast(pl.Int64, strict=False),
-            pl.col("end").cast(pl.Int64, strict=False),
-        ])
-        # Extract identifiers for both GFF3 and GTF conventions.
-        #   GFF3: ID=foo;Parent=bar
-        #   GTF:  gene_id "G1"; transcript_id "T1";
-        # For GTF, transcript_id serves as both the row's identity and
-        # the parent link (children share the same transcript_id).
-        .with_columns([
-            pl.col("attributes")
-              .str.extract(r"ID=([^;\s]+)")
-              .alias("_gff3_id"),
-            pl.col("attributes")
-              .str.extract(r"Parent=([^;\s]+)")
-              .alias("_gff3_parent"),
-            pl.col("attributes")
-              .str.extract(r'transcript_id "([^"]+)"')
-              .alias("_gtf_tid"),
-        ])
-        .with_columns([
-            pl.coalesce("_gff3_id", "_gtf_tid").alias("gff_id"),
-            pl.coalesce("_gff3_parent", "_gtf_tid").alias("parent"),
-        ])
-        .drop(["_gff3_id", "_gff3_parent", "_gtf_tid"])
-    )
+    if fmt == "gtf":
+        tid = df["transcript_id"] if "transcript_id" in df.columns else pd.NA
+        df["gff_id"] = tid
+        df["parent"] = tid
+    else:
+        df["gff_id"] = df["ID"] if "ID" in df.columns else pd.NA
+        if "Parent" in df.columns:
+            # Parent may be comma-separated; take the first value only.
+            df["parent"] = df["Parent"].str.split(",").str[0]
+        else:
+            df["parent"] = pd.NA
 
-    return ldf
+    keep = ["seqid", "type", "start", "end", "strand", "gff_id", "parent"]
+    return df[[c for c in keep if c in df.columns]].reset_index(drop=True)
 
 
 # ------------------------------------------------------------------
@@ -132,7 +88,7 @@ def _lazy_read_gff(gff_path: str) -> pl.LazyFrame:
 def collect_gff(
     gff_path: str | Path,
     exclude_features: list[str] | None = None,
-) -> pl.DataFrame:
+) -> pd.DataFrame:
     """Read and collect a GFF/GTF file into a materialised DataFrame.
 
     This is the canonical way to read a GFF file once and reuse the
@@ -147,24 +103,30 @@ def collect_gff(
 
     Returns
     -------
-    pl.DataFrame
-        Collected DataFrame with standard GFF columns plus ``gff_id``
-        and ``parent``.
+    pd.DataFrame
+        Columns: ``seqid``, ``type``, ``start``, ``end``, ``strand``,
+        ``gff_id``, ``parent``.  Coordinates are 1-based, inclusive.
     """
-    lf = _lazy_read_gff(str(gff_path))
+    path = Path(gff_path)
+    fmt = _detect_format(path)
+
+    try:
+        if fmt == "gtf":
+            gr = pr.read_gtf(str(path))
+        else:
+            gr = pr.read_gff3(str(path))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to parse {gff_path}: {exc}") from exc
+
+    df = _normalise_pyranges_df(pd.DataFrame(gr), fmt)
 
     if exclude_features:
-        lf = lf.filter(~pl.col("type").is_in(exclude_features))
+        df = df[~df["type"].isin(exclude_features)].reset_index(drop=True)
 
-    df = lf.collect()
-
-    null_coord_count = df.filter(
-        pl.col("start").is_null() | pl.col("end").is_null()
-    ).height
+    null_coord_count = df[["start", "end"]].isna().any(axis=1).sum()
     if null_coord_count > 0:
         logger.warning(
-            "%d row(s) in %s have unparseable coordinates and will be "
-            "ignored.",
+            "%d row(s) in %s have unparseable coordinates and will be ignored.",
             null_coord_count,
             gff_path,
         )
@@ -221,8 +183,7 @@ def read_gff_to_arrays(
     """
     if label_config.coding_label is None:
         raise ValueError(
-            "LabelConfig must have `coding_label` set to parse GFF "
-            "features."
+            "LabelConfig must have `coding_label` set to parse GFF features."
         )
 
     coding_val = label_config.coding_label
@@ -232,90 +193,68 @@ def read_gff_to_arrays(
     try:
         df = collect_gff(str(gff_path), exclude_features=exclude_features)
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to parse {gff_path} with Polars: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to parse {gff_path}: {exc}") from exc
 
-    # ------------------------------------------------------------------
-    # Identify transcript rows → they define array boundaries
-    # ------------------------------------------------------------------
-    transcript_df = df.filter(pl.col("type").is_in(transcript_types))
+    transcript_df = df[df["type"].isin(transcript_types)]
+    child_df = df[df["parent"].notna() & ~df["type"].isin(transcript_types)]
 
-    if transcript_df.is_empty():
+    if transcript_df.empty:
         logger.warning(
-            "No transcript features (%s) found in %s. "
-            "Returning empty result.",
+            "No transcript features (%s) found in %s. Returning empty result.",
             transcript_types,
             gff_path,
         )
         return {}
 
-    # ------------------------------------------------------------------
-    # Identify child rows → everything that has a Parent and is not
-    # itself a transcript-type row
-    # ------------------------------------------------------------------
-    child_df = df.filter(
-        pl.col("parent").is_not_null()
-        & (~pl.col("type").is_in(transcript_types))
-    )
-
-    # ------------------------------------------------------------------
-    # Build per-transcript arrays (single pass)
-    # ------------------------------------------------------------------
     annotations: dict[str, np.ndarray] = {}
     transcript_lookup: dict[str, tuple[int, str, np.ndarray]] = {}
 
-    for row in transcript_df.iter_rows(named=True):
-        t_id = row["gff_id"]
-        t_start = row["start"]
-        t_end = row["end"]
-        strand = row["strand"]
+    for row in transcript_df.itertuples(index=False):
+        t_id = row.gff_id
+        t_start = row.start
+        t_end = row.end
+        strand = row.strand
 
-        if t_id is None or t_start is None or t_end is None:
+        if pd.isna(t_id) or pd.isna(t_start) or pd.isna(t_end):
             logger.debug(
                 "Skipping transcript with missing field(s): "
                 "id=%s, start=%s, end=%s",
-                t_id,
-                t_start,
-                t_end,
+                t_id, t_start, t_end,
             )
             continue
 
+        t_start = int(t_start)
+        t_end = int(t_end)
         array_len = t_end - t_start + 1  # GFF is 1-based inclusive
         key = f"{t_id}_{strand}"
         arr = np.full(array_len, bg_val, dtype=np.int32)
         annotations[key] = arr
-        transcript_lookup[t_id] = (t_start, strand, arr)
+        transcript_lookup[str(t_id)] = (t_start, strand, arr)
 
-    # ------------------------------------------------------------------
-    # Fill children into their parent transcript's local coordinates
-    # ------------------------------------------------------------------
-    for row in child_df.iter_rows(named=True):
-        parent_id = row["parent"]
-        c_start = row["start"]
-        c_end = row["end"]
+    for row in child_df.itertuples(index=False):
+        parent_id = row.parent
+        c_start = row.start
+        c_end = row.end
 
-        if parent_id is None or c_start is None or c_end is None:
+        if pd.isna(parent_id) or pd.isna(c_start) or pd.isna(c_end):
             continue
 
+        parent_id = str(parent_id)
         if parent_id not in transcript_lookup:
             continue
 
         t_start, _, arr = transcript_lookup[parent_id]
+        c_start = int(c_start)
+        c_end = int(c_end)
 
         local_start = max(0, c_start - t_start)
         local_end = min(len(arr), c_end - t_start + 1)
 
         if c_start < t_start or c_end > t_start + len(arr) - 1:
             logger.debug(
-                "Child feature of %s extends outside transcript "
-                "boundaries (child: %d-%d, transcript: %d-%d). "
-                "Clipping to transcript span.",
-                parent_id,
-                c_start,
-                c_end,
-                t_start,
-                t_start + len(arr) - 1,
+                "Child feature of %s extends outside transcript boundaries "
+                "(child: %d-%d, transcript: %d-%d). Clipping to transcript span.",
+                parent_id, c_start, c_end, t_start, t_start + len(arr) - 1,
             )
 
         if local_start < local_end:

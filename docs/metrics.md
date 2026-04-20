@@ -134,28 +134,45 @@ Additionally, three **cross-cutting analyses** are available as standalone funct
 
 **What it measures**: Whether the predicted segment chain is correct **as a whole** — not per-section, but as a complete ordered arrangement. This is the key difference from Region Discovery, which evaluates sections independently.
 
-Contains two sub-metrics:
+Contains several complementary sub-metrics: a strict binary intron-chain score (gffcompare-compatible), per-transcript soft exon metrics (distribution view), holistic transcript match classification, transcript-level P/R tiers, segment count delta, and boundary shift histograms.
 
-### Gap Chain Comparison
+### Intron Chain (strict, gffcompare-style)
 
-Compares the ordered sequence of gaps between consecutive segments of a class. For exon segments, gaps correspond to introns — making this the label-agnostic equivalent of intron chain comparison.
+Per-sequence `tp/fp/fn ∈ {0, 1}`: a sequence counts as TP **only if** the set of GT introns equals the set of predicted introns. Requires `LabelConfig.intron_label`. Aggregated across sequences to corpus precision/recall.
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `gap_chain_match` | bool | Whether the GT and pred gap chains are identical (all gap boundaries match exactly). |
-| `gap_chain_match_rate` | float | Fraction of sequences with an exact gap chain match (aggregated). |
-| `gap_chain_lcs_ratio` | float | LCS of gap boundary pairs / `max(len_gt, len_pred)`. Partial credit for partially correct gap chains. Range [0, 1], higher is better. |
-| `gap_count_match` | bool | Whether GT and pred have the same number of gaps. |
-| `gap_count_match_rate` | float | Fraction of sequences with matching gap counts (aggregated). |
-| `gap_count_gt` | int | Number of gaps (= segments − 1) in GT. |
-| `gap_count_pred` | int | Number of gaps (= segments − 1) in prediction. |
-| `segment_count_gt` | int | Number of segments of this class in GT. |
-| `segment_count_pred` | int | Number of segments of this class in prediction. |
-| `segment_count_delta` | int | `pred_count - gt_count`. Positive = over-segmentation, negative = under-segmentation. |
+| `intron_chain` | dict | `{tp, fp, fn}` summary reduced by `_compute_summary_statistics` to corpus precision/recall. |
 
-**How it works**: For each class, extracts the ordered segment list and derives the gap chain as `[(end_i, start_{i+1})]` pairs. Compares GT and pred gap chains using exact equality and LCS.
+**Use as training metric**: Yes — a compact strict reference scalar.
 
-**Use as training metric**: Yes. `gap_chain_match_rate` and `gap_chain_lcs_ratio` mean are lightweight scalars.
+### Per-transcript Soft Exon Metrics
+
+The binary `intron_chain` metric hides "nearly right" predictions. Two complementary per-transcript scalars surface gradation and are kept as raw per-sequence lists so plotting can draw the distribution across transcripts:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `exon_recall_per_transcript` | list[float] | Per-transcript fraction in `[0, 1]` of GT exons whose `(start, end)` was recovered exactly. Transcripts with no GT exons are excluded. |
+| `hallucinated_exon_count_per_transcript` | list[int] | Per-transcript count of predicted exons whose `(start, end)` is absent from GT. Precision signal, orthogonal to recall. |
+
+**How it works**: Extracts coding-label segments from both `ExtractedStructure` views into `(start, end)` sets, then computes `|gt ∩ pred| / |gt|` and `|pred \ gt|`.
+
+**Use as training metric**: Distribution view — plot as overlayed histograms. A thick left tail on recall combined with a fat right tail of hallucinations flags a model that guesses instead of recovering true structure.
+
+### Segment Count Delta
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `segment_count_delta` | list[int] | Per-sequence `pred_count - gt_count`. Positive = over-segmentation, negative = under-segmentation. Aggregated via `_compute_distribution_stats`. |
+
+### Boundary Shift Distribution
+
+Restricted to transcripts classified as `boundary_shift` (same segment count, ≥1 position shifted):
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `boundary_shift_count` | list[int] | Per-transcript number of shifted boundary positions. |
+| `boundary_shift_total` | list[int] | Per-transcript total absolute bp offset summed across shifted positions. |
 
 ### Transcript Match Classification
 
@@ -170,9 +187,19 @@ Classifies each `(gt_array, pred_array)` pair into one holistic structural categ
 | `structurally_different` | None of the above. |
 | `missed` | Prediction has no segments of this class. |
 
-**Aggregation**: After processing multiple sequences, a distribution of match classes is reported plus an `exact_match_rate` scalar.
+**Aggregation**: After processing multiple sequences, a distribution of match classes is reported as `transcript_match_distribution`.
 
-**Use as training metric**: `exact_match_rate` is a training scalar. The full distribution is a final validation metric.
+**Use as training metric**: Final validation metric rendered as stacked bar chart.
+
+### Transcript-level P/R Tiers
+
+Three orthogonal transcript-level TP/FP/FN scores computed from the holistic match class, each aggregated to corpus precision/recall:
+
+| Metric | Tier |
+|--------|------|
+| `transcript_exact` | Strict: GT and pred segment chains identical. |
+| `pred_is_superset` | Recall-oriented: all GT segments present in prediction (pred may have extras). |
+| `pred_is_subset` | Precision-oriented: all predicted segments present in GT (pred may miss some). |
 
 ---
 

@@ -141,15 +141,37 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     ),
 
     # --- Structural Coherence ---
-    "gap_chain": PlotMetadata(
-        display_name="Gap Chain Metrics",
-        description="Compares the ordered gaps between consecutive segments. "
-                    "For exons, gaps = introns (label-agnostic intron chain).",
+    "boundary_shift_distribution": PlotMetadata(
+        display_name="Boundary Shift Distribution",
+        description="Distribution of splice-site boundary errors among BOUNDARY_SHIFT transcripts "
+                    "(same segment count, ≥1 position shifted).",
         bullet_points=(
-            "match_rate: fraction of sequences with identical gap chains",
-            "count_match_rate: fraction with the same number of gaps",
-            "lcs_ratio: ordering-aware partial credit via longest common subsequence",
+            "Left: number of shifted boundary positions per transcript",
+            "Middle: total absolute bp offset summed across shifted positions",
+            "Right: scatter — count vs total bp offset per transcript",
         ),
+        caveat="Only transcripts classified as BOUNDARY_SHIFT are included. "
+               "Transcripts with no boundary shifts (exact, missed, etc.) are excluded.",
+    ),
+    "ts_level_precision": PlotMetadata(
+        display_name="Transcript-Level Precision metrics",
+        description="Precision across various metrics. All metrics use double penalties, so for intron chain precision = recall",
+        bullet_points=(
+            "Intron Chain: All predicted introns match the gt introns",
+            "Exact transcript: All predicted exons match",
+            "Superset: All predicted exons match, or are novel exons",
+            "Subset: All predicted exons are part of the gt transcript",
+        ),
+    ),
+    "ts_level_recall": PlotMetadata(
+        display_name="Transcript-Level Recall metrics",
+        description="Recall across various metrics. All metrics use double penalties, so for intron chain precision = recall",
+        bullet_points=(
+            "Intron Chain: All predicted introns match the gt introns",
+            "Exact transcript: All predicted exons match",
+            "Superset: All predicted exons match, or are novel exons",
+            "Subset: All predicted exons are part of the gt transcript",
+        )
     ),
     "transcript_match": PlotMetadata(
         display_name="Transcript Match Classification",
@@ -172,6 +194,48 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Error bars: standard deviation across sequences",
         ),
     ),
+    "per_transcript_soft_exon": PlotMetadata(
+        display_name="Per-transcript Soft Exon Metrics",
+        description="Continuous per-transcript view of structural quality, "
+                    "complementing the strict all-or-nothing intron_chain and "
+                    "the corpus-averaged perfect_boundary_hit metrics.",
+        bullet_points=(
+            "Left: fraction of GT exons whose (start, end) is recovered exactly "
+            "— a transcript with 9/10 exons right scores 0.9",
+            "Right: count of predicted exons per transcript whose (start, end) "
+            "does not match any GT exon (hallucinations)",
+            "Histograms are overlayed across methods for direct comparison",
+        ),
+        caveat="Only transcripts with at least one GT exon are included. "
+               "A near-zero recall mass with a fat right tail of hallucinations "
+               "indicates a model that guesses without recovering true structure.",
+    ),
+
+    # --- Transcript-level P/R tiers ---
+    "transcript_exact": PlotMetadata(
+        display_name="Transcript Exact Match",
+        description="Precision and recall at the transcript level requiring identical segment chains.",
+        show_tp_tn_fp_fn=True,
+        tp_definition="GT transcript exactly reproduced by prediction",
+        fp_definition="Prediction exists but does not exactly match GT",
+        fn_definition="GT transcript not exactly matched by any prediction",
+    ),
+    "pred_is_superset": PlotMetadata(
+        display_name="Transcript All GT Found (Superset)",
+        description="Recall-oriented: all GT segments are present in the prediction (pred may have extras).",
+        show_tp_tn_fp_fn=True,
+        tp_definition="All GT segments present in prediction (pred is superset or equal)",
+        fp_definition="Prediction exists but misses at least one GT segment",
+        fn_definition="GT transcript not fully recovered",
+    ),
+    "pred_is_subset": PlotMetadata(
+        display_name="Transcript All Pred Valid (Subset)",
+        description="Precision-oriented: all predicted segments correspond to GT segments (some GT segments may be missing).",
+        show_tp_tn_fp_fn=True,
+        tp_definition="All predicted segments are valid GT segments (pred is subset or equal)",
+        fp_definition="Prediction contains segments not in GT",
+        fn_definition="GT transcript not matched at this level",
+    ),
 
     # --- Diagnostic Depth ---
     "junction_errors": PlotMetadata(
@@ -187,13 +251,8 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     ),
     "position_bias": PlotMetadata(
         display_name="Position Bias",
-        description="Match rate stratified by genomic position.",
-        bullet_points=(
-            "5' zone: first 25% of the sequence",
-            "Interior: middle 50%",
-            "3' zone: last 25%",
-        ),
-        caveat="A GT segment counts as 'matched' if any prediction overlaps it by >= 50%. "
-               "This threshold is fixed and not configurable.",
+        description="Boundary prediction error for position in coding span, if a predicted exon does not perfectly"
+                    "match the gt, all the bins with in the coding span of set exon are incremented by 1",
+        caveat="Greedy matching for maximum overlap is used to match 2 exons ",
     ),
 }

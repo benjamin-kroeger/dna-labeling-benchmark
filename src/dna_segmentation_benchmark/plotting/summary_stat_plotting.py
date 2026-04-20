@@ -33,14 +33,12 @@ from .metrics.frameshift import plot_frameshift_percentage_bar
 from .metrics.ml import plot_ml_metrics_bar
 from .metrics.iou import plot_iou_metrics
 from .metrics.boundary import plot_boundary_precision_landscapes
-from .metrics.diagnostic import (
-    plot_junction_error_taxonomy,
-    plot_position_bias,
-)
+from .metrics.diagnostic import plot_position_bias
 from .metrics.structural import (
-    plot_gap_chain_metrics,
     plot_transcript_match_distribution,
     plot_segment_count_delta,
+    plot_boundary_shift_distribution,
+    plot_per_transcript_soft_exon_metrics,
 )
 from .metrics.transitions import plot_transition_matrices, plot_false_transitions
 
@@ -53,7 +51,6 @@ logger = logging.getLogger(__name__)
 def compare_multiple_predictions(
         per_method_benchmark_res: dict[str, dict],
         label_config: LabelConfig,
-        classes: list[int],
         metrics_to_eval: list[EvalMetrics],
         output_dir: Optional[Path] = None,
 ) -> dict[str, plt.Figure]:
@@ -66,8 +63,6 @@ def compare_multiple_predictions(
         by :func:`benchmark_gt_vs_pred_multiple`.
     label_config : LabelConfig
         Used to resolve class token → human-readable name.
-    classes : list[int]
-        Token values that were evaluated.
     metrics_to_eval : list[EvalMetrics]
         Which metric groups were computed.
     output_dir : Path | None
@@ -123,173 +118,214 @@ def compare_multiple_predictions(
         rows, columns=["method_name", "measured_class", "metric_group", "metric_key", "value"],
     )
 
-    for class_token in classes:
-        class_name = label_config.name_of(class_token)
 
-        # ---- INDEL plots ------------------------------------------------
-        if EvalMetrics.INDEL in metrics_to_eval:
-            df_indel = df[
-                (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.INDEL.name)
-                ].copy()
+    class_name = label_config.name_of(label_config.coding_label)
 
-            if not df_indel.empty:
-                fig = plot_stacked_indel_counts_bar(
-                    df_indel, class_name,
-                    save_path=(output_dir / f"{class_name}_indel_counts.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("indel_counts"),
-                )
-                if fig is not None:
-                    figures[f"{class_name}_indel_counts"] = fig
+    # ---- INDEL plots ------------------------------------------------
+    if EvalMetrics.INDEL in metrics_to_eval:
+        df_indel = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.INDEL.name)
+            ].copy()
 
-                fig = plot_individual_error_lengths_histograms(
-                    df_indel, class_name,
-                    save_path=(output_dir / f"{class_name}_indel_lengths.png") if output_dir else None,
-                )
-                if fig is not None:
-                    figures[f"{class_name}_indel_lengths"] = fig
-
-        # ---- Fuzzy boundary landscape plots (from BOUNDARY_EXACTNESS) ----
-        if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
-            df_fuzzy = df[
-                (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.BOUNDARY_EXACTNESS.name)
-                & (df["metric_key"] == "fuzzy_metrics")
-                ].copy()
-
-            df = df[df["metric_key"] != "fuzzy_metrics"]
-
-            fuzzy_metrics_figs = plot_boundary_precision_landscapes(
-                df_fuzzy,
-                metadata=PLOT_METADATA.get("fuzzy_metrics"),
+        if not df_indel.empty:
+            fig = plot_stacked_indel_counts_bar(
+                df_indel, class_name,
+                save_path=(output_dir / f"{class_name}_indel_counts.png") if output_dir else None,
+                metadata=PLOT_METADATA.get("indel_counts"),
             )
-            for i, fig in enumerate(fuzzy_metrics_figs):
-                figures[f"{i}_fuzzy_metrics"] = fig
+            if fig is not None:
+                figures[f"{class_name}_indel_counts"] = fig
 
-        # ---- IoU plots (from BOUNDARY_EXACTNESS) -------------------------
-        if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
-            df_iou = df[
-                (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.BOUNDARY_EXACTNESS.name)
-                & (df["metric_key"] == "iou_scores")
-                ].copy()
+            fig = plot_individual_error_lengths_histograms(
+                df_indel, class_name,
+                save_path=(output_dir / f"{class_name}_indel_lengths.png") if output_dir else None,
+            )
+            if fig is not None:
+                figures[f"{class_name}_indel_lengths"] = fig
 
-            if not df_iou.empty:
-                prefix = (output_dir / f"{class_name}_iou") if output_dir else None
-                iou_figs = plot_iou_metrics(
-                    df_iou, class_name,
-                    save_path_prefix=prefix,
-                    metadata_average=PLOT_METADATA.get("iou_average"),
-                    metadata_distribution=PLOT_METADATA.get("iou_distribution"),
-                )
-                for idx, fig in enumerate(iou_figs):
-                    suffix = "average" if idx == 0 else "distribution"
-                    figures[f"{class_name}_iou_{suffix}"] = fig
+    # ---- Fuzzy boundary landscape plots (from BOUNDARY_EXACTNESS) ----
+    if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
+        df_fuzzy = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.BOUNDARY_EXACTNESS.name)
+            & (df["metric_key"] == "fuzzy_metrics")
+            ].copy()
 
-        # ---- Region-discovery bar plots -----------------------------------
-        if EvalMetrics.REGION_DISCOVERY in metrics_to_eval:
-            df_rd = df[
-                (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.REGION_DISCOVERY.name)
-                ].copy()
+        df = df[df["metric_key"] != "fuzzy_metrics"]
 
-            if not df_rd.empty:
-                prefix = (output_dir / f"{class_name}_region_discovery") if output_dir else None
-                rd_figs = plot_ml_metrics_bar(
-                    df_rd, class_name,
-                    save_path_prefix=prefix,
-                    metadata_map=PLOT_METADATA,
-                )
-                for idx, fig in enumerate(rd_figs):
-                    figures[f"{class_name}_region_discovery_{idx}"] = fig
+        fuzzy_metrics_figs = plot_boundary_precision_landscapes(
+            df_fuzzy,
+            class_name=class_name,
+            metadata=PLOT_METADATA.get("fuzzy_metrics"),
+        )
+        for i, fig in enumerate(fuzzy_metrics_figs):
+            figures[f"{i}_fuzzy_metrics"] = fig
 
-        # ---- Nucleotide-classification bar plots --------------------------
-        if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics_to_eval:
-            df_nc = df[
-                (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name)
-                ].copy()
+    # ---- IoU plots (from BOUNDARY_EXACTNESS) -------------------------
+    if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
+        df_iou = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.BOUNDARY_EXACTNESS.name)
+            & (df["metric_key"] == "iou_scores")
+            ].copy()
 
-            if not df_nc.empty:
-                prefix = (output_dir / f"{class_name}_nucleotide_classification") if output_dir else None
-                nc_figs = plot_ml_metrics_bar(
-                    df_nc, class_name,
-                    save_path_prefix=prefix,
-                    metadata_map=PLOT_METADATA,
-                )
-                for idx, fig in enumerate(nc_figs):
-                    figures[f"{class_name}_nucleotide_classification_{idx}"] = fig
+        if not df_iou.empty:
+            prefix = (output_dir / f"{class_name}_iou") if output_dir else None
+            iou_figs = plot_iou_metrics(
+                df_iou, class_name,
+                save_path_prefix=prefix,
+                metadata_average=PLOT_METADATA.get("iou_average"),
+                metadata_distribution=PLOT_METADATA.get("iou_distribution"),
+            )
+            for idx, fig in enumerate(iou_figs):
+                suffix = "average" if idx == 0 else "distribution"
+                figures[f"{class_name}_iou_{suffix}"] = fig
 
-        # ---- Frameshift plots -------------------------------------------
-        if EvalMetrics.FRAMESHIFT in metrics_to_eval:
-            df_fs = df[
-                (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.FRAMESHIFT.name)
-                ].copy()
+    # ---- Region-discovery bar plots -----------------------------------
+    if EvalMetrics.REGION_DISCOVERY in metrics_to_eval:
+        df_rd = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.REGION_DISCOVERY.name)
+            ].copy()
 
-            if not df_fs.empty:
-                fig = plot_frameshift_percentage_bar(
-                    df_fs, class_name,
-                    save_path=(output_dir / f"{class_name}_frameshift.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("frameshift"),
-                )
-                if fig is not None:
-                    figures[f"{class_name}_frameshift"] = fig
+        if not df_rd.empty:
+            prefix = (output_dir / f"{class_name}_region_discovery") if output_dir else None
+            rd_figs = plot_ml_metrics_bar(
+                df_rd, class_name,
+                save_path_prefix=prefix,
+                metadata_map=PLOT_METADATA,
+            )
+            for idx, fig in enumerate(rd_figs):
+                figures[f"{class_name}_region_discovery_{idx}"] = fig
 
-        # ---- Structural coherence plots ------------------------------------
-        if EvalMetrics.STRUCTURAL_COHERENCE in metrics_to_eval:
-            df_sc = df[
-                (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.STRUCTURAL_COHERENCE.name)
-                ].copy()
+    # ---- Nucleotide-classification bar plots --------------------------
+    if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics_to_eval:
+        df_nc = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name)
+            ].copy()
 
-            if not df_sc.empty:
-                fig = plot_gap_chain_metrics(
-                    df_sc, class_name,
-                    save_path=(output_dir / f"{class_name}_gap_chain.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("gap_chain"),
-                )
-                if fig is not None:
-                    figures[f"{class_name}_gap_chain"] = fig
+        if not df_nc.empty:
+            prefix = (output_dir / f"{class_name}_nucleotide_classification") if output_dir else None
+            nc_figs = plot_ml_metrics_bar(
+                df_nc, class_name,
+                save_path_prefix=prefix,
+                metadata_map=PLOT_METADATA,
+            )
+            for idx, fig in enumerate(nc_figs):
+                figures[f"{class_name}_nucleotide_classification_{idx}"] = fig
 
-                fig = plot_transcript_match_distribution(
-                    df_sc, class_name,
-                    save_path=(output_dir / f"{class_name}_transcript_match.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("transcript_match"),
-                )
-                if fig is not None:
-                    figures[f"{class_name}_transcript_match"] = fig
+    # ---- Frameshift plots -------------------------------------------
+    if EvalMetrics.FRAMESHIFT in metrics_to_eval:
+        df_fs = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.FRAMESHIFT.name)
+            ].copy()
 
-                fig = plot_segment_count_delta(
-                    df_sc, class_name,
-                    save_path=(output_dir / f"{class_name}_segment_count_delta.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("segment_count_delta"),
-                )
-                if fig is not None:
-                    figures[f"{class_name}_segment_count_delta"] = fig
+        if not df_fs.empty:
+            fig = plot_frameshift_percentage_bar(
+                df_fs, class_name,
+                save_path=(output_dir / f"{class_name}_frameshift.png") if output_dir else None,
+                metadata=PLOT_METADATA.get("frameshift"),
+            )
+            if fig is not None:
+                figures[f"{class_name}_frameshift"] = fig
 
-        # ---- Diagnostic depth plots ----------------------------------------
-        if EvalMetrics.DIAGNOSTIC_DEPTH in metrics_to_eval:
-            df_dd = df[
-                (df["measured_class"] == class_name)
-                & (df["metric_group"] == EvalMetrics.DIAGNOSTIC_DEPTH.name)
-                ].copy()
+    # ---- Structural coherence plots ------------------------------------
+    if EvalMetrics.STRUCTURAL_COHERENCE in metrics_to_eval:
+        df_sc = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.STRUCTURAL_COHERENCE.name)
+            ].copy()
 
-            if not df_dd.empty:
-                fig = plot_junction_error_taxonomy(
-                    df_dd, class_name,
-                    save_path=(output_dir / f"{class_name}_junction_errors.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("junction_errors"),
-                )
-                if fig is not None:
-                    figures[f"{class_name}_junction_errors"] = fig
+        # Combined precision / recall overview — one figure per measure,
+        # reusing plot_ml_metrics_bar (x = metric, hue = method).
+        _PR_KEYS = ("intron_chain", "transcript_exact", "pred_is_superset", "pred_is_subset")
+        _PR_DISPLAY = {
+            "intron_chain": "Intron Chain",
+            "transcript_exact": "Exact",
+            "pred_is_superset": "Superset",
+            "pred_is_subset": "Subset",
+        }
+        _method_scores: dict[str, dict] = {}
+        for _, _row in df_sc.iterrows():
+            if _row["metric_key"] in _PR_KEYS and isinstance(_row["value"], dict):
+                _method_scores.setdefault(_row["method_name"], {})[_row["metric_key"]] = _row["value"]
 
-                fig = plot_position_bias(
-                    df_dd, class_name,
-                    save_path=(output_dir / f"{class_name}_position_bias.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("position_bias"),
-                )
-                if fig is not None:
-                    figures[f"{class_name}_position_bias"] = fig
+        if _method_scores:
+            _pr_rows = []
+            for _method, _scores in _method_scores.items():
+                for _measure in ("precision", "recall"):
+                    _combined = {
+                        _PR_DISPLAY[k]: v.get(_measure, 0.0)
+                        for k, v in _scores.items()
+                        if isinstance(v, dict)
+                    }
+                    _pr_rows.append({
+                        "method_name": _method,
+                        "measured_class": class_name,
+                        "metric_group": EvalMetrics.STRUCTURAL_COHERENCE.name,
+                        "metric_key": 'ts_level_' + _measure,
+                        "value": _combined,
+                    })
+            _df_pr = pd.DataFrame(_pr_rows)
+            _prefix = (output_dir / f"{class_name}_transcript_pr_overview") if output_dir else None
+            for _idx, _fig in enumerate(
+                plot_ml_metrics_bar(_df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA)
+            ):
+                figures[f"{class_name}_transcript_pr_overview_{_idx}"] = _fig
+
+        # Transcript match class distribution with count annotations
+        fig = plot_transcript_match_distribution(
+            df_sc, class_name,
+            save_path=(output_dir / f"{class_name}_transcript_match.png") if output_dir else None,
+            metadata=PLOT_METADATA.get("transcript_match"),
+        )
+        if fig is not None:
+            figures[f"{class_name}_transcript_match"] = fig
+
+        # Segment count delta per model
+        fig = plot_segment_count_delta(
+            df_sc, class_name,
+            save_path=(output_dir / f"{class_name}_segment_count_delta.png") if output_dir else None,
+            metadata=PLOT_METADATA.get("segment_count_delta"),
+        )
+        if fig is not None:
+            figures[f"{class_name}_segment_count_delta"] = fig
+
+        # Boundary shift distribution (histograms + scatter)
+        fig = plot_boundary_shift_distribution(
+            df_sc, class_name,
+            save_path=(output_dir / f"{class_name}_boundary_shift_dist.png") if output_dir else None,
+            metadata=PLOT_METADATA.get("boundary_shift_distribution"),
+        )
+        if fig is not None:
+            figures[f"{class_name}_boundary_shift_dist"] = fig
+
+        # Per-transcript continuous exon recovery + hallucinated exon count
+        fig = plot_per_transcript_soft_exon_metrics(
+            df_sc, class_name,
+            save_path=(output_dir / f"{class_name}_per_transcript_soft_exon.png") if output_dir else None,
+            metadata=PLOT_METADATA.get("per_transcript_soft_exon"),
+        )
+        if fig is not None:
+            figures[f"{class_name}_per_transcript_soft_exon"] = fig
+
+    # ---- Diagnostic depth plots ----------------------------------------
+    if EvalMetrics.DIAGNOSTIC_DEPTH in metrics_to_eval:
+        df_dd = df[
+            (df["measured_class"] == class_name)
+            & (df["metric_group"] == EvalMetrics.DIAGNOSTIC_DEPTH.name)
+            ].copy()
+
+        if not df_dd.empty:
+            fig = plot_position_bias(
+                df_dd, class_name,
+                save_path=(output_dir / f"{class_name}_position_bias.png") if output_dir else None,
+                metadata=PLOT_METADATA.get("position_bias"),
+            )
+            if fig is not None:
+                figures[f"{class_name}_position_bias"] = fig
 
     return figures

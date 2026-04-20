@@ -1,28 +1,33 @@
-"""Strand-aware, memory-efficient mapping of GT to prediction transcripts.
+"""Strand-aware, locus-based mapping of GT to prediction transcripts.
 
 This module provides the core logic for associating ground-truth (GT) and
-predicted transcripts from GFF/GTF files.  It is designed with three guiding
-principles:
+predicted transcripts from GFF/GTF files using a gffcompare-style algorithm:
 
-1. **Memory efficiency** -- files are parsed once with :func:`collect_gff`
-   and processed one chromosome (``seqid``) at a time.
-2. **Strand awareness** -- transcripts are only compared when they share
-   the same ``seqid`` *and* ``strand``.
-3. **Completeness** -- every GT transcript and every prediction transcript
-   appears in the output.  Unmatched GT transcripts carry empty prediction
-   lists; unmatched predictions carry an ``is_unmatched_prediction`` flag
-   and their GT arrays are built from whatever annotation exists at that
-   genomic position.
+1. **Locus grouping** — GT transcripts are clustered into loci (sets of
+   mutually reachable overlapping transcripts) by an O(n log n) coordinate
+   sweep.
+2. **Junction-F1 scoring** — every predicted transcript in a locus is
+   scored against all GT transcripts using a continuous junction-F1 metric:
+   ``2 × |shared junctions| / (|pred junctions| + |ref junctions|)``.
+   Single-exon fallback: reciprocal overlap fraction.
+3. **Optimal 1:1 assignment** — the Hungarian algorithm
+   (``scipy.optimize.linear_sum_assignment``) maximises the total junction-F1
+   across all (GT, pred) pairs in a locus.  Each GT transcript and each
+   prediction is assigned at most once per predictor.
 
-.. note::
+Two locus matching modes are supported (see :class:`LocusMatchingMode`):
 
-   All arrays are in **genomic (left-to-right) orientation** regardless of
-   strand.  Both GT and prediction arrays for a given mapping entry share
-   the same coordinate space (anchored at ``gt_start``), so prediction
-   features outside the GT span are clipped.
+* **FULL_DISCOVERY** — maximise the number of 1:1 matches per locus.
+  Unmatched GT transcripts yield null-prediction FN pairs; unmatched
+  predictions yield null-GT FP pairs.  Best for multi-isoform tools.
+* **BEST_PER_LOCUS** — keep only the single highest-scoring (GT, pred) pair
+  per locus and drop all others.  Best for single-transcript tools
+  (e.g. Augustus).
 
 Public API
 ----------
+- :class:`LocusMatchingMode`
+- :class:`MatchClass`
 - :class:`PredictionMatch`
 - :class:`TranscriptMapping`
 - :func:`map_transcripts`
@@ -33,11 +38,13 @@ Public API
 from __future__ import annotations
 
 import csv
+import dataclasses
 import logging
+from enum import Enum
 from pathlib import Path
 
 import numpy as np
-import polars as pl
+import pandas as pd
 from pydantic import BaseModel
 
 from .io_utils import DEFAULT_TRANSCRIPT_TYPES, collect_gff
@@ -48,14 +55,75 @@ logger = logging.getLogger(__name__)
 # Sentinel prefix for synthetic GT entries created for unmatched predictions.
 _UNMATCHED_PRED_PREFIX = "__unmatched_pred__"
 
+#: GFF feature types used to extract exon intervals for intron-chain
+#: computation.  Override per-call via the ``exon_types`` parameter.
+DEFAULT_EXON_TYPES: list[str] = ["exon"]
 
-# ------------------------------------------------------------------
-# Pydantic models
-# ------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Locus matching mode
+# ---------------------------------------------------------------------------
+
+
+class LocusMatchingMode(str, Enum):
+    """Controls how GT and prediction transcripts are paired within a locus.
+
+    Attributes
+    ----------
+    FULL_DISCOVERY
+        All GT transcripts participate; the optimal set of 1:1 matches
+        (maximising total junction-F1) is computed via the Hungarian
+        algorithm.  Unmatched GT transcripts contribute null-prediction FN
+        pairs; unmatched predictions contribute null-GT FP pairs.
+
+        Use this mode for multi-isoform tools (Helixer, SegmentNT, …).
+
+    BEST_PER_LOCUS
+        Only the single highest-scoring (GT, pred) pair per locus is kept;
+        all other transcripts in the locus are dropped from per-transcript
+        evaluation.
+
+        Use this mode for single-transcript tools (Augustus, …).
+    """
+
+    FULL_DISCOVERY = "full_discovery"
+    BEST_PER_LOCUS = "best_per_locus"
+
+
+# ---------------------------------------------------------------------------
+# Match classification
+# ---------------------------------------------------------------------------
+
+
+class MatchClass(str, Enum):
+    """Structural relationship between a predicted and a GT transcript.
+
+    Listed in priority order (highest quality first).
+    """
+
+    EXACT = "exact"
+    """Identical intron chains — every splice site matches exactly."""
+
+    CONTAINED = "contained"
+    """Pred intron chain ⊆ GT intron chain *and* pred span ⊆ GT span."""
+
+    CONTAINS = "contains"
+    """GT intron chain ⊆ pred intron chain *and* GT span ⊆ pred span."""
+
+    SHARED_JUNCTION = "shared_junction"
+    """At least one shared splice junction between GT and prediction."""
+
+    OVERLAPPING = "overlapping"
+    """Coordinate overlap only — no shared junctions (includes single-exon)."""
+
+
+# ---------------------------------------------------------------------------
+# Public Pydantic models
+# ---------------------------------------------------------------------------
 
 
 class PredictionMatch(BaseModel):
-    """A single predicted transcript that was matched to a GT transcript."""
+    """A single predicted transcript matched to a GT transcript."""
 
     model_config = {"frozen": True}
 
@@ -63,7 +131,11 @@ class PredictionMatch(BaseModel):
     transcript_id: str
     start: int
     end: int
-    overlap_fraction: float
+    match_class: MatchClass
+    base_overlap: int
+    """Number of overlapping bases between GT and prediction spans."""
+    junction_f1: float = 0.0
+    """Continuous junction-F1 score used for assignment (0–1)."""
 
 
 class TranscriptMapping(BaseModel):
@@ -77,16 +149,15 @@ class TranscriptMapping(BaseModel):
         ``'+'`` or ``'-'``.
     gt_id : str
         Ground-truth transcript identifier.  For unmatched predictions
-        this starts with ``__unmatched_pred__``.
+        this starts with :data:`_UNMATCHED_PRED_PREFIX`.
     gt_start, gt_end : int
         Genomic coordinates of the evaluation window (1-based, inclusive).
     is_unmatched_prediction : bool
-        ``True`` when no real GT transcript overlapped the prediction.
-        The GT array will be built from whatever features exist at
-        that genomic position.
+        ``True`` when no GT transcript was assigned to this prediction.
+        The GT array is null (all-background) for unmatched predictions.
     matched_predictions : list[PredictionMatch]
-        Predictions that satisfied the overlap threshold.  Empty when
-        no predictor matched this GT transcript.
+        Per-predictor matches.  Empty when no predictor was matched to
+        this GT transcript.
     """
 
     model_config = {"frozen": True}
@@ -100,123 +171,485 @@ class TranscriptMapping(BaseModel):
     matched_predictions: list[PredictionMatch] = []
 
 
-# ------------------------------------------------------------------
-# Pure helpers
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Internal: transcript metadata
+# ---------------------------------------------------------------------------
 
 
-def _compute_overlap_fraction(
-    start_a: int,
-    end_a: int,
-    start_b: int,
-    end_b: int,
-) -> float:
-    """Return the overlap between two intervals as a fraction of the shorter.
+@dataclasses.dataclass(frozen=True)
+class _TranscriptInfo:
+    """Lightweight per-transcript summary used only during matching."""
 
-    Both intervals are assumed to be 1-based, inclusive.  Returns 0.0
-    when the intervals do not overlap at all.
+    gff_id: str
+    start: int                              # 1-based inclusive
+    end: int                                # 1-based inclusive
+    intron_chain: frozenset[tuple[int, int]]
+    """Unordered set of ``(exon_end, next_exon_start)`` intron boundaries."""
+    is_single_exon: bool
+
+
+# ---------------------------------------------------------------------------
+# Internal: intron-chain index
+# ---------------------------------------------------------------------------
+
+
+def _build_intron_chain_index(
+    df: pd.DataFrame,
+    seqid: str,
+    exon_types: list[str],
+) -> dict[str, frozenset[tuple[int, int]]]:
+    """Build a ``{transcript_id: intron_chain}`` index for one chromosome.
+
+    Groups all exon-type features on *seqid* by their parent transcript in
+    a single pass, making this O(n) in the number of exon rows.
     """
-    overlap_start = max(start_a, start_b)
-    overlap_end = min(end_a, end_b)
-    overlap_length = max(0, overlap_end - overlap_start + 1)
+    exon_df = df[
+        (df["seqid"] == seqid)
+        & df["type"].isin(exon_types)
+        & df["parent"].notna()
+        & df["start"].notna()
+        & df["end"].notna()
+    ]
 
-    if overlap_length == 0:
+    index: dict[str, frozenset[tuple[int, int]]] = {}
+    for parent_id, group in exon_df.groupby("parent", sort=False):
+        exons = group.sort_values("start")
+        starts = exons["start"].astype(int).tolist()
+        ends = exons["end"].astype(int).tolist()
+
+        if len(starts) < 2:
+            index[str(parent_id)] = frozenset()
+        else:
+            index[str(parent_id)] = frozenset(
+                (ends[i], starts[i + 1]) for i in range(len(starts) - 1)
+            )
+
+    return index
+
+
+def _build_transcript_infos(
+    df: pd.DataFrame,
+    seqid: str,
+    strand: str,
+    transcript_types: list[str],
+    chain_index: dict[str, frozenset[tuple[int, int]]],
+) -> list[_TranscriptInfo]:
+    """Extract :class:`_TranscriptInfo` for every transcript on seqid+strand."""
+    rows = df[
+        (df["seqid"] == seqid)
+        & (df["strand"] == strand)
+        & df["type"].isin(transcript_types)
+        & df["gff_id"].notna()
+        & df["start"].notna()
+        & df["end"].notna()
+    ]
+
+    infos: list[_TranscriptInfo] = []
+    for row in rows.to_dict(orient="records"):
+        gff_id = str(row["gff_id"])
+        chain = chain_index.get(gff_id, frozenset())
+        infos.append(_TranscriptInfo(
+            gff_id=gff_id,
+            start=int(row["start"]),
+            end=int(row["end"]),
+            intron_chain=chain,
+            is_single_exon=len(chain) == 0,
+        ))
+    return infos
+
+
+# ---------------------------------------------------------------------------
+# Internal: locus grouping
+# ---------------------------------------------------------------------------
+
+
+def _build_loci(
+    transcripts: list[_TranscriptInfo],
+) -> list[list[_TranscriptInfo]]:
+    """Cluster transcripts into loci by coordinate overlap.
+
+    A locus is a maximal set of transcripts connected via pairwise
+    coordinate overlap.  Implemented as an O(n log n) interval sweep.
+    """
+    if not transcripts:
+        return []
+
+    sorted_ts = sorted(transcripts, key=lambda t: (t.start, t.end))
+    loci: list[list[_TranscriptInfo]] = []
+    current_locus = [sorted_ts[0]]
+    current_end = sorted_ts[0].end
+
+    for t in sorted_ts[1:]:
+        if t.start <= current_end:
+            current_locus.append(t)
+            current_end = max(current_end, t.end)
+        else:
+            loci.append(current_locus)
+            current_locus = [t]
+            current_end = t.end
+
+    loci.append(current_locus)
+    return loci
+
+
+def _find_preds_overlapping_locus(
+    locus: list[_TranscriptInfo],
+    pred_infos: list[_TranscriptInfo],
+) -> list[_TranscriptInfo]:
+    """Return predictions whose span overlaps the locus span."""
+    locus_start = min(t.start for t in locus)
+    locus_end = max(t.end for t in locus)
+    return [
+        p for p in pred_infos
+        if p.start <= locus_end and p.end >= locus_start
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Internal: pair scoring
+# ---------------------------------------------------------------------------
+
+
+def _base_overlap(
+    start_a: int, end_a: int,
+    start_b: int, end_b: int,
+) -> int:
+    """Number of overlapping bases between two 1-based inclusive intervals."""
+    return max(0, min(end_a, end_b) - max(start_a, start_b) + 1)
+
+
+def _classify_pair(gt: _TranscriptInfo, pred: _TranscriptInfo) -> MatchClass:
+    """Assign a :class:`MatchClass` to one (GT, prediction) pair.
+
+    Evaluation order (highest priority first):
+
+    1. :attr:`~MatchClass.EXACT` — identical intron chains.
+    2. :attr:`~MatchClass.CONTAINED` — pred's introns ⊆ GT's introns and
+       pred's span is contained within GT's span.
+    3. :attr:`~MatchClass.CONTAINS` — GT's introns ⊆ pred's introns and
+       GT's span is contained within pred's span.
+    4. :attr:`~MatchClass.SHARED_JUNCTION` — at least one shared intron.
+    5. :attr:`~MatchClass.OVERLAPPING` — coordinate overlap only, or either
+       transcript is single-exon.
+    """
+    if gt.is_single_exon or pred.is_single_exon:
+        if gt.start == pred.start and gt.end == pred.end:
+            return MatchClass.EXACT
+        if pred.start >= gt.start and pred.end <= gt.end:
+            return MatchClass.CONTAINED
+        if gt.start >= pred.start and gt.end <= pred.end:
+            return MatchClass.CONTAINS
+        return MatchClass.OVERLAPPING
+
+    if gt.intron_chain == pred.intron_chain:
+        return MatchClass.EXACT
+
+    if (
+        pred.intron_chain <= gt.intron_chain
+        and pred.start >= gt.start
+        and pred.end <= gt.end
+    ):
+        return MatchClass.CONTAINED
+
+    if (
+        gt.intron_chain <= pred.intron_chain
+        and gt.start >= pred.start
+        and gt.end <= pred.end
+    ):
+        return MatchClass.CONTAINS
+
+    if gt.intron_chain & pred.intron_chain:
+        return MatchClass.SHARED_JUNCTION
+
+    return MatchClass.OVERLAPPING
+
+
+def _compute_assignment_score(gt: _TranscriptInfo, pred: _TranscriptInfo) -> float:
+    """Continuous assignment score in [0, 1].
+
+    * **Multi-exon vs multi-exon**: junction F1 =
+      ``2 × |shared| / (|pred junctions| + |ref junctions|)``.
+      Returns 0.0 when there are no shared junctions.
+    * **Any single-exon**: reciprocal overlap fraction =
+      ``overlap / max(gt_span, pred_span)``.
+    * **No coordinate overlap**: 0.0.
+
+    Using a continuous score instead of categorical class codes allows the
+    Hungarian algorithm to find globally optimal assignments, where even a
+    cluster of moderate-F1 pairs beats one perfect pair leaving the rest
+    unmatched.
+    """
+    overlap = _base_overlap(gt.start, gt.end, pred.start, pred.end)
+    if overlap == 0:
         return 0.0
 
-    length_a = end_a - start_a + 1
-    length_b = end_b - start_b + 1
-    shorter = min(length_a, length_b)
+    if not gt.is_single_exon and not pred.is_single_exon:
+        shared = len(gt.intron_chain & pred.intron_chain)
+        if shared == 0:
+            return 0.0
+        p = shared / len(pred.intron_chain)
+        r = shared / len(gt.intron_chain)
+        return 2.0 * p * r / (p + r)
 
-    return overlap_length / shorter
-
-
-def _extract_transcripts_df(
-    collected_df: pl.DataFrame,
-    transcript_types: list[str],
-) -> pl.DataFrame:
-    """Filter *collected_df* to transcript rows and return a clean table.
-
-    Returns
-    -------
-    pl.DataFrame
-        Columns: ``gff_id``, ``start``, ``end``, ``strand``.
-        Rows with null essential fields are dropped.
-    """
-    return (
-        collected_df
-        .filter(pl.col("type").is_in(transcript_types))
-        .select("gff_id", "start", "end", "strand")
-        .drop_nulls(subset=["gff_id", "start", "end", "strand"])
-    )
+    # Single-exon (one or both): fall back to overlap fraction.
+    gt_len = gt.end - gt.start + 1
+    pred_len = pred.end - pred.start + 1
+    return overlap / max(gt_len, pred_len)
 
 
+# ---------------------------------------------------------------------------
+# Internal: optimal per-locus assignment
+# ---------------------------------------------------------------------------
 
-def _find_overlapping_pairs(
-    gt_transcripts: pl.DataFrame,
-    pred_transcripts: pl.DataFrame,
+
+def _assign_optimal_locus(
+    gt_locus: list[_TranscriptInfo],
+    pred_locus: list[_TranscriptInfo],
     predictor_name: str,
-    min_overlap: float = 0.2,
-) -> list[tuple[str, str, int, int, int, int, float]]:
-    """Find all (GT, pred) pairs with >= *min_overlap* coordinate overlap.
+    mode: LocusMatchingMode,
+) -> dict[str, PredictionMatch]:
+    """Optimal 1:1 assignment for one (locus, predictor) pair.
 
-    Both DataFrames must contain columns ``gff_id``, ``start``, ``end``.
-    Only rows that share the same strand should be passed in (caller is
-    responsible for pre-filtering by strand).
+    Builds an n×m score matrix (n = GT count, m = pred count), then:
+
+    * **FULL_DISCOVERY** — runs ``scipy.optimize.linear_sum_assignment``
+      (Hungarian algorithm, O(n³)) to maximise total junction-F1.  Pairs
+      with score 0.0 are never assigned.
+    * **BEST_PER_LOCUS** — picks the single argmax entry; returns at most
+      one match.
+
+    Parameters
+    ----------
+    gt_locus : list[_TranscriptInfo]
+        GT transcripts in this locus.
+    pred_locus : list[_TranscriptInfo]
+        Predicted transcripts overlapping this locus.
+    predictor_name : str
+        Embedded in the returned :class:`PredictionMatch` objects.
+    mode : LocusMatchingMode
+        Assignment strategy.
 
     Returns
     -------
-    list[tuple]
-        ``(gt_id, pred_id, gt_start, gt_end, pred_start, pred_end,
-        overlap_frac)`` for every qualifying pair.
+    dict[str, PredictionMatch]
+        ``{gt_id: PredictionMatch}`` for every accepted pairing.
     """
-    pairs: list[tuple[str, str, int, int, int, int, float]] = []
+    from scipy.optimize import linear_sum_assignment
 
-    # Materialise to Python for the cross comparison.  Per-chromosome,
-    # per-strand cardinality is typically small (hundreds), so this is
-    # acceptable.
-    gt_rows = gt_transcripts.select("gff_id", "start", "end").to_dicts()
-    pred_rows = pred_transcripts.select("gff_id", "start", "end").to_dicts()
+    n = len(gt_locus)
+    m = len(pred_locus)
 
-    for gt_row in gt_rows:
-        gt_id = gt_row["gff_id"]
-        gt_s = gt_row["start"]
-        gt_e = gt_row["end"]
+    score_matrix = np.zeros((n, m), dtype=np.float64)
+    for i, gt in enumerate(gt_locus):
+        for j, pred in enumerate(pred_locus):
+            score_matrix[i, j] = _compute_assignment_score(gt, pred)
 
-        for pred_row in pred_rows:
-            frac = _compute_overlap_fraction(
-                gt_s, gt_e, pred_row["start"], pred_row["end"],
-            )
-            if frac >= min_overlap:
-                pairs.append((
-                    gt_id,
-                    pred_row["gff_id"],
-                    gt_s,
-                    gt_e,
-                    pred_row["start"],
-                    pred_row["end"],
-                    frac,
+    def _make_match(
+        gt_info: _TranscriptInfo,
+        pred_info: _TranscriptInfo,
+        match_score: float,
+    ) -> PredictionMatch:
+        return PredictionMatch(
+            predictor_name=predictor_name,
+            transcript_id=pred_info.gff_id,
+            start=pred_info.start,
+            end=pred_info.end,
+            match_class=_classify_pair(gt_info, pred_info),
+            base_overlap=_base_overlap(gt_info.start, gt_info.end, pred_info.start, pred_info.end),
+            junction_f1=match_score,
+        )
+
+    if mode == LocusMatchingMode.BEST_PER_LOCUS:
+        flat_idx = int(np.argmax(score_matrix))
+        r, c = divmod(flat_idx, m)
+        best_score = float(score_matrix[r, c])
+        if best_score == 0.0:
+            return {}
+        return {gt_locus[r].gff_id: _make_match(gt_locus[r], pred_locus[c], best_score)}
+
+    # FULL_DISCOVERY: globally optimal assignment.
+    row_ind, col_ind = linear_sum_assignment(-score_matrix)
+    assignments: dict[str, PredictionMatch] = {}
+    for r, c in zip(row_ind, col_ind):
+        pair_score = float(score_matrix[r, c])
+        if pair_score == 0.0:
+            continue
+        assignments[gt_locus[r].gff_id] = _make_match(gt_locus[r], pred_locus[c], pair_score)
+    return assignments
+
+
+# ---------------------------------------------------------------------------
+# Internal: per-chromosome, per-strand mapping
+# ---------------------------------------------------------------------------
+
+
+def _map_strand(
+    seqid: str,
+    strand: str,
+    gt_df: pd.DataFrame,
+    pred_dfs: dict[str, pd.DataFrame],
+    transcript_types: list[str],
+    gt_chain_index: dict[str, frozenset[tuple[int, int]]],
+    pred_chain_indices: dict[str, dict[str, frozenset[tuple[int, int]]]],
+    mode: LocusMatchingMode,
+) -> list[TranscriptMapping]:
+    """Map GT to predictions for one seqid + strand combination.
+
+    Builds GT loci, scores each predictor's transcripts against every GT in
+    the same locus, and performs optimal 1:1 assignment per locus.
+
+    In **FULL_DISCOVERY** mode every GT transcript appears in the output
+    (including those with no matches) plus sentinel entries for unmatched
+    predictions.
+
+    In **BEST_PER_LOCUS** mode only the single best-matched GT transcript per
+    (locus, predictor) pair appears; unmatched GTs and extra preds are dropped.
+    """
+    gt_infos = _build_transcript_infos(
+        gt_df, seqid, strand, transcript_types, gt_chain_index,
+    )
+    pred_infos_by_name: dict[str, list[_TranscriptInfo]] = {
+        name: _build_transcript_infos(
+            df, seqid, strand, transcript_types, pred_chain_indices[name],
+        )
+        for name, df in pred_dfs.items()
+    }
+
+    gt_loci = _build_loci(gt_infos)
+    gt_info_lookup: dict[str, _TranscriptInfo] = {t.gff_id: t for t in gt_infos}
+
+    # Per predictor: collect optimal per-locus assignments.
+    gt_to_matches: dict[str, list[PredictionMatch]] = {
+        t.gff_id: [] for t in gt_infos
+    }
+    matched_pred_ids: dict[str, set[str]] = {name: set() for name in pred_dfs}
+
+    for pred_name, pred_infos in pred_infos_by_name.items():
+        for locus in gt_loci:
+            preds_in_locus = _find_preds_overlapping_locus(locus, pred_infos)
+            if not preds_in_locus:
+                continue
+            for gt_id, match in _assign_optimal_locus(
+                locus, preds_in_locus, pred_name, mode
+            ).items():
+                gt_to_matches[gt_id].append(match)
+                matched_pred_ids[pred_name].add(match.transcript_id)
+
+    # Build output mappings according to mode.
+    mappings: list[TranscriptMapping] = []
+
+    if mode == LocusMatchingMode.FULL_DISCOVERY:
+        # One TranscriptMapping per GT transcript (including unmatched ones).
+        for gt_id, matches in gt_to_matches.items():
+            mappings.append(TranscriptMapping(
+                seqid=seqid,
+                strand=strand,
+                gt_id=gt_id,
+                gt_start=gt_info_lookup[gt_id].start,
+                gt_end=gt_info_lookup[gt_id].end,
+                matched_predictions=matches,
+            ))
+
+        # Sentinel entries for predictions that were not assigned to any GT.
+        for pred_name, pred_infos in pred_infos_by_name.items():
+            pred_lookup = {t.gff_id: t for t in pred_infos}
+            unmatched_ids = {t.gff_id for t in pred_infos} - matched_pred_ids[pred_name]
+
+            for pred_id in sorted(unmatched_ids):
+                pred = pred_lookup[pred_id]
+                mappings.append(TranscriptMapping(
+                    seqid=seqid,
+                    strand=strand,
+                    gt_id=f"{_UNMATCHED_PRED_PREFIX}{pred_id}",
+                    gt_start=pred.start,
+                    gt_end=pred.end,
+                    is_unmatched_prediction=True,
+                    matched_predictions=[
+                        PredictionMatch(
+                            predictor_name=pred_name,
+                            transcript_id=pred_id,
+                            start=pred.start,
+                            end=pred.end,
+                            match_class=MatchClass.OVERLAPPING,
+                            base_overlap=0,
+                            junction_f1=0.0,
+                        )
+                    ],
                 ))
 
-    return pairs
+    else:  # BEST_PER_LOCUS
+        # Only include GT transcripts that have at least one prediction match.
+        # Unmatched GTs and extra preds within the locus are dropped.
+        matched_gt_ids = {gt_id for gt_id, matches in gt_to_matches.items() if matches}
+        for gt_id in matched_gt_ids:
+            mappings.append(TranscriptMapping(
+                seqid=seqid,
+                strand=strand,
+                gt_id=gt_id,
+                gt_start=gt_info_lookup[gt_id].start,
+                gt_end=gt_info_lookup[gt_id].end,
+                matched_predictions=gt_to_matches[gt_id],
+            ))
+
+    return mappings
 
 
-# ------------------------------------------------------------------
+def _process_single_seqid(
+    seqid: str,
+    gt_df: pd.DataFrame,
+    pred_dfs: dict[str, pd.DataFrame],
+    transcript_types: list[str],
+    exon_types: list[str],
+    mode: LocusMatchingMode,
+    pred_exon_types: list[str] | None = None,
+) -> list[TranscriptMapping]:
+    """Build intron-chain indexes for one chromosome, then map per strand."""
+    gt_chain_index = _build_intron_chain_index(gt_df, seqid, exon_types)
+    _pred_exon_types = pred_exon_types if pred_exon_types is not None else exon_types
+    pred_chain_indices = {
+        name: _build_intron_chain_index(df, seqid, _pred_exon_types)
+        for name, df in pred_dfs.items()
+    }
+
+    mappings: list[TranscriptMapping] = []
+    for strand in ("+", "-"):
+        mappings.extend(_map_strand(
+            seqid=seqid,
+            strand=strand,
+            gt_df=gt_df,
+            pred_dfs=pred_dfs,
+            transcript_types=transcript_types,
+            gt_chain_index=gt_chain_index,
+            pred_chain_indices=pred_chain_indices,
+            mode=mode,
+        ))
+    return mappings
+
+
+# ---------------------------------------------------------------------------
 # Public: mapping
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 def map_transcripts(
     gt_path: str | Path,
     pred_paths: dict[str, str | Path],
     *,
-    min_overlap: float = 0.2,
     transcript_types: list[str] | None = None,
+    exon_types: list[str] | None = None,
+    pred_exon_types: list[str] | None = None,
     exclude_features: list[str] | None = None,
+    locus_matching_mode: LocusMatchingMode = LocusMatchingMode.FULL_DISCOVERY,
 ) -> list[TranscriptMapping]:
     """Map GT transcripts to predicted transcripts across multiple predictors.
 
-    Processing is chunked by ``seqid`` (chromosome) so that only one
-    chromosome's worth of data is materialised at any time.
+    Uses a gffcompare-style locus-based algorithm:
+
+    1. Group GT transcripts into loci by coordinate overlap.
+    2. Score each predicted transcript against all GT transcripts in the
+       same locus using continuous junction-F1.
+    3. Assign 1:1 pairings via the Hungarian algorithm (FULL_DISCOVERY) or
+       take the single best pair (BEST_PER_LOCUS).
 
     Parameters
     ----------
@@ -224,66 +657,60 @@ def map_transcripts(
         Path to the ground-truth GFF/GTF file.
     pred_paths : dict[str, str | Path]
         ``{predictor_name: path}`` for each prediction file.
-    min_overlap : float
-        Minimum overlap fraction (relative to the shorter transcript) to
-        consider two transcripts as matching.  Default ``0.2`` (20 %).
     transcript_types : list[str] | None
         Feature types that define transcript boundaries.
-        Defaults to :data:`DEFAULT_TRANSCRIPT_TYPES`.
+        Defaults to :data:`~dna_segmentation_benchmark.io_utils.DEFAULT_TRANSCRIPT_TYPES`.
+    exon_types : list[str] | None
+        Feature types used to extract exon intervals for GT intron-chain
+        computation.  Defaults to :data:`DEFAULT_EXON_TYPES` (``["exon"]``).
+    pred_exon_types : list[str] | None
+        Feature types used for *prediction* intron-chain computation.
+        When ``None`` (default), falls back to *exon_types*.  Pass
+        ``["CDS"]`` when the predictor emits CDS features instead of exon
+        features so that intron chains are computed correctly for both sides.
     exclude_features : list[str] | None
         Feature types to ignore entirely (e.g. ``["gene"]``).
+    locus_matching_mode : LocusMatchingMode
+        Assignment strategy.  ``FULL_DISCOVERY`` (default) maximises the
+        number of 1:1 matches per locus.  ``BEST_PER_LOCUS`` keeps only the
+        single best-scoring pair per locus and drops the rest.
 
     Returns
     -------
     list[TranscriptMapping]
-        One entry per GT transcript (including those with no matches),
-        plus entries for unmatched predictions.
-
+        In FULL_DISCOVERY mode: one entry per GT transcript (including
+        unmatched) plus sentinel entries for unmatched predictions.
+        In BEST_PER_LOCUS mode: only matched pairs are returned.
     """
-    transcript_types = transcript_types or DEFAULT_TRANSCRIPT_TYPES
+    transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
+    exon_types = exon_types or list(DEFAULT_EXON_TYPES)
     exclude_features = exclude_features or []
 
-    # 1. Read all files once into memory ------------------------------------
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
-    pred_dfs: dict[str, pl.DataFrame] = {
+    pred_dfs: dict[str, pd.DataFrame] = {
         name: collect_gff(str(path), exclude_features=exclude_features)
         for name, path in pred_paths.items()
     }
 
-    # 2. Discover unique seqids from both GT and predictions ----------------
-    gt_seqids: set[str] = set(
-        gt_df
-        .get_column("seqid")
-        .unique()
-        .to_list()
-    )
-
+    gt_seqids: set[str] = set(gt_df["seqid"].dropna().unique().tolist())
     pred_seqids: set[str] = set()
-    for pred_df in pred_dfs.values():
-        pred_seqids.update(
-            pred_df.get_column("seqid").unique().to_list()
-        )
-
+    for df in pred_dfs.values():
+        pred_seqids.update(df["seqid"].dropna().unique().tolist())
     all_seqids = gt_seqids | pred_seqids
+
     logger.info(
         "Found %d GT seqid(s), %d prediction seqid(s) (%d total).",
-        len(gt_seqids),
-        len(pred_seqids),
-        len(all_seqids),
+        len(gt_seqids), len(pred_seqids), len(all_seqids),
     )
 
-    # 3. Process chromosome-by-chromosome -----------------------------------
     all_mappings: list[TranscriptMapping] = []
-
     for seqid in sorted(all_seqids):
-        chunk_mappings = _process_single_seqid(
-            seqid=seqid,
-            gt_df=gt_df,
-            pred_dfs=pred_dfs,
-            transcript_types=transcript_types,
-            min_overlap=min_overlap,
+        all_mappings.extend(
+            _process_single_seqid(
+                seqid, gt_df, pred_dfs, transcript_types, exon_types, locus_matching_mode,
+                pred_exon_types=pred_exon_types,
+            )
         )
-        all_mappings.extend(chunk_mappings)
 
     n_unmatched = sum(1 for m in all_mappings if m.is_unmatched_prediction)
     n_no_pred = sum(
@@ -293,203 +720,63 @@ def map_transcripts(
     logger.info(
         "Mapping complete: %d entries (%d unmatched predictions, "
         "%d GT transcripts with no match).",
-        len(all_mappings),
-        n_unmatched,
-        n_no_pred,
+        len(all_mappings), n_unmatched, n_no_pred,
     )
-
     return all_mappings
 
 
-# ------------------------------------------------------------------
-# Internal: per-chromosome processing
-# ------------------------------------------------------------------
-
-
-def _process_single_seqid(
-    seqid: str,
-    gt_df: pl.DataFrame,
-    pred_dfs: dict[str, pl.DataFrame],
-    transcript_types: list[str],
-    min_overlap: float,
-) -> list[TranscriptMapping]:
-    """Process a single chromosome and return its transcript mappings."""
-    gt_chunk = gt_df.filter(pl.col("seqid") == seqid)
-
-    pred_chunks: dict[str, pl.DataFrame] = {
-        name: df.filter(pl.col("seqid") == seqid)
-        for name, df in pred_dfs.items()
-    }
-
-    gt_transcripts = _extract_transcripts_df(gt_chunk, transcript_types)
-
-    pred_transcripts_by_name: dict[str, pl.DataFrame] = {
-        name: _extract_transcripts_df(chunk, transcript_types)
-        for name, chunk in pred_chunks.items()
-    }
-
-    # Process per strand
-    mappings: list[TranscriptMapping] = []
-
-    for strand in ["+", "-"]:
-        gt_strand = gt_transcripts.filter(pl.col("strand") == strand)
-        pred_strand = {
-            name: df.filter(pl.col("strand") == strand)
-            for name, df in pred_transcripts_by_name.items()
-        }
-
-        strand_mappings = _map_strand(
-            seqid=seqid,
-            strand=strand,
-            gt_transcripts=gt_strand,
-            pred_transcripts_by_name=pred_strand,
-            min_overlap=min_overlap,
-        )
-        mappings.extend(strand_mappings)
-
-    return mappings
-
-
-def _map_strand(
-    seqid: str,
-    strand: str,
-    gt_transcripts: pl.DataFrame,
-    pred_transcripts_by_name: dict[str, pl.DataFrame],
-    min_overlap: float,
-) -> list[TranscriptMapping]:
-    """Map GT to predictions for one seqid + strand combination.
-
-    Returns
-    -------
-    list[TranscriptMapping]
-        Entries for *all* GT transcripts (including those with no
-        matching prediction), plus entries for unmatched predictions.
-    """
-    # Track which prediction transcripts have been matched
-    matched_pred_ids: dict[str, set[str]] = {
-        name: set() for name in pred_transcripts_by_name
-    }
-
-    # Collect matches grouped by GT transcript
-    gt_to_matches: dict[str, list[PredictionMatch]] = {}
-    gt_info: dict[str, tuple[int, int]] = {}
-
-    for gt_row in gt_transcripts.to_dicts():
-        gt_id = gt_row["gff_id"]
-        gt_info[gt_id] = (gt_row["start"], gt_row["end"])
-        gt_to_matches[gt_id] = []
-
-    # Find overlapping pairs for each predictor
-    for pred_name, pred_df in pred_transcripts_by_name.items():
-        if pred_df.is_empty() or gt_transcripts.is_empty():
-            continue
-
-        pairs = _find_overlapping_pairs(
-            gt_transcripts, pred_df, pred_name, min_overlap,
-        )
-
-        for gt_id, pred_id, _, _, pred_s, pred_e, frac in pairs:
-            gt_to_matches[gt_id].append(PredictionMatch(
-                predictor_name=pred_name,
-                transcript_id=pred_id,
-                start=pred_s,
-                end=pred_e,
-                overlap_fraction=frac,
-            ))
-            matched_pred_ids[pred_name].add(pred_id)
-
-    # Build TranscriptMapping for EVERY GT transcript (including
-    # those with no matches — the empty list signals "no predictions").
-    mappings: list[TranscriptMapping] = []
-
-    for gt_id, matches in gt_to_matches.items():
-        gt_s, gt_e = gt_info[gt_id]
-        mappings.append(TranscriptMapping(
-            seqid=seqid,
-            strand=strand,
-            gt_id=gt_id,
-            gt_start=gt_s,
-            gt_end=gt_e,
-            matched_predictions=matches,
-        ))
-
-    # Create entries for unmatched predictions.
-    # Pre-index each pred_df for efficient lookup.
-    for pred_name, pred_df in pred_transcripts_by_name.items():
-        if pred_df.is_empty():
-            continue
-
-        all_pred_ids = set(pred_df.get_column("gff_id").to_list())
-        unmatched_ids = all_pred_ids - matched_pred_ids[pred_name]
-
-        if not unmatched_ids:
-            continue
-
-        # Build lookup once instead of filtering per-ID
-        pred_lookup = {
-            row["gff_id"]: row
-            for row in pred_df.to_dicts()
-        }
-
-        for pred_id in sorted(unmatched_ids):
-            pred_row = pred_lookup[pred_id]
-            pred_s = pred_row["start"]
-            pred_e = pred_row["end"]
-
-            mappings.append(TranscriptMapping(
-                seqid=seqid,
-                strand=strand,
-                gt_id=f"{_UNMATCHED_PRED_PREFIX}{pred_id}",
-                gt_start=pred_s,
-                gt_end=pred_e,
-                is_unmatched_prediction=True,
-                matched_predictions=[
-                    PredictionMatch(
-                        predictor_name=pred_name,
-                        transcript_id=pred_id,
-                        start=pred_s,
-                        end=pred_e,
-                        overlap_fraction=0.0,
-                    )
-                ],
-            ))
-
-    return mappings
-
-
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Public: array construction
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 def build_paired_arrays(
     mapping: TranscriptMapping,
-    gt_df: pl.DataFrame,
-    pred_dfs: dict[str, pl.DataFrame],
+    gt_df: pd.DataFrame,
+    pred_dfs: dict[str, pd.DataFrame],
     label_config: LabelConfig,
     transcript_types: list[str] | None = None,
+    exon_types: list[str] | None = None,
+    pred_exon_types: list[str] | None = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Build the GT and per-predictor annotation arrays for one mapping.
 
-    For unmatched predictions (``is_unmatched_prediction=True``), the GT
-    array is built from whatever GT features exist in the prediction's
-    genomic region — not just filled with background.
+    **GT array**
 
-    For predictors with no match for this mapping, an all-background
-    prediction array is returned.
+    * Matched GT transcript → built from that transcript's child features.
+    * Unmatched prediction (``is_unmatched_prediction=True``) → null array
+      (all-background), representing a pure FP with no reference signal.
+
+    **Prediction arrays**
+
+    * Predictor has a match → built from the *matched prediction's* child
+      features (transcript-specific, not a region union).
+    * Predictor has no match for this GT → null array (all-background),
+      representing a missed transcript.
+
+    Using transcript-specific arrays (rather than region-based union) ensures
+    that each matched pair is evaluated in isolation: coverage from other
+    transcripts in the same locus does not contaminate either array.
 
     Parameters
     ----------
     mapping : TranscriptMapping
         A single mapping entry from :func:`map_transcripts`.
-    gt_df : pl.DataFrame
-        Pre-collected GT GFF DataFrame (from :func:`collect_gff`).
-    pred_dfs : dict[str, pl.DataFrame]
+    gt_df : pd.DataFrame
+        Pre-collected GT GFF DataFrame.
+    pred_dfs : dict[str, pd.DataFrame]
         ``{predictor_name: DataFrame}`` for each prediction file.
     label_config : LabelConfig
         Label configuration defining integer tokens.
     transcript_types : list[str] | None
         Feature types that denote transcript boundaries.
+    exon_types : list[str] | None
+        Feature types to paint in GT arrays.  If ``None``, paints all child
+        features except transcript-type features.
+    pred_exon_types : list[str] | None
+        Feature types to paint in prediction arrays.  When ``None``
+        (default), falls back to *exon_types*.  Pass ``["CDS"]`` when the
+        predictor emits CDS features instead of exon features.
 
     Returns
     -------
@@ -497,20 +784,18 @@ def build_paired_arrays(
         ``(gt_array, {predictor_name: pred_array})``.
         The dict contains an entry for every predictor in *pred_dfs*.
     """
-    transcript_types = transcript_types or DEFAULT_TRANSCRIPT_TYPES
-    bg_val = label_config.background_label
+    transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
     array_length = mapping.gt_end - mapping.gt_start + 1
+    bg_val = label_config.background_label
+    _pred_exon_types = pred_exon_types if pred_exon_types is not None else exon_types
+
+    # Null array shared across predictors with no match.
+    null_array = np.full(array_length, bg_val, dtype=np.int32)
 
     # --- GT array ---
     if mapping.is_unmatched_prediction:
-        gt_array = _build_region_annotation_array(
-            df=gt_df,
-            seqid=mapping.seqid,
-            region_start=mapping.gt_start,
-            array_length=array_length,
-            label_config=label_config,
-            transcript_types=transcript_types,
-        )
+        # Unmatched prediction: no GT reference → null GT array.
+        gt_array = null_array.copy()
     else:
         gt_array = _build_annotation_array_from_df(
             df=gt_df,
@@ -520,75 +805,59 @@ def build_paired_arrays(
             array_length=array_length,
             label_config=label_config,
             transcript_types=transcript_types,
+            exon_types=exon_types,  # GT uses exon_types (None = all non-transcript)
         )
 
-    # --- Prediction arrays ---
-    matched_by_predictor: dict[str, PredictionMatch] = {}
-    for match in mapping.matched_predictions:
-        matched_by_predictor[match.predictor_name] = match
-
+    # --- Prediction arrays: transcript-specific ---
     pred_arrays: dict[str, np.ndarray] = {}
-
     for pred_name, pred_df in pred_dfs.items():
-        if pred_name in matched_by_predictor:
-            match = matched_by_predictor[pred_name]
+        pred_match = next(
+            (m for m in mapping.matched_predictions if m.predictor_name == pred_name),
+            None,
+        )
+        if pred_match is not None:
             pred_arrays[pred_name] = _build_annotation_array_from_df(
                 df=pred_df,
-                transcript_id=match.transcript_id,
+                transcript_id=pred_match.transcript_id,
                 seqid=mapping.seqid,
                 region_start=mapping.gt_start,
                 array_length=array_length,
                 label_config=label_config,
                 transcript_types=transcript_types,
+                exon_types=_pred_exon_types,  # Pred may use a different feature type
             )
         else:
-            pred_arrays[pred_name] = np.full(
-                array_length, bg_val, dtype=np.int32,
-            )
+            # Predictor has no match for this GT → null pred array (FN/FP).
+            pred_arrays[pred_name] = null_array.copy()
 
     return gt_array, pred_arrays
 
 
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Internal: array builders (no file I/O)
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 def _build_annotation_array_from_df(
-    df: pl.DataFrame,
+    df: pd.DataFrame,
     transcript_id: str,
     seqid: str,
     region_start: int,
     array_length: int,
     label_config: LabelConfig,
     transcript_types: list[str],
+    exon_types: list[str] | None = None,
 ) -> np.ndarray:
-    """Build a 1-D annotation array for one transcript's children.
+    """Build a 1-D annotation array for one transcript's child features.
 
-    Child features of *transcript_id* are projected into local
-    coordinates ``[0, array_length)`` relative to *region_start*.
+    Child features of *transcript_id* are projected into local coordinates
+    ``[0, array_length)`` relative to *region_start*.
 
     Parameters
     ----------
-    df : pl.DataFrame
-        Pre-collected GFF DataFrame (already filtered for excludes).
-    transcript_id : str
-        The ``ID`` / ``transcript_id`` of the parent transcript.
-    seqid : str
-        Chromosome to filter on.
-    region_start : int
-        Genomic coordinate that becomes local index 0.
-    array_length : int
-        Size of the output array.
-    label_config : LabelConfig
-        Provides ``background_label`` and ``coding_label``.
-    transcript_types : list[str]
-        Feature types excluded from being painted as children.
-
-    Returns
-    -------
-    np.ndarray
-        1-D ``int32`` array of length *array_length*.
+    exon_types : list[str] | None
+        If given, only paint child features whose type is in this list.
+        If ``None``, paints all children except transcript-type features.
     """
     bg_val = label_config.background_label
     coding_val = label_config.coding_label
@@ -597,52 +866,35 @@ def _build_annotation_array_from_df(
     if coding_val is None:
         return arr
 
-    children = df.filter(
-        (pl.col("seqid") == seqid)
-        & (pl.col("parent") == transcript_id)
-        & (~pl.col("type").is_in(transcript_types))
-    ).select("start", "end")
+    mask = (
+        (df["seqid"] == seqid)
+        & (df["parent"] == transcript_id)
+    )
+    if exon_types is not None:
+        mask &= df["type"].isin(exon_types)
+    else:
+        mask &= ~df["type"].isin(transcript_types)
+    children = df[mask][["start", "end"]]
 
     _paint_features(arr, children, region_start, coding_val)
-
     return arr
 
 
 def _build_region_annotation_array(
-    df: pl.DataFrame,
+    df: pd.DataFrame,
     seqid: str,
+    strand: str,
     region_start: int,
     array_length: int,
     label_config: LabelConfig,
     transcript_types: list[str],
+    exon_types: list[str] | None = None,
 ) -> np.ndarray:
-    """Build a 1-D annotation array from all GT features in a region.
+    """Build a 1-D annotation array from all features in a genomic region.
 
-    Used for unmatched predictions where no specific GT transcript was
-    matched.  Paints **all** non-transcript child features that overlap
-    the region, regardless of which parent transcript they belong to.
-    This allows the GT array to reflect lncRNA or other annotations
-    present in the GT at the prediction's location.
-
-    Parameters
-    ----------
-    df : pl.DataFrame
-        Pre-collected GT GFF DataFrame.
-    seqid : str
-        Chromosome to filter on.
-    region_start : int
-        Genomic coordinate that becomes local index 0.
-    array_length : int
-        Size of the output array.
-    label_config : LabelConfig
-        Provides ``background_label`` and ``coding_label``.
-    transcript_types : list[str]
-        Feature types excluded from being painted.
-
-    Returns
-    -------
-    np.ndarray
-        1-D ``int32`` array of length *array_length*.
+    Kept for use by :mod:`~dna_segmentation_benchmark.eval.global_metrics`
+    which needs union-of-exons arrays for nucleotide-level global metrics.
+    Not used by :func:`build_paired_arrays` (which is transcript-specific).
     """
     bg_val = label_config.background_label
     coding_val = label_config.coding_label
@@ -652,48 +904,46 @@ def _build_region_annotation_array(
         return arr
 
     region_end = region_start + array_length - 1
-
-    children = df.filter(
-        (pl.col("seqid") == seqid)
-        & (pl.col("parent").is_not_null())
-        & (~pl.col("type").is_in(transcript_types))
-        & (pl.col("start") <= region_end)
-        & (pl.col("end") >= region_start)
-    ).select("start", "end")
+    mask = (
+        (df["seqid"] == seqid)
+        & (df["strand"] == strand)
+        & df["parent"].notna()
+        & (df["start"] <= region_end)
+        & (df["end"] >= region_start)
+    )
+    if exon_types is not None:
+        mask &= df["type"].isin(exon_types)
+    else:
+        mask &= ~df["type"].isin(transcript_types)
+    children = df[mask][["start", "end"]]
 
     _paint_features(arr, children, region_start, coding_val)
-
     return arr
 
 
 def _paint_features(
     arr: np.ndarray,
-    features_df: pl.DataFrame,
+    features_df: pd.DataFrame,
     region_start: int,
     label_value: int,
 ) -> None:
-    """Paint feature intervals into *arr* (in-place).
+    """Paint feature intervals into *arr* in-place.
 
     Converts 1-based inclusive GFF coordinates to 0-based array indices
     relative to *region_start*.
     """
-    for row in features_df.iter_rows(named=True):
-        feat_start = row["start"]
-        feat_end = row["end"]
-
-        if feat_start is None or feat_end is None:
+    for feat_start, feat_end in zip(features_df["start"], features_df["end"]):
+        if pd.isna(feat_start) or pd.isna(feat_end):
             continue
-
-        local_start = max(0, feat_start - region_start)
-        local_end = min(len(arr), feat_end - region_start + 1)
-
+        local_start = max(0, int(feat_start) - region_start)
+        local_end = min(len(arr), int(feat_end) - region_start + 1)
         if local_start < local_end:
             arr[local_start:local_end] = label_value
 
 
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Public: debug export
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 def export_mapping_table(
@@ -704,7 +954,8 @@ def export_mapping_table(
 
     Columns: ``seqid``, ``strand``, ``gt_id``, ``gt_start``, ``gt_end``,
     ``is_unmatched_prediction``, ``predictor``, ``pred_id``,
-    ``pred_start``, ``pred_end``, ``overlap_fraction``.
+    ``pred_start``, ``pred_end``, ``match_class``, ``base_overlap``,
+    ``junction_f1``.
 
     Each row represents one GT-prediction pair.  GT transcripts with
     multiple matched predictions produce multiple rows.  GT transcripts
@@ -728,7 +979,7 @@ def export_mapping_table(
     fieldnames = [
         "seqid", "strand", "gt_id", "gt_start", "gt_end",
         "is_unmatched_prediction", "predictor", "pred_id",
-        "pred_start", "pred_end", "overlap_fraction",
+        "pred_start", "pred_end", "match_class", "base_overlap", "junction_f1",
     ]
 
     with output_path.open("w", newline="") as fh:
@@ -752,7 +1003,9 @@ def export_mapping_table(
                     "pred_id": "",
                     "pred_start": "",
                     "pred_end": "",
-                    "overlap_fraction": "",
+                    "match_class": "",
+                    "base_overlap": "",
+                    "junction_f1": "",
                 })
             else:
                 for match in mapping.matched_predictions:
@@ -762,9 +1015,9 @@ def export_mapping_table(
                         "pred_id": match.transcript_id,
                         "pred_start": match.start,
                         "pred_end": match.end,
-                        "overlap_fraction": (
-                            f"{match.overlap_fraction:.4f}"
-                        ),
+                        "match_class": match.match_class.value,
+                        "base_overlap": match.base_overlap,
+                        "junction_f1": f"{match.junction_f1:.4f}",
                     })
 
     logger.info("Mapping table written to %s", output_path)

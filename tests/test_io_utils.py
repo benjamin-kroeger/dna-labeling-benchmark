@@ -27,9 +27,8 @@ from dna_segmentation_benchmark.label_definition import LabelConfig
 def simple_config():
     """Two-token label config (coding=0, background=1)."""
     return LabelConfig(
-        labels={0: "CODING", 1: "BACKGROUND"},
         background_label=1,
-        coding_label=0,
+        exon_label=0,
     )
 
 
@@ -206,7 +205,7 @@ def test_collect_gff_returns_dataframe(hierarchical_gff):
     assert "seqid" in df.columns
     assert "gff_id" in df.columns
     assert "parent" in df.columns
-    assert df.height > 0
+    assert len(df) > 0
 
 
 def test_collect_gff_excludes_features(hierarchical_gff):
@@ -214,9 +213,7 @@ def test_collect_gff_excludes_features(hierarchical_gff):
     df_all = collect_gff(hierarchical_gff)
     df_no_gene = collect_gff(hierarchical_gff, exclude_features=["gene"])
 
-    gene_count = df_all.filter(
-        df_all["type"] == "gene"
-    ).height
+    gene_count = (df_all["type"] == "gene").sum()
 
     assert gene_count > 0
-    assert df_no_gene.height == df_all.height - gene_count
+    assert len(df_no_gene) == len(df_all) - gene_count

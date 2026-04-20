@@ -65,13 +65,33 @@ def _add_pictogram_panel(
     if not has_content:
         return
 
-    # Shrink every existing axes to make room on the right
-    for ax in fig.get_axes():
+    # This helper uses manual figure coordinates.  If a caller created the
+    # figure with constrained_layout=True, matplotlib can later override the
+    # positions below during draw/savefig and place plot axes under the panel.
+    if hasattr(fig, "set_layout_engine"):
+        fig.set_layout_engine(None)
+    else:
+        fig.set_constrained_layout(False)
+
+    existing_axes = fig.get_axes()
+    if not existing_axes:
+        return
+
+    # Rescale the whole existing axes layout into the left content area.
+    # Multiplying each axes width alone is not enough for multi-panel figures:
+    # a right-hand subplot can still extend into the panel because its x0 is
+    # already far to the right.
+    left_edge = min(ax.get_position().x0 for ax in existing_axes)
+    right_edge = max(ax.get_position().x1 for ax in existing_axes)
+    content_right = 1 - panel_width_fraction - 0.03
+    scale = (content_right - left_edge) / (right_edge - left_edge)
+
+    for ax in existing_axes:
         box = ax.get_position()
         ax.set_position([
-            box.x0,
+            left_edge + (box.x0 - left_edge) * scale,
             box.y0,
-            box.width * (1 - panel_width_fraction),
+            box.width * scale,
             box.height,
         ])
 
@@ -79,6 +99,7 @@ def _add_pictogram_panel(
     panel_left = 1 - panel_width_fraction + 0.01
     panel_width = panel_width_fraction - 0.02
     panel_ax = fig.add_axes([panel_left, 0.05, panel_width, 0.90])
+    panel_ax.set_in_layout(False)
     panel_ax.set_axis_off()
 
     # Panel dimensions in inches
@@ -136,6 +157,7 @@ def _add_pictogram_panel(
             icon_ax_y0 = y_cursor - icon_h_fig_frac  # Top of icon is at y_cursor
 
             icon_ax = fig.add_axes([icon_ax_x0, icon_ax_y0, icon_w_fig_frac, icon_h_fig_frac])
+            icon_ax.set_in_layout(False)
             icon_ax.imshow(icon_img)
             # Pad limits slightly so edge pixels are never clipped
             icon_ax.set_xlim(-1, icon_w_px)

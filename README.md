@@ -2,7 +2,7 @@
 
 Diagnostic evaluation toolkit for nucleotide-level DNA segmentation models (gene finders like Augustus, Helixer, Tiberius, SegmentNT) against reference annotations (e.g., GENCODE).
 
-Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **gap chain analysis** (label-agnostic intron chain comparison), **transcript match classification**, **junction error diagnosis**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
+Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **strict intron chain plus per-transcript soft exon distributions**, **transcript match classification**, **junction error diagnosis**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
 
 ```
 pip install dna-segmentation-benchmark
@@ -159,15 +159,20 @@ Classifies every contiguous mismatch region into one of 8 structural error types
 
 Evaluates the predicted segment chain **as a whole** -- not per-section, but as a complete ordered arrangement.
 
-#### Gap Chain Comparison
+#### Intron Chain Comparison (strict, gffcompare-style)
 
-Compares ordered gaps between consecutive segments. For exons, gaps = introns -- making this the **label-agnostic equivalent of intron chain comparison** (gffcompare's key metric).
+`intron_chain` emits per-sequence `tp/fp/fn ∈ {0, 1}`: a sequence counts as TP **only if** the entire set of GT introns equals the set of predicted introns. Aggregated across sequences this becomes the familiar corpus precision/recall — directly comparable to gffcompare's intron-chain P/R.
 
-- `gap_chain_match_rate`: Fraction of sequences with identical gap chains
-- `gap_count_match_rate`: Fraction with the same number of gaps
-- `gap_chain_lcs_ratio`: LCS-based partial credit (0--1), ordering-aware
+![Intron chain metrics](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_intron_chain.png)
 
-![Gap chain metrics](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_gap_chain.png)
+#### Per-transcript Soft Exon Metrics
+
+The binary `intron_chain` metric hides "nearly right" predictions — a transcript with 9 of 10 exons correct scores the same as one with 0 correct. Two complementary per-transcript scalars surface this gradation and are kept as **raw per-sequence lists** so plotting can draw the distribution across transcripts:
+
+- `exon_recall_per_transcript` — fraction in `[0, 1]` of GT exons whose `(start, end)` was recovered exactly. A transcript with 9/10 exons right scores `0.9`. Transcripts with zero GT exons are excluded.
+- `hallucinated_exon_count_per_transcript` — integer ≥ 0: predicted exons whose `(start, end)` is absent from GT. Captures the precision side without conflating it with boundary errors.
+
+Rendered as two overlayed histograms; a fat left tail of recall combined with a fat right tail of hallucinations flags a model that guesses rather than recovering true structure.
 
 #### Transcript Match Classification
 

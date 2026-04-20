@@ -6,9 +6,14 @@ Usage examples::
     dna-benchmark run \\
         --gt ground_truth.gff \\
         --pred augustus:predictions.gff \\
+        --config label_config.yaml
+
+    # Augustus (CDS features) with BEST_PER_LOCUS matching
+    dna-benchmark run \\
+        --gt ground_truth.gff \\
+        --pred augustus:augustus.gff \\
         --config label_config.yaml \\
-        --classes 0 2 \\
-        --metrics REGION_DISCOVERY NUCLEOTIDE_CLASSIFICATION
+        --locus-matching best_per_locus
 
     # Compare multiple predictors at once
     dna-benchmark run \\
@@ -16,8 +21,6 @@ Usage examples::
         --pred augustus:augustus.gff \\
         --pred helixer:helixer.gff \\
         --config label_config.yaml \\
-        --classes 0 \\
-        --overlap-threshold 0.2 \\
         --mapping-output mapping_debug.tsv \\
         --output results.json
 
@@ -37,7 +40,9 @@ from .eval.evaluate_predictors import (
     EvalMetrics,
     benchmark_gt_vs_pred_multiple,
 )
+from .eval.global_metrics import compute_global_metrics
 from .label_definition import LabelConfig
+from .transcript_mapping import LocusMatchingMode
 
 
 # ------------------------------------------------------------------
@@ -45,6 +50,7 @@ from .label_definition import LabelConfig
 # ------------------------------------------------------------------
 
 _METRIC_NAMES = {m.name: m for m in EvalMetrics if not m.name.startswith("_")}
+_MODE_NAMES = {m.value: m for m in LocusMatchingMode}
 
 
 def _parse_pred_spec(spec: str) -> tuple[str, Path]:
@@ -75,23 +81,16 @@ def _load_label_config(path: Path) -> LabelConfig:
 
     Expected YAML structure::
 
-        labels:
-          0: EXON
-          2: INTRON
-          8: NONCODING
         background_label: 8
-        coding_label: 0
-        splice_donor_label: null
-        splice_acceptor_label: null
+        exon_label: 0
+        intron_label: 2
+        splice_donor_label: 1
+        splice_acceptor_label: 3
+        exon_feature_type: exon       # or [exon, CDS]
     """
     import yaml
     with open(path) as fh:
         raw = yaml.safe_load(fh)
-
-    # Convert the `labels` keys to ints (YAML may parse them as strings)
-    if "labels" in raw and isinstance(raw["labels"], dict):
-        raw["labels"] = {int(k): v for k, v in raw["labels"].items()}
-
     return LabelConfig(**raw)
 
 
@@ -173,16 +172,6 @@ def cli():
     help="Feature types that define transcript boundaries (repeatable).",
 )
 @click.option(
-    "--classes", "class_tokens",
-    required=True,
-    type=int,
-    multiple=True,
-    help=(
-        "Integer token(s) to evaluate "
-        "(repeatable, e.g. --classes 0 --classes 2)."
-    ),
-)
-@click.option(
     "--metrics", "metric_names",
     type=click.Choice(list(_METRIC_NAMES.keys()), case_sensitive=False),
     multiple=True,
@@ -201,17 +190,21 @@ def cli():
     help="Return per-sequence results instead of aggregated.",
 )
 @click.option(
-    "--overlap-threshold", "overlap_threshold",
-    type=float,
-    default=0.2,
-    show_default=True,
-    help="Minimum overlap fraction (0-1) to map a prediction to a GT transcript.",
-)
-@click.option(
     "--mapping-output", "mapping_output_path",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
     help="Write the GT <-> prediction mapping to this TSV file for debugging.",
+)
+@click.option(
+    "--locus-matching", "locus_matching",
+    type=click.Choice([m.value for m in LocusMatchingMode], case_sensitive=False),
+    default=LocusMatchingMode.FULL_DISCOVERY.value,
+    show_default=True,
+    help=(
+        "Locus matching mode.  'full_discovery' maximises 1:1 matches per locus "
+        "(multi-isoform tools).  'best_per_locus' keeps only the single "
+        "best-scoring pair per locus (single-transcript tools, e.g. Augustus)."
+    ),
 )
 def run(
     gt_path: Path,
@@ -219,12 +212,11 @@ def run(
     config_path: Path,
     exclude_features: tuple[str, ...],
     transcript_types: tuple[str, ...],
-    class_tokens: tuple[int, ...],
     metric_names: tuple[str, ...],
     output_path: Path | None,
     individual: bool,
-    overlap_threshold: float,
     mapping_output_path: Path | None,
+    locus_matching: str,
 ):
     """Run the benchmark on ground-truth vs. prediction GFF/GTF files."""
     from .io_utils import collect_gff
@@ -238,14 +230,7 @@ def run(
     # 1. Parse inputs
     # ------------------------------------------------------------------
     label_config = _load_label_config(config_path)
-
-    for token in class_tokens:
-        if token not in label_config.labels:
-            raise click.BadParameter(
-                f"Token {token} is not defined in the label config. "
-                f"Available: {list(label_config.labels.keys())}",
-                param_hint="--classes",
-            )
+    mode = _MODE_NAMES[locus_matching.lower()]
 
     pred_paths: dict[str, Path] = {}
     for spec in pred_specs:
@@ -265,6 +250,7 @@ def run(
 
     excl_list = list(exclude_features)
     tt_list = list(transcript_types)
+    exon_types = list(label_config.exon_feature_type)
     metrics = [_METRIC_NAMES[name.upper()] for name in metric_names]
 
     # ------------------------------------------------------------------
@@ -284,16 +270,15 @@ def run(
     # ------------------------------------------------------------------
     # 3. Map GT <-> predictions
     # ------------------------------------------------------------------
-    click.echo(
-        f"Mapping transcripts (overlap >= {overlap_threshold:.0%})..."
-    )
+    click.echo("Mapping transcripts (locus-based junction-F1 matching)...")
 
     mappings = map_transcripts(
         gt_path=gt_path,
         pred_paths={name: str(p) for name, p in pred_paths.items()},
-        min_overlap=overlap_threshold,
         transcript_types=tt_list,
+        exon_types=exon_types,
         exclude_features=excl_list,
+        locus_matching_mode=mode,
     )
 
     if not mappings:
@@ -310,9 +295,6 @@ def run(
     # ------------------------------------------------------------------
     # 4. Build arrays and benchmark each predictor
     # ------------------------------------------------------------------
-    bg_val = label_config.background_label
-
-    # Collect arrays per-predictor across all mappings
     gt_by_pred: dict[str, list[np.ndarray]] = {
         name: [] for name in pred_paths
     }
@@ -327,18 +309,18 @@ def run(
             pred_dfs=pred_dfs,
             label_config=label_config,
             transcript_types=tt_list,
+            exon_types=exon_types,
         )
 
         for pred_name in pred_paths:
-            # For unmatched-prediction mappings, only include the
-            # predictor that owns the unmatched prediction.
+            has_match = any(
+                m.predictor_name == pred_name for m in mapping.matched_predictions
+            )
             if mapping.is_unmatched_prediction:
-                owns_mapping = any(
-                    m.predictor_name == pred_name
-                    for m in mapping.matched_predictions
-                )
-                if not owns_mapping:
+                if not has_match:
                     continue
+            elif mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
+                continue
 
             gt_by_pred[pred_name].append(gt_arr)
             pred_by_pred[pred_name].append(pred_arrs[pred_name])
@@ -356,23 +338,41 @@ def run(
             )
             continue
 
+        eval_classes = list(label_config.evaluation_labels.keys())
         click.echo(
             f"  Benchmarking '{pred_name}': "
             f"{len(gt_labels)} transcript(s) | "
-            f"classes={list(class_tokens)} | "
+            f"classes={[label_config.name_of(c) for c in eval_classes]} | "
             f"metrics={[m.name for m in metrics]}"
         )
 
-        results = benchmark_gt_vs_pred_multiple(
+        per_transcript = benchmark_gt_vs_pred_multiple(
             gt_labels=gt_labels,
             pred_labels=pred_labels,
             label_config=label_config,
-            classes=list(class_tokens),
             metrics=metrics,
             return_individual_results=individual,
         )
 
-        all_results[pred_name] = results
+        # Individual mode returns a list, not a dict — skip global aggregation.
+        if individual:
+            all_results[pred_name] = per_transcript
+            continue
+
+        global_result = compute_global_metrics(
+            gt_df=gt_df,
+            pred_df=pred_dfs[pred_name],
+            mappings=mappings,
+            predictor_name=pred_name,
+            label_config=label_config,
+            exon_types=exon_types,
+            transcript_types=tt_list,
+        )
+
+        all_results[pred_name] = {
+            "per_transcript": per_transcript,
+            "global": global_result,
+        }
 
     # ------------------------------------------------------------------
     # 5. Serialise and output
@@ -403,20 +403,17 @@ def run(
 def init_config(output_path: Path):
     """Generate a template label_config.yaml file."""
     template = {
-        "labels": {
-            "0": "EXON",
-            "1": "DONOR",
-            "2": "INTRON",
-            "3": "ACCEPTOR",
-            "8": "NONCODING",
-        },
         "background_label": 8,
-        "coding_label": 0,
+        "exon_label": 0,
+        "intron_label": 2,
         "splice_donor_label": 1,
         "splice_acceptor_label": 3,
+        # "exon_feature_type": "exon",  # default; use "CDS" for Augustus
     }
     import yaml
-    output_path.write_text(yaml.dump(template, sort_keys=False) + "\n")
+    content = yaml.dump(template, sort_keys=False)
+    content += "# exon_feature_type: exon  # default; use 'CDS' for Augustus\n"
+    output_path.write_text(content)
     click.echo(f"Template config written to {output_path}")
     click.echo(
         "Edit the file to match your label set, then use: "

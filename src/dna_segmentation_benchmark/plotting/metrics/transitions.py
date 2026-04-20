@@ -87,7 +87,7 @@ def plot_false_transitions(
     ----------
     per_method_data : dict[str, dict]
         Outer key = method name, inner dict must contain ``"matrices"``
-        and ``"totals"`` as produced by the evaluation pipeline.
+        and ``"stable_position_counts"`` as produced by the evaluation pipeline.
     label_config : LabelConfig
         Resolves label IDs to human-readable names.
 
@@ -101,6 +101,8 @@ def plot_false_transitions(
 
     # Resolve labels
     first_method = next(iter(per_method_data.values()))
+    if "matrices" not in first_method:
+        return None  # No false transition data available
     label_ids = sorted(first_method["matrices"].keys())
     ordered_labels = [label_config.labels[lid] for lid in label_ids]
     method_names = list(per_method_data.keys())

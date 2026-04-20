@@ -7,9 +7,16 @@ equivalent of an intron chain comparison.
 
 Metrics
 -------
-* **Intron precision** — fraction of predicted intron positions present in GT.
-* **Intron recall** — fraction of GT intron positions found in the prediction.
-* **Segment count delta** — over-/under-segmentation indicator.
+* **Intron chain (strict)** — binary TP/FN/FP: 1 iff the full GT and pred
+  intron sets are identical.
+* **Per-transcript exon recall** — fraction of GT exons exactly recovered
+  by the prediction (``shared / n_gt_exons``).  Per-sequence continuous
+  score in [0, 1]; aggregated as a distribution across transcripts so
+  cases like "9 of 10 exons right" are visible in the tail.
+* **Per-transcript hallucinated exon count** — number of predicted exons
+  whose ``(start, end)`` does **not** exactly match any GT exon.  A
+  precision-side companion to the recall metric that captures spurious
+  extra predictions without conflating them with boundary errors.
 """
 
 from __future__ import annotations
@@ -78,6 +85,53 @@ def _compute_intron_chain_metrics(
         "tp": 1 if gt_introns == pred_introns else 0,
         "fp": 1 if gt_introns != pred_introns else 0,
         "fn": 1 if gt_introns != pred_introns else 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-transcript structural soft metrics (distribution view)
+# ---------------------------------------------------------------------------
+
+
+def _compute_per_transcript_exon_soft_metrics(
+        gt_structure: ExtractedStructure,
+        pred_structure: ExtractedStructure,
+        label_config: LabelConfig,
+) -> dict:
+    """Per-transcript continuous exon-recovery metrics.
+
+    Complements the strict ``intron_chain`` (all-or-nothing) and the
+    corpus-level ``perfect_boundary_hit`` (sums TP/FN across all
+    sequences) by yielding *per-transcript* values whose distribution
+    across transcripts can be plotted as a histogram.  This surfaces
+    graduated agreement — "9 of 10 exons right" is visible in the tail
+    of the distribution instead of collapsing to 0 or 1.
+
+    Values:
+
+    * ``exon_recall_per_transcript`` — fraction of GT exons whose exact
+      ``(start, end)`` tuple appears in the prediction, i.e.
+      ``shared / n_gt_exons``.  In [0, 1].  Absent when GT has no exons.
+    * ``hallucinated_exon_count_per_transcript`` — number of predicted
+      exons whose ``(start, end)`` does **not** match any GT exon exactly.
+      Precision-side companion to the recall metric.  Integer ≥ 0.
+      Absent when GT has no exons (the transcript is not applicable).
+
+    Operates on the coding label so it also works for predictors that
+    do not emit explicit intron tokens.
+    """
+    coding = label_config.coding_label
+
+    gt_exons: set[tuple[int, int]] = {(s.start, s.end) for s in gt_structure.filter_by_label(coding)}
+    pred_exons: set[tuple[int, int]] = {(s.start, s.end) for s in pred_structure.filter_by_label(coding)}
+
+    if not gt_exons:
+        return {}
+
+    shared = gt_exons & pred_exons
+    return {
+        "exon_recall_per_transcript": len(shared) / len(gt_exons),
+        "hallucinated_exon_count_per_transcript": len(pred_exons - gt_exons),
     }
 
 

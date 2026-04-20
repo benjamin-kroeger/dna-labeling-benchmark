@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 def plot_boundary_precision_landscapes(
         df_fuzzy_boundaries: pd.DataFrame,
+        class_name: str,
         max_range: int = 10,
         metadata: PlotMetadata | None = None,
 ) -> list[plt.Figure]:
@@ -44,7 +45,7 @@ def plot_boundary_precision_landscapes(
             bias_matrix,
             ax=axes[0],
             cmap="YlGnBu",
-            cbar_kws={"label": "Frequency (Number of Exons)"},
+            cbar_kws={"label": f"Frequency (Number of {class_name} Sections)"},
         )
         axes[0].set_title(
             f"Boundary Bias Landscape (±{max_range}bp)", fontsize=14, pad=15,
@@ -66,7 +67,7 @@ def plot_boundary_precision_landscapes(
             cmap="magma",
             annot=True,
             fmt=".2f",
-            cbar_kws={"label": "Recall (Percentage of Exons Found)"},
+            cbar_kws={"label": f"Recall (Fraction of {class_name} Sections Found)"},
         )
         axes[1].set_title(
             f"Cumulative Reliability (0 to {max_range}bp Tolerance)",

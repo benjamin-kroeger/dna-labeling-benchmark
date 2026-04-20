@@ -4,46 +4,36 @@ This document explains the design decisions behind `dna-segmentation-benchmark` 
 
 ---
 
-## 1. Label-Agnostic Gap Chain — Not TP/FP/FN
+## 1. Strict Intron Chain + Per-transcript Soft Exon Distribution
 
 ### What we do
 
-The gap chain metric compares the **ordered sequence of gaps** between consecutive segments of a given class.  For exon segments, gaps correspond to introns — making this the label-agnostic equivalent of an intron chain comparison.
+Two complementary structural-chain views are reported side by side:
 
-Three levels are reported:
+1. **Strict binary `intron_chain`** — per-sequence `tp/fp/fn ∈ {0, 1}`, where a sequence is a TP **only if** the entire set of GT introns equals the set of predicted introns. Aggregated to corpus precision/recall. This is the gffcompare-compatible reference signal.
+2. **Per-transcript soft exon metrics** — two raw per-sequence lists that expose the *distribution* of structural quality across transcripts:
+   - `exon_recall_per_transcript` ∈ `[0, 1]`: fraction of GT exons whose `(start, end)` was recovered exactly. A transcript with 9/10 exons right scores 0.9.
+   - `hallucinated_exon_count_per_transcript` ≥ 0: number of predicted exons whose `(start, end)` is absent from GT.
 
-| Metric | Description |
-|--------|-------------|
-| `gap_chain_match_rate` | Fraction of sequences where the entire gap chain is identical (binary, like gffcompare's intron chain match). |
-| `gap_chain_lcs_ratio` | Longest common subsequence of gap boundary pairs as a fraction of the longer chain. Provides partial credit. |
-| `gap_count_match_rate` | Fraction of sequences with the correct number of gaps (necessary but not sufficient for exact match). |
+### Why both
 
-### Why edit/LCS-based instead of TP/FP/FN
+The strict intron-chain metric hides everything short of a perfect match: a transcript with 9 of 10 exons right is indistinguishable from one with 0 correct. At the corpus level `perfect_boundary_hit` already captures exact exon P/R, but the corpus average collapses the *per-transcript* distribution that matters for diagnosing whether a model "gets most transcripts nearly right" or "gets a few transcripts perfect and the rest completely wrong".
 
-A TP/FP/FN formulation requires **1:1 matching** — each ground-truth gap must be paired with a predicted gap, and unmatched items become FN or FP.  This is problematic for ordered chains:
+Keeping the per-transcript metrics as raw lists (not reduced to means) lets downstream plotting draw overlayed histograms:
 
-1. **Matching ambiguity.**  When gaps shift, split, or merge, the assignment is not obvious.  Which GT gap does a shifted pred gap "belong" to?  Different matching heuristics (greedy overlap, Hungarian, etc.) give different TP/FP/FN counts for the same prediction.
+- A thick mass near `recall=1.0` with an empty right tail on hallucinations → the model recovers structure cleanly.
+- A thick left tail on recall combined with a fat right tail of hallucinations → the model is guessing.
 
-2. **Ordering information is lost.**  Consider:
-
-   ```
-   GT gaps:   [(20,30), (40,50), (60,70)]
-   Pred A:    [(20,30), (60,70)]           # middle gap missing, flanking gaps correct
-   Pred B:    [(20,30), (40,50)]           # last gap missing, first two correct
-   ```
-
-   Under TP/FP/FN with any reasonable matching, both predictions score TP=2, FN=1, FP=0.  But Pred B preserves the first two gaps *in sequence* while Pred A skips a gap in the middle — a different and arguably worse structural error.  LCS captures this: Pred B has LCS=2 from a contiguous subsequence, while Pred A also has LCS=2 but from a non-contiguous one.  (In this simple case the LCS value is the same, but in longer chains the distinction becomes significant.)
-
-3. **No partial credit at the chain level.**  gffcompare reports intron chain match as a binary per-transcript verdict (match or no match).  TP/FP/FN at the individual gap level gives per-gap counts but not a sense of "how close was the overall chain?"  The LCS ratio fills this gap: a transcript with 9 of 10 introns correct in order scores 0.9, not just "miss".
+Splitting recall (coverage) from hallucination count (precision side) is deliberate: unlike F1 the two signals can move independently, so the plot surfaces *which* failure mode dominates.
 
 ### How this compares to other tools
 
-| Tool | Intron chain metric | Partial credit | Ordering-aware |
-|------|-------------------|----------------|----------------|
-| gffcompare | Binary match (exact intron chain or not) | No | Implicit (binary) |
-| Mikado compare | Intron F1 (TP/FP/FN on individual junctions) | Per-junction | No (bag of junctions) |
-| EGASP | Intron-level sensitivity/specificity | Per-intron | No |
-| **This benchmark** | **Gap chain match + LCS ratio** | **Per-chain (continuous 0–1)** | **Yes (LCS preserves order)** |
+| Tool | Strict intron chain | Distribution view | Precision/recall separated |
+|------|---------------------|-------------------|----------------------------|
+| gffcompare | Binary match | Corpus rate only | No |
+| Mikado compare | Intron F1 | Corpus scalar | F1 only |
+| EGASP | Intron-level S/Sp | Corpus scalar | Yes |
+| **This benchmark** | **Yes (corpus P/R)** | **Per-transcript histograms** | **Recall and hallucinations plotted separately** |
 
 ---
 
@@ -142,7 +132,7 @@ This provides a **distribution over failure modes** across sequences, answering 
 | Reliability matrix (11x11 cumulative recall at tolerances) | No |
 | Frameshift analysis | No |
 | State transition confusion analysis | No |
-| Ordering-aware gap chain with partial credit (LCS ratio) | No (gffcompare is binary; Mikado is bag-of-junctions) |
+| Per-transcript soft exon metrics (recall + hallucination distributions) | No (gffcompare reports corpus scalars only) |
 | Transcript match structural taxonomy on label arrays | No (gffcompare class codes require GFF + isoform matching) |
 | W&B / ML training-loop integration | No |
 | Label-agnostic design (arbitrary token schemes) | No (all tools assume GFF with gene/mRNA/exon/CDS types) |

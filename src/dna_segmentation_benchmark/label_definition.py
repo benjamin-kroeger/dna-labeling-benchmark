@@ -211,7 +211,8 @@ class EvalMetrics(Enum):
     * ``INDEL`` – *"What structural errors exist?"*
       5'/3' extensions/deletions, whole insertions/deletions, splits/joins.
     * ``REGION_DISCOVERY`` – *"Did we find the right regions?"*
-      Precision & recall at four overlap strictness levels.
+      Precision & recall at four overlap strictness levels
+      (neighborhood, internal, full-coverage, perfect-boundary).
     * ``BOUNDARY_EXACTNESS`` – *"How precise are the boundaries?"*
       IoU stats, bias/reliability landscape, inner/all section boundary
       precision & recall, terminal-boundary flags.
@@ -219,6 +220,15 @@ class EvalMetrics(Enum):
       Precision, recall, and F1 from the nucleotide confusion matrix.
     * ``FRAMESHIFT`` – *"Is the reading frame preserved?"*
       Per-position reading-frame deviation.
+    * ``STRUCTURAL_COHERENCE`` – *"Is the segment chain correct as a whole?"*
+      Strict binary ``intron_chain`` precision/recall (gffcompare-style),
+      per-transcript soft exon recall and hallucinated-exon count
+      (continuous distribution view), holistic transcript match
+      classification, transcript-level P/R tiers, and segment count
+      delta.
+    * ``DIAGNOSTIC_DEPTH`` – *"Why is the prediction structurally wrong?"*
+      Segment-length EMD and position-bias histogram localising the
+      errors along the coding span.
     """
 
     INDEL = 0

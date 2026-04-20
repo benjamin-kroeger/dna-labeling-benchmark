@@ -1,11 +1,11 @@
 """Tests for the transcript mapping module.
 
 Covers:
-- Overlap fraction computation
+- Base overlap computation
+- Pair classification (intron chain matching)
 - Strand-aware mapping of GT <-> predictions
 - Unmatched GT transcripts (no prediction -> empty pred array)
 - Unmatched predictions (no GT transcript -> GT from region features)
-- Overlapping GT transcript detection (error)
 - Array construction from mappings
 - Debug TSV export
 """
@@ -16,9 +16,12 @@ import pytest
 from dna_segmentation_benchmark.io_utils import collect_gff
 from dna_segmentation_benchmark.label_definition import LabelConfig
 from dna_segmentation_benchmark.transcript_mapping import (
+    MatchClass,
     PredictionMatch,
     TranscriptMapping,
-    _compute_overlap_fraction,
+    _TranscriptInfo,
+    _base_overlap,
+    _classify_pair,
     build_paired_arrays,
     export_mapping_table,
     map_transcripts,
@@ -34,9 +37,8 @@ from dna_segmentation_benchmark.transcript_mapping import (
 def simple_label_config():
     """A minimal two-token label config."""
     return LabelConfig(
-        labels={0: "CODING", 1: "BACKGROUND"},
         background_label=1,
-        coding_label=0,
+        exon_label=0,
     )
 
 
@@ -148,41 +150,114 @@ chr3\tPred\tCDS\t10\t30\t.\t+\t0\tID=pred_chr3_cds1;Parent=pred_chr3_t1
 
 
 # ------------------------------------------------------------------
-# Unit tests: _compute_overlap_fraction
+# Unit tests: _base_overlap
 # ------------------------------------------------------------------
 
 
-class TestComputeOverlapFraction:
-    """Tests for the pure overlap fraction helper."""
+def _make_single_exon(gff_id: str, start: int, end: int) -> _TranscriptInfo:
+    return _TranscriptInfo(
+        gff_id=gff_id, start=start, end=end,
+        intron_chain=frozenset(), is_single_exon=True,
+    )
+
+
+def _make_multi_exon(
+    gff_id: str,
+    start: int,
+    end: int,
+    introns: list[tuple[int, int]],
+) -> _TranscriptInfo:
+    return _TranscriptInfo(
+        gff_id=gff_id, start=start, end=end,
+        intron_chain=frozenset(introns), is_single_exon=False,
+    )
+
+
+class TestBaseOverlap:
+    """Tests for the base overlap helper."""
 
     def test_identical_intervals(self):
-        assert _compute_overlap_fraction(10, 50, 10, 50) == pytest.approx(1.0)
+        assert _base_overlap(10, 50, 10, 50) == 41
 
     def test_no_overlap(self):
-        assert _compute_overlap_fraction(10, 20, 30, 40) == pytest.approx(0.0)
+        assert _base_overlap(10, 20, 30, 40) == 0
 
     def test_partial_overlap(self):
         # [10, 30] and [20, 40]: overlap = [20, 30] = 11 bases
-        # shorter = 21
-        frac = _compute_overlap_fraction(10, 30, 20, 40)
-        assert frac == pytest.approx(11 / 21)
+        assert _base_overlap(10, 30, 20, 40) == 11
 
     def test_containment(self):
-        # [10, 50] contains [20, 30]: overlap = 11, shorter = 11
-        assert _compute_overlap_fraction(10, 50, 20, 30) == pytest.approx(1.0)
+        # [10, 50] contains [20, 30]: overlap = 11
+        assert _base_overlap(10, 50, 20, 30) == 11
 
     def test_adjacent_no_overlap(self):
-        # [10, 20] and [21, 30] do not overlap
-        assert _compute_overlap_fraction(10, 20, 21, 30) == pytest.approx(0.0)
+        assert _base_overlap(10, 20, 21, 30) == 0
 
     def test_single_base_overlap(self):
-        # [10, 20] and [20, 30]: overlap = 1, shorter = 11
-        frac = _compute_overlap_fraction(10, 20, 20, 30)
-        assert frac == pytest.approx(1 / 11)
+        assert _base_overlap(10, 20, 20, 30) == 1
 
-    def test_single_base_interval(self):
-        # [10, 10] and [10, 10]: overlap = 1, shorter = 1
-        assert _compute_overlap_fraction(10, 10, 10, 10) == pytest.approx(1.0)
+
+# ------------------------------------------------------------------
+# Unit tests: _classify_pair
+# ------------------------------------------------------------------
+
+
+class TestClassifyPair:
+    """Tests for the intron-chain pair classifier."""
+
+    def test_single_exon_exact(self):
+        gt = _make_single_exon("gt", 1, 100)
+        pred = _make_single_exon("pred", 1, 100)
+        assert _classify_pair(gt, pred) == MatchClass.EXACT
+
+    def test_single_exon_contained(self):
+        gt = _make_single_exon("gt", 1, 100)
+        pred = _make_single_exon("pred", 20, 80)
+        assert _classify_pair(gt, pred) == MatchClass.CONTAINED
+
+    def test_single_exon_contains(self):
+        gt = _make_single_exon("gt", 20, 80)
+        pred = _make_single_exon("pred", 1, 100)
+        assert _classify_pair(gt, pred) == MatchClass.CONTAINS
+
+    def test_single_exon_overlapping(self):
+        gt = _make_single_exon("gt", 1, 60)
+        pred = _make_single_exon("pred", 40, 100)
+        assert _classify_pair(gt, pred) == MatchClass.OVERLAPPING
+
+    def test_exact_match(self):
+        introns = [(30, 50), (80, 100)]
+        gt = _make_multi_exon("gt", 1, 150, introns)
+        pred = _make_multi_exon("pred", 1, 150, introns)
+        assert _classify_pair(gt, pred) == MatchClass.EXACT
+
+    def test_contained(self):
+        gt_introns = [(30, 50), (80, 100), (130, 150)]
+        pred_introns = [(30, 50), (80, 100)]
+        gt = _make_multi_exon("gt", 1, 200, gt_introns)
+        pred = _make_multi_exon("pred", 1, 120, pred_introns)
+        assert _classify_pair(gt, pred) == MatchClass.CONTAINED
+
+    def test_contains(self):
+        gt_introns = [(30, 50)]
+        pred_introns = [(30, 50), (80, 100)]
+        gt = _make_multi_exon("gt", 10, 60, gt_introns)
+        pred = _make_multi_exon("pred", 1, 200, pred_introns)
+        assert _classify_pair(gt, pred) == MatchClass.CONTAINS
+
+    def test_shared_junction(self):
+        gt_introns = [(30, 50), (80, 100)]
+        pred_introns = [(30, 50), (120, 150)]
+        gt = _make_multi_exon("gt", 1, 200, gt_introns)
+        pred = _make_multi_exon("pred", 1, 200, pred_introns)
+        assert _classify_pair(gt, pred) == MatchClass.SHARED_JUNCTION
+
+    def test_overlapping_no_shared_junctions(self):
+        gt_introns = [(30, 50)]
+        pred_introns = [(70, 90)]
+        gt = _make_multi_exon("gt", 1, 100, gt_introns)
+        pred = _make_multi_exon("pred", 1, 100, pred_introns)
+        assert _classify_pair(gt, pred) == MatchClass.OVERLAPPING
 
 
 # ------------------------------------------------------------------
@@ -198,7 +273,7 @@ class TestMapTranscripts:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredA": pred_a_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -218,7 +293,7 @@ class TestMapTranscripts:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredB": pred_b_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -237,7 +312,7 @@ class TestMapTranscripts:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredA": pred_a_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -255,7 +330,7 @@ class TestMapTranscripts:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredWS": pred_wrong_strand_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -271,7 +346,7 @@ class TestMapTranscripts:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredA": pred_a_gff, "PredB": pred_b_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -295,7 +370,7 @@ class TestMapTranscripts:
         mappings = map_transcripts(
             gt_path=overlapping_gt_gff,
             pred_paths={"PredA": pred_a_gff},
-            min_overlap=0.2,
+
         )
         # Both overlapping GT transcripts should appear in the mappings
         gt_ids = {m.gt_id for m in mappings if not m.is_unmatched_prediction}
@@ -308,7 +383,7 @@ class TestMapTranscripts:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"Pred": pred_only_chr3_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -347,7 +422,7 @@ class TestBuildPairedArrays:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredB": pred_b_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -377,7 +452,7 @@ class TestBuildPairedArrays:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredA": pred_a_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -407,7 +482,7 @@ class TestBuildPairedArrays:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredA": pred_a_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -441,7 +516,7 @@ class TestBuildPairedArrays:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredA": pred_a_gff, "PredB": pred_b_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -485,7 +560,7 @@ class TestExportMappingTable:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredA": pred_a_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 
@@ -503,7 +578,7 @@ class TestExportMappingTable:
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredB": pred_b_gff},
-            min_overlap=0.2,
+
             exclude_features=["gene"],
         )
 

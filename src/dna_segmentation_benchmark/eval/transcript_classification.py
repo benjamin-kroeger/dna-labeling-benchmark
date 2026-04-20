@@ -14,8 +14,7 @@ Classification hierarchy (evaluated top-to-bottom):
    of GT (some GT segments are absent from prediction).
 5. ``EXTRA_SEGMENTS`` — GT chain is a strict ordered subset of
    prediction (prediction contains additional segments).
-6. ``STRUCTURALLY_DIFFERENT`` — none of the above; use gap chain LCS
-   ratio for continuous similarity scoring.
+6. ``STRUCTURALLY_DIFFERENT`` — none of the above.
 """
 
 from __future__ import annotations
@@ -37,15 +36,15 @@ class TranscriptMatchClass(str, Enum):
     MISSED = "missed"
 
 
-def _measure_shifted_internal_boundaries(
+def _measure_shifted_boundaries(
     gt_segs: tuple[Segment, ...],
     pred_segs: tuple[Segment, ...],
 ) -> tuple[int, int]:
-    """Count and sum shifted boundary positions, ignoring first start and last end.
+    """Count and sum all shifted boundary positions across every segment.
 
-    The first segment's start and the last segment's end correspond to UTR
-    boundaries and are excluded.  All other boundary positions (splice-site
-    donors and acceptors) are compared pairwise.
+    All boundary positions are compared pairwise, including the first
+    segment's start (transcript start) and the last segment's end
+    (transcript end).
 
     Parameters
     ----------
@@ -55,19 +54,18 @@ def _measure_shifted_internal_boundaries(
     Returns
     -------
     (count, total) : tuple[int, int]
-        *count* — number of internal boundary positions that differ.
+        *count* — number of boundary positions that differ.
         *total* — sum of absolute position offsets across those boundaries (bp).
     """
-    n = len(gt_segs)
-    if n == 0:
+    if not gt_segs:
         return 0, 0
     count = 0
     total = 0
-    for i, (g, p) in enumerate(zip(gt_segs, pred_segs)):
-        if i > 0 and g.start != p.start:        # not UTR: splice acceptor
+    for g, p in zip(gt_segs, pred_segs):
+        if g.start != p.start:
             count += 1
             total += abs(g.start - p.start)
-        if i < n - 1 and g.end != p.end:        # not UTR: splice donor
+        if g.end != p.end:
             count += 1
             total += abs(g.end - p.end)
     return count, total
@@ -121,7 +119,7 @@ def _classify_transcript_match(
 
     # -- Same count: measure internal (splice-site) boundary shifts -----------
     if n_gt == n_pred:
-        shift_count, shift_total = _measure_shifted_internal_boundaries(gt_segs, pred_segs)
+        shift_count, shift_total = _measure_shifted_boundaries(gt_segs, pred_segs)
         return TranscriptMatchClass.BOUNDARY_SHIFT, shift_count, shift_total, n_gt, n_pred
 
     # -- Subset / Superset via LCS -------------------------------------------
@@ -149,12 +147,10 @@ _TIER_TP_CLASSES: dict[str, frozenset[TranscriptMatchClass]] = {
     }),
     "pred_is_superset": frozenset({
         TranscriptMatchClass.EXACT,
-        TranscriptMatchClass.BOUNDARY_SHIFT,
         TranscriptMatchClass.EXTRA_SEGMENTS,
     }),
     "pred_is_subset": frozenset({
         TranscriptMatchClass.EXACT,
-        TranscriptMatchClass.BOUNDARY_SHIFT,
         TranscriptMatchClass.MISSING_SEGMENTS,
     }),
 }
@@ -170,11 +166,14 @@ def _compute_transcript_level_pr(
     Tiers (cumulative, each more lenient):
 
     * ``transcript_exact`` — identical segment chains.
-    * ``pred_is_superset`` — all GT segments present in pred
-      (pred may have extras).  Recall-oriented: forgives over-prediction.
-    * ``pred_is_subset`` — all pred segments match a GT
-      segment (some GT segments may be missing).  Precision-oriented:
-      forgives under-prediction.
+    * ``pred_is_superset`` — every GT segment appears exactly in pred
+      (GT ⊆ pred): only EXACT and EXTRA_SEGMENTS qualify.
+    * ``pred_is_subset`` — every pred segment appears exactly in GT
+      (pred ⊆ GT): only EXACT and MISSING_SEGMENTS qualify.
+
+    BOUNDARY_SHIFT is excluded from both tiers: a shifted boundary
+    means that GT segment is absent from pred and that pred segment
+    is absent from GT, so neither strict containment holds.
 
     Also returns:
 

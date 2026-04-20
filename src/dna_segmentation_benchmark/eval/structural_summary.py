@@ -6,13 +6,16 @@ the per-section metrics:
 * **Length EMD** — Earth Mover's Distance between GT and predicted
   segment length distributions.  Quantifies whether the model produces
   segments of the right length.
-* **Position bias** — match rates stratified by position within the
-  array (5' / interior / 3'), revealing whether the model is weaker at
-  sequence boundaries.
+* **Position bias histogram** — 100-bin error-location histogram
+  normalised to the coding span.  Bin 0 corresponds to the start of the
+  first GT coding segment; bin 99 to the end of the last.  Every
+  unmatched GT segment (FN) and every unmatched pred segment within the
+  coding span (FP) increments all bins it overlaps with.
 """
 
 from __future__ import annotations
 
+from .junction_errors import _greedy_match
 from .structure import ExtractedStructure, Segment
 
 
@@ -39,9 +42,7 @@ def _compute_structural_summary(
     -------
     dict
         Keys: ``gt_segment_lengths``, ``pred_segment_lengths``,
-        ``length_emd``, ``position_bias_5prime_match_rate``,
-        ``position_bias_interior_match_rate``,
-        ``position_bias_3prime_match_rate``.
+        ``length_emd``, ``position_bias_histogram``.
     """
     gt_segs = gt_structure.filter_by_label(class_token)
     pred_segs = pred_structure.filter_by_label(class_token)
@@ -49,19 +50,14 @@ def _compute_structural_summary(
     gt_lengths = [s.length for s in gt_segs]
     pred_lengths = [s.length for s in pred_segs]
 
-    # Length EMD
     emd = _wasserstein_distance(gt_lengths, pred_lengths)
-
-    # Position bias
-    bias = _compute_position_bias(
-        gt_segs, pred_segs, gt_structure.length,
-    )
+    histogram = _compute_position_bias_histogram(gt_segs, pred_segs)
 
     return {
         "gt_segment_lengths": gt_lengths,
         "pred_segment_lengths": pred_lengths,
         "length_emd": emd,
-        **bias,
+        "position_bias_histogram": histogram,
     }
 
 
@@ -82,11 +78,8 @@ def _wasserstein_distance(a: list[int], b: list[int]) -> float:
         from scipy.stats import wasserstein_distance
         return float(wasserstein_distance(a, b))
     except ImportError:
-        # Pure-python fallback: sort both distributions and compute
-        # the mean absolute difference of quantiles.
         sa = sorted(a)
         sb = sorted(b)
-        # Resample to same length via linear interpolation
         n = max(len(sa), len(sb))
         import numpy as np
         qa = np.interp(np.linspace(0, 1, n), np.linspace(0, 1, len(sa)), sa)
@@ -94,67 +87,69 @@ def _wasserstein_distance(a: list[int], b: list[int]) -> float:
         return float(np.mean(np.abs(qa - qb)))
 
 
-def _compute_position_bias(
+def _compute_position_bias_histogram(
     gt_segs: tuple[Segment, ...],
     pred_segs: tuple[Segment, ...],
-    array_length: int,
-) -> dict[str, float]:
-    """Compute match rates by position zone (5' / interior / 3').
+    n_bins: int = 100,
+) -> list[int]:
+    """100-bin error-location histogram over the coding span.
 
-    A GT segment is considered "matched" if any pred segment overlaps it
-    by at least 50%.
+    Bin 0 = start of first GT coding segment, bin 99 = end of last.
+    Each unmatched GT segment (FN) and each unmatched pred segment within
+    the coding span (FP) increments every bin it overlaps with.
 
-    Position zones:
-    - 5': segment midpoint in first 25% of the array
-    - Interior: segment midpoint in middle 50%
-    - 3': segment midpoint in last 25%
+    Parameters
+    ----------
+    gt_segs, pred_segs : tuple[Segment, ...]
+        Ordered (by position) segments for the target class.
+    n_bins : int
+        Number of histogram bins (default 100).
+
+    Returns
+    -------
+    list[int]
+        Length-``n_bins`` list; each entry is the count of error regions
+        whose position range overlaps that percentile bin.
     """
-    if not gt_segs or array_length == 0:
-        return {
-            "position_bias_5prime_match_rate": 0.0,
-            "position_bias_interior_match_rate": 0.0,
-            "position_bias_3prime_match_rate": 0.0,
-        }
+    if not gt_segs:
+        return [0] * n_bins
 
-    boundary_25 = array_length * 0.25
-    boundary_75 = array_length * 0.75
+    coding_start = gt_segs[0].start   # segments are ordered by position
+    coding_end = gt_segs[-1].end
+    span = coding_end - coding_start + 1
+    if span == 0:
+        return [0] * n_bins
 
-    zone_counts = {"5prime": 0, "interior": 0, "3prime": 0}
-    zone_matches = {"5prime": 0, "interior": 0, "3prime": 0}
+    _, unmatched_gt, unmatched_pred = _greedy_match(gt_segs, pred_segs)
 
-    for gs in gt_segs:
-        midpoint = (gs.start + gs.end) / 2.0
+    bins: list[int] = [0] * n_bins
 
-        if midpoint < boundary_25:
-            zone = "5prime"
-        elif midpoint > boundary_75:
-            zone = "3prime"
-        else:
-            zone = "interior"
+    for g_idx in unmatched_gt:
+        seg = gt_segs[g_idx]
+        _fill_bins(bins, seg.start, seg.end, coding_start, span, n_bins)
 
-        zone_counts[zone] += 1
+    for p_idx in unmatched_pred:
+        seg = pred_segs[p_idx]
+        start = max(seg.start, coding_start)
+        end = min(seg.end, coding_end)
+        if start <= end:
+            _fill_bins(bins, start, end, coding_start, span, n_bins)
 
-        # Check if any pred segment overlaps >= 50% of this GT segment
-        for ps in pred_segs:
-            overlap_start = max(gs.start, ps.start)
-            overlap_end = min(gs.end, ps.end)
-            if overlap_end >= overlap_start:
-                overlap_len = overlap_end - overlap_start + 1
-                if overlap_len >= gs.length * 0.5:
-                    zone_matches[zone] += 1
-                    break
+    return bins
 
-    return {
-        "position_bias_5prime_match_rate": (
-            zone_matches["5prime"] / zone_counts["5prime"]
-            if zone_counts["5prime"] > 0 else 0.0
-        ),
-        "position_bias_interior_match_rate": (
-            zone_matches["interior"] / zone_counts["interior"]
-            if zone_counts["interior"] > 0 else 0.0
-        ),
-        "position_bias_3prime_match_rate": (
-            zone_matches["3prime"] / zone_counts["3prime"]
-            if zone_counts["3prime"] > 0 else 0.0
-        ),
-    }
+
+def _fill_bins(
+    bins: list[int],
+    start: int,
+    end: int,
+    coding_start: int,
+    span: int,
+    n_bins: int,
+) -> None:
+    """Increment every bin that the interval [start, end] overlaps."""
+    bin_lo = int((start - coding_start) / span * n_bins)
+    bin_hi = int((end - coding_start + 1) / span * n_bins)
+    bin_lo = max(0, min(n_bins - 1, bin_lo))
+    bin_hi = max(0, min(n_bins - 1, bin_hi))
+    for b in range(bin_lo, bin_hi + 1):
+        bins[b] += 1
