@@ -21,6 +21,10 @@ wandb_runs/
 # Jupyter
 .ipynb_checkpoints/
 
+# Sphinx
+docs/_build/
+docs/api/generated/
+
 # Misc
 *.log
 .DS_Store

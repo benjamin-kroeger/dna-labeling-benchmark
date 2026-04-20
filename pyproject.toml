@@ -32,6 +32,12 @@ dependencies = [
 
 [project.optional-dependencies]
 wandb = ["wandb>=0.16"]
+docs = [
+    "myst-parser>=4.0",
+    "sphinx>=8.0",
+    "sphinx-autodoc-typehints>=3.0",
+    "sphinx-rtd-theme>=3.0",
+]
 
 [dependency-groups]
 dev = [
