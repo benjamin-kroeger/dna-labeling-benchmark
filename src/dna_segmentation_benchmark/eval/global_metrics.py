@@ -49,7 +49,8 @@ def compute_global_metrics(
     mappings: list[TranscriptMapping],
     predictor_name: str,
     label_config: LabelConfig,
-    exon_types: list[str],
+    gt_exon_types: list[str],
+    pred_exon_types: list[str],
     transcript_types: list[str],
 ) -> dict:
     """Compute global annotation-level metrics for one predictor.
@@ -67,8 +68,10 @@ def compute_global_metrics(
     label_config : LabelConfig
         Label configuration.  ``coding_label`` must be set for nucleotide
         metrics; if it is ``None`` the nucleotide section is returned empty.
-    exon_types : list[str]
-        GFF feature types that represent exons (e.g. ``["exon"]``).
+    gt_exon_types : list[str]
+        GT GFF/GTF feature types that represent exon/coding intervals.
+    pred_exon_types : list[str]
+        Prediction GFF/GTF feature types that represent exon/coding intervals.
     transcript_types : list[str]
         GFF feature types that define transcript boundaries
         (e.g. ``["mRNA", "transcript"]``).
@@ -84,13 +87,13 @@ def compute_global_metrics(
     """
     return {
         "nucleotide": _compute_global_nucleotide_metrics(
-            gt_df, pred_df, label_config, exon_types, transcript_types,
+            gt_df, pred_df, label_config, gt_exon_types, pred_exon_types, transcript_types,
         ),
         "exon": _compute_global_exon_metrics(
-            gt_df, pred_df, exon_types,
+            gt_df, pred_df, gt_exon_types, pred_exon_types,
         ),
         "exon_lenient": _compute_global_exon_lenient_metrics(
-            gt_df, pred_df, exon_types,
+            gt_df, pred_df, gt_exon_types, pred_exon_types,
         ),
         "transcript": _compute_transcript_level_metrics(
             mappings, predictor_name,
@@ -110,7 +113,8 @@ def _compute_global_nucleotide_metrics(
     gt_df: pd.DataFrame,
     pred_df: pd.DataFrame,
     label_config: LabelConfig,
-    exon_types: list[str],
+    gt_exon_types: list[str],
+    pred_exon_types: list[str],
     transcript_types: list[str],
 ) -> dict:
     """Nucleotide precision/recall/F1 using union-of-exons per locus.
@@ -150,11 +154,11 @@ def _compute_global_nucleotide_metrics(
 
                 ref_arr = _build_exon_union_array(
                     gt_df, seqid, strand, region_start, length,
-                    exon_types, coding_val, bg_val,
+                    gt_exon_types, coding_val, bg_val,
                 )
                 pred_arr = _build_exon_union_array(
                     pred_df, seqid, strand, region_start, length,
-                    exon_types, coding_val, bg_val,
+                    pred_exon_types, coding_val, bg_val,
                 )
 
                 ref_exonic = ref_arr == coding_val
@@ -184,7 +188,8 @@ def _compute_global_nucleotide_metrics(
 def _compute_global_exon_metrics(
     gt_df: pd.DataFrame,
     pred_df: pd.DataFrame,
-    exon_types: list[str],
+    gt_exon_types: list[str],
+    pred_exon_types: list[str],
 ) -> dict:
     """Exon sensitivity/precision using de-duplicated exact boundary matching.
 
@@ -200,8 +205,8 @@ def _compute_global_exon_metrics(
     first/last exons), but avoids the ambiguity introduced by UTR variation
     and TSS heterogeneity.
     """
-    ref_exon_keys  = _collect_exon_keys(gt_df,   exon_types)
-    pred_exon_keys = _collect_exon_keys(pred_df, exon_types)
+    ref_exon_keys  = _collect_exon_keys(gt_df, gt_exon_types)
+    pred_exon_keys = _collect_exon_keys(pred_df, pred_exon_types)
 
     n_matched  = len(ref_exon_keys & pred_exon_keys)
     ref_total  = len(ref_exon_keys)
@@ -224,7 +229,8 @@ def _compute_global_exon_metrics(
 def _compute_global_exon_lenient_metrics(
     gt_df: pd.DataFrame,
     pred_df: pd.DataFrame,
-    exon_types: list[str],
+    gt_exon_types: list[str],
+    pred_exon_types: list[str],
 ) -> dict:
     """Exon sensitivity/precision with terminal-exon boundary leniency.
 
@@ -243,8 +249,8 @@ def _compute_global_exon_lenient_metrics(
     Matching is performed on de-duplicated lenient canonical keys, so each
     distinct splice-site combination is counted once regardless of isoform count.
     """
-    ref_keys = _collect_exon_keys_lenient(gt_df, exon_types)
-    pred_keys = _collect_exon_keys_lenient(pred_df, exon_types)
+    ref_keys = _collect_exon_keys_lenient(gt_df, gt_exon_types)
+    pred_keys = _collect_exon_keys_lenient(pred_df, pred_exon_types)
 
     n_matched = len(ref_keys & pred_keys)
     ref_total = len(ref_keys)

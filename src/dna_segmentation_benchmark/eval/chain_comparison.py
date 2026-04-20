@@ -35,41 +35,51 @@ def _compute_intron_chain_metrics(
         pred_structure: ExtractedStructure,
         label_config: LabelConfig,
 ) -> dict:
-    """Compare intron chains (inter-segment boundaries) for a single class.
+    """Compare explicit intron-label chains for one transcript pair.
 
-    Each intron is the ``(end_i, start_{i+1})`` boundary pair between two
-    consecutive segments of *class_token*.  For exon segments these gaps
-    correspond to introns.
+    The metric expects introns to be present as segments with
+    ``label_config.intron_label``.  Each intron-chain element is the boundary
+    pair ``(end_i, start_{i+1})`` between consecutive intron-label segments.
+    The resulting chain is compared as a set and scored as an all-or-nothing
+    transcript-level TP/FP/FN.
 
-    Precision and recall are computed over the **set** of intron positions:
+    If the structure contains multiple coding segments but no intron-label
+    segments, the metric raises ``ValueError`` instead of silently returning a
+    vacuous result.  In that situation the input likely came from exon/CDS-only
+    arrays.  Call ``benchmark_gt_vs_pred_single(..., infer_introns=True)`` or
+    provide explicit intron labels before requesting
+    :class:`~dna_segmentation_benchmark.label_definition.EvalMetrics.STRUCTURAL_COHERENCE`.
 
-    * ``intron_precision`` — of the predicted introns, what fraction match a GT intron?
-    * ``intron_recall``    — of the GT introns, what fraction appear in the prediction?
+    Single-exon edge case: if GT has no intron-chain elements, the result is
+    ``{"tp": 0, "fp": 0, "fn": 0}``, because there is no intron chain to
+    evaluate.
 
-    Single-exon edge cases: if neither side has introns both scores are 1.0;
-    if only one side has introns the other side scores 1.0 vacuously (nothing
-    to miss / nothing to be wrong about).
+    Notes
+    -----
+    The public benchmark functions can infer intron-label segments from
+    background gaps between adjacent coding segments before this metric runs.
+    That inference happens at the raw-array level, so all metrics see the same
+    transformed arrays when ``infer_introns=True``.
 
     Parameters
     ----------
     gt_structure, pred_structure : ExtractedStructure
         Structures extracted from the GT and predicted label arrays.
-    class_token : int
-        Which label class to evaluate.
+    label_config : LabelConfig
+        Supplies ``coding_label`` and ``intron_label``.
 
     Returns
     -------
     dict
-        Keys: ``intron_precision`` (float), ``intron_recall`` (float),
-        ``intron_count_gt`` (int), ``intron_count_pred`` (int),
-        ``segment_count_gt`` (int), ``segment_count_pred`` (int),
-        ``segment_count_delta`` (int).
+        Strict transcript-level counts: ``tp``, ``fp``, and ``fn``.
     """
-    if not label_config.intron_label:
+    if label_config.intron_label is None:
         raise ValueError("Intron-chain comparison requires an intron label.")
 
     gt_segs = gt_structure.filter_by_label(label_config.intron_label)
     pred_segs = pred_structure.filter_by_label(label_config.intron_label)
+    _raise_if_introns_missing_but_inferable(gt_structure, label_config, "GT")
+    _raise_if_introns_missing_but_inferable(pred_structure, label_config, "prediction")
 
     gt_introns: set[tuple[int, int]] = set(_intron_chain(gt_segs))
     pred_introns: set[tuple[int, int]] = set(_intron_chain(pred_segs))
@@ -86,6 +96,36 @@ def _compute_intron_chain_metrics(
         "fp": 1 if gt_introns != pred_introns else 0,
         "fn": 1 if gt_introns != pred_introns else 0,
     }
+
+
+def _raise_if_introns_missing_but_inferable(
+        structure: ExtractedStructure,
+        label_config: LabelConfig,
+        side_name: str,
+) -> None:
+    """Reject exon/CDS-only structures before intron-chain scoring.
+
+    Multiple coding segments with no intron-label segment indicate that the
+    array has exon-like runs separated by background.  Scoring such an array as
+    an explicit intron chain would incorrectly treat the transcript as having
+    no introns.  The caller must either enable ``infer_introns`` in the public
+    benchmark entry point or provide arrays where introns are already labelled.
+    """
+    coding = label_config.coding_label
+    intron = label_config.intron_label
+    if coding is None or intron is None:
+        return
+
+    coding_segs = structure.filter_by_label(coding)
+    intron_segs = structure.filter_by_label(intron)
+    if len(coding_segs) > 1 and not intron_segs:
+        raise ValueError(
+            f"{side_name} contains multiple coding segments but no intron-label "
+            "segments. Pass infer_introns=True to benchmark_gt_vs_pred_single "
+            "or benchmark_gt_vs_pred_multiple if introns should be inferred "
+            "from coding gaps, or provide explicit intron labels before "
+            "requesting STRUCTURAL_COHERENCE.",
+        )
 
 
 # ---------------------------------------------------------------------------

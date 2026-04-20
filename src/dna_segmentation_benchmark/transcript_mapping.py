@@ -59,6 +59,52 @@ _UNMATCHED_PRED_PREFIX = "__unmatched_pred__"
 #: computation.  Override per-call via the ``exon_types`` parameter.
 DEFAULT_EXON_TYPES: list[str] = ["exon"]
 
+FeatureTypeInput = str | list[str]
+PredFeatureTypeInput = FeatureTypeInput | dict[str, FeatureTypeInput]
+
+
+def _coerce_feature_types(
+    feature_types: FeatureTypeInput,
+    *,
+    arg_name: str,
+) -> list[str]:
+    """Normalize a feature-type argument to a non-empty list of strings."""
+    if isinstance(feature_types, str):
+        feature_types = [feature_types]
+
+    if not isinstance(feature_types, list) or not feature_types:
+        raise ValueError(f"{arg_name} must be a string or non-empty list of strings.")
+
+    normalized: list[str] = []
+    for feature_type in feature_types:
+        if not isinstance(feature_type, str) or not feature_type:
+            raise ValueError(f"{arg_name} entries must be non-empty strings.")
+        normalized.append(feature_type)
+    return normalized
+
+
+def _normalise_pred_exon_types(
+    pred_names: list[str],
+    pred_exon_types: PredFeatureTypeInput | None,
+    *,
+    default: list[str],
+) -> dict[str, list[str]]:
+    """Return per-predictor exon-like feature types."""
+    if pred_exon_types is None:
+        return {name: list(default) for name in pred_names}
+
+    if isinstance(pred_exon_types, dict):
+        return {
+            name: _coerce_feature_types(
+                pred_exon_types.get(name, default),
+                arg_name=f"pred_exon_types[{name!r}]",
+            )
+            for name in pred_names
+        }
+
+    normalized = _coerce_feature_types(pred_exon_types, arg_name="pred_exon_types")
+    return {name: list(normalized) for name in pred_names}
+
 
 # ---------------------------------------------------------------------------
 # Locus matching mode
@@ -601,13 +647,17 @@ def _process_single_seqid(
     transcript_types: list[str],
     exon_types: list[str],
     mode: LocusMatchingMode,
-    pred_exon_types: list[str] | None = None,
+    pred_exon_types: PredFeatureTypeInput | None = None,
 ) -> list[TranscriptMapping]:
     """Build intron-chain indexes for one chromosome, then map per strand."""
     gt_chain_index = _build_intron_chain_index(gt_df, seqid, exon_types)
-    _pred_exon_types = pred_exon_types if pred_exon_types is not None else exon_types
+    pred_exon_types_by_name = _normalise_pred_exon_types(
+        list(pred_dfs.keys()),
+        pred_exon_types,
+        default=exon_types,
+    )
     pred_chain_indices = {
-        name: _build_intron_chain_index(df, seqid, _pred_exon_types)
+        name: _build_intron_chain_index(df, seqid, pred_exon_types_by_name[name])
         for name, df in pred_dfs.items()
     }
 
@@ -636,8 +686,8 @@ def map_transcripts(
     pred_paths: dict[str, str | Path],
     *,
     transcript_types: list[str] | None = None,
-    exon_types: list[str] | None = None,
-    pred_exon_types: list[str] | None = None,
+    exon_types: FeatureTypeInput | None = None,
+    pred_exon_types: PredFeatureTypeInput | None = None,
     exclude_features: list[str] | None = None,
     locus_matching_mode: LocusMatchingMode = LocusMatchingMode.FULL_DISCOVERY,
 ) -> list[TranscriptMapping]:
@@ -660,14 +710,15 @@ def map_transcripts(
     transcript_types : list[str] | None
         Feature types that define transcript boundaries.
         Defaults to :data:`~dna_segmentation_benchmark.io_utils.DEFAULT_TRANSCRIPT_TYPES`.
-    exon_types : list[str] | None
+    exon_types : str | list[str] | None
         Feature types used to extract exon intervals for GT intron-chain
         computation.  Defaults to :data:`DEFAULT_EXON_TYPES` (``["exon"]``).
-    pred_exon_types : list[str] | None
+    pred_exon_types : str | list[str] | dict[str, str | list[str]] | None
         Feature types used for *prediction* intron-chain computation.
-        When ``None`` (default), falls back to *exon_types*.  Pass
-        ``["CDS"]`` when the predictor emits CDS features instead of exon
-        features so that intron chains are computed correctly for both sides.
+        When ``None`` (default), falls back to *exon_types*.  A string/list
+        applies to every predictor; a dict maps predictor names to feature
+        types.  Pass ``"CDS"`` when a predictor emits CDS features instead of
+        exon features.
     exclude_features : list[str] | None
         Feature types to ignore entirely (e.g. ``["gene"]``).
     locus_matching_mode : LocusMatchingMode
@@ -683,7 +734,10 @@ def map_transcripts(
         In BEST_PER_LOCUS mode: only matched pairs are returned.
     """
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
-    exon_types = exon_types or list(DEFAULT_EXON_TYPES)
+    exon_types = _coerce_feature_types(
+        exon_types or list(DEFAULT_EXON_TYPES),
+        arg_name="exon_types",
+    )
     exclude_features = exclude_features or []
 
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
@@ -691,6 +745,11 @@ def map_transcripts(
         name: collect_gff(str(path), exclude_features=exclude_features)
         for name, path in pred_paths.items()
     }
+    pred_exon_types_by_name = _normalise_pred_exon_types(
+        list(pred_paths.keys()),
+        pred_exon_types,
+        default=exon_types,
+    )
 
     gt_seqids: set[str] = set(gt_df["seqid"].dropna().unique().tolist())
     pred_seqids: set[str] = set()
@@ -708,7 +767,7 @@ def map_transcripts(
         all_mappings.extend(
             _process_single_seqid(
                 seqid, gt_df, pred_dfs, transcript_types, exon_types, locus_matching_mode,
-                pred_exon_types=pred_exon_types,
+                pred_exon_types=pred_exon_types_by_name,
             )
         )
 
@@ -736,8 +795,8 @@ def build_paired_arrays(
     pred_dfs: dict[str, pd.DataFrame],
     label_config: LabelConfig,
     transcript_types: list[str] | None = None,
-    exon_types: list[str] | None = None,
-    pred_exon_types: list[str] | None = None,
+    exon_types: FeatureTypeInput | None = None,
+    pred_exon_types: PredFeatureTypeInput | None = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Build the GT and per-predictor annotation arrays for one mapping.
 
@@ -770,13 +829,14 @@ def build_paired_arrays(
         Label configuration defining integer tokens.
     transcript_types : list[str] | None
         Feature types that denote transcript boundaries.
-    exon_types : list[str] | None
+    exon_types : str | list[str] | None
         Feature types to paint in GT arrays.  If ``None``, paints all child
         features except transcript-type features.
-    pred_exon_types : list[str] | None
+    pred_exon_types : str | list[str] | dict[str, str | list[str]] | None
         Feature types to paint in prediction arrays.  When ``None``
-        (default), falls back to *exon_types*.  Pass ``["CDS"]`` when the
-        predictor emits CDS features instead of exon features.
+        (default), falls back to *exon_types*.  A string/list applies to every
+        predictor; a dict maps predictor names to feature types.  Pass
+        ``"CDS"`` when a predictor emits CDS features instead of exon features.
 
     Returns
     -------
@@ -785,9 +845,10 @@ def build_paired_arrays(
         The dict contains an entry for every predictor in *pred_dfs*.
     """
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
+    if exon_types is not None:
+        exon_types = _coerce_feature_types(exon_types, arg_name="exon_types")
     array_length = mapping.gt_end - mapping.gt_start + 1
     bg_val = label_config.background_label
-    _pred_exon_types = pred_exon_types if pred_exon_types is not None else exon_types
 
     # Null array shared across predictors with no match.
     null_array = np.full(array_length, bg_val, dtype=np.int32)
@@ -805,7 +866,7 @@ def build_paired_arrays(
             array_length=array_length,
             label_config=label_config,
             transcript_types=transcript_types,
-            exon_types=exon_types,  # GT uses exon_types (None = all non-transcript)
+            exon_types=exon_types,
         )
 
     # --- Prediction arrays: transcript-specific ---
@@ -816,6 +877,11 @@ def build_paired_arrays(
             None,
         )
         if pred_match is not None:
+            resolved_pred_exon_types = _resolve_build_pred_exon_types(
+                pred_name,
+                pred_exon_types,
+                default=exon_types,
+            )
             pred_arrays[pred_name] = _build_annotation_array_from_df(
                 df=pred_df,
                 transcript_id=pred_match.transcript_id,
@@ -824,13 +890,31 @@ def build_paired_arrays(
                 array_length=array_length,
                 label_config=label_config,
                 transcript_types=transcript_types,
-                exon_types=_pred_exon_types,  # Pred may use a different feature type
+                exon_types=resolved_pred_exon_types,
             )
         else:
             # Predictor has no match for this GT → null pred array (FN/FP).
             pred_arrays[pred_name] = null_array.copy()
 
     return gt_array, pred_arrays
+
+
+def _resolve_build_pred_exon_types(
+    pred_name: str,
+    pred_exon_types: PredFeatureTypeInput | None,
+    *,
+    default: list[str] | None,
+) -> list[str] | None:
+    """Resolve prediction feature types for array construction."""
+    if pred_exon_types is None:
+        return default
+    if isinstance(pred_exon_types, dict):
+        value = pred_exon_types.get(pred_name, default)
+        return (
+            _coerce_feature_types(value, arg_name=f"pred_exon_types[{pred_name!r}]")
+            if value is not None else None
+        )
+    return _coerce_feature_types(pred_exon_types, arg_name="pred_exon_types")
 
 
 # ---------------------------------------------------------------------------

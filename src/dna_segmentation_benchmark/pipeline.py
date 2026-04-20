@@ -25,16 +25,74 @@ from .transcript_mapping import (
 logger = logging.getLogger(__name__)
 
 
+FeatureTypeInput = str | list[str]
+PredFeatureTypeInput = FeatureTypeInput | dict[str, FeatureTypeInput]
+
+
+def _coerce_feature_types(
+    feature_types: FeatureTypeInput,
+    *,
+    arg_name: str,
+) -> list[str]:
+    """Normalize one feature-type argument to a non-empty list of strings."""
+    if isinstance(feature_types, str):
+        feature_types = [feature_types]
+
+    if not isinstance(feature_types, list) or not feature_types:
+        raise ValueError(f"{arg_name} must be a string or non-empty list of strings.")
+
+    normalized: list[str] = []
+    for feature_type in feature_types:
+        if not isinstance(feature_type, str) or not feature_type:
+            raise ValueError(f"{arg_name} entries must be non-empty strings.")
+        normalized.append(feature_type)
+    return normalized
+
+
+def _normalise_pred_exon_feature_types(
+    pred_names: list[str],
+    pred_exon_feature_types: PredFeatureTypeInput | None,
+    *,
+    default: list[str],
+) -> dict[str, list[str]]:
+    """Return per-predictor exon feature-type lists.
+
+    ``None`` means predictions use the same feature types as GT.  A string or
+    list applies to every predictor.  A dict allows predictor-specific parsing,
+    e.g. ``{"augustus": "CDS", "helixer": "exon"}``.
+    """
+    if pred_exon_feature_types is None:
+        return {name: list(default) for name in pred_names}
+
+    if isinstance(pred_exon_feature_types, dict):
+        return {
+            name: _coerce_feature_types(
+                pred_exon_feature_types.get(name, default),
+                arg_name=f"pred_exon_feature_types[{name!r}]",
+            )
+            for name in pred_names
+        }
+
+    normalized = _coerce_feature_types(
+        pred_exon_feature_types,
+        arg_name="pred_exon_feature_types",
+    )
+    return {name: list(normalized) for name in pred_names}
+
+
 def benchmark_from_gff(
     gt_path: str | Path,
     pred_paths: dict[str, str | Path],
     label_config: LabelConfig,
     metrics: list[EvalMetrics] | None = None,
     *,
+    gt_exon_feature_types: FeatureTypeInput = "exon",
+    pred_exon_feature_types: PredFeatureTypeInput | None = None,
     exclude_features: list[str] | None = None,
     transcript_types: list[str] | None = None,
     mapping_output_path: str | Path | None = None,
     locus_matching_mode: LocusMatchingMode = LocusMatchingMode.FULL_DISCOVERY,
+    infer_introns: bool = False,
 ) -> dict[str, dict]:
     """Run the full benchmark pipeline from GFF/GTF files.
 
@@ -45,14 +103,10 @@ def benchmark_from_gff(
     3. Build paired annotation arrays
     4. Compute all requested metrics
 
-    Which labels to evaluate and which GFF feature types to treat as exons
-    are derived from ``label_config`` automatically:
-
-    * ``label_config.evaluation_labels`` — determines the per-class metric
-      targets (exon, intron, splice sites).
-    * ``label_config.exon_feature_type`` — selects the GFF feature type(s)
-      to use for intron-chain computation and array painting (e.g.
-      ``["exon"]`` for Helixer, ``["CDS"]`` for Augustus).
+    ``label_config`` defines the integer label semantics used in the produced
+    arrays: background, exon/coding, optional intron, and optional splice-site
+    tokens.  GFF/GTF feature names are parser configuration and are passed
+    explicitly via ``gt_exon_feature_types`` and ``pred_exon_feature_types``.
 
     Parameters
     ----------
@@ -61,10 +115,22 @@ def benchmark_from_gff(
     pred_paths : dict[str, str | Path]
         ``{predictor_name: path}`` for each prediction file.
     label_config : LabelConfig
-        Token-to-name mapping, semantic roles, and GFF feature type.
+        Token-to-name mapping and semantic label roles.  It does not decide
+        which GFF/GTF feature rows are read as exons.
     metrics : list[EvalMetrics] | None
         Metric groups to compute.  Defaults to
         ``[REGION_DISCOVERY, NUCLEOTIDE_CLASSIFICATION]``.
+    gt_exon_feature_types : str | list[str]
+        GFF/GTF feature types to treat as exon/coding intervals in the ground
+        truth annotation.  Accepts a single string (``"exon"``) or a list
+        (``["exon", "CDS"]``).  Defaults to ``"exon"``.
+    pred_exon_feature_types : str | list[str] | dict[str, str | list[str]] | None
+        GFF/GTF feature types to treat as exon/coding intervals in prediction
+        annotations.  ``None`` means use ``gt_exon_feature_types`` for every
+        predictor.  A string/list applies to every predictor.  A dict maps
+        predictor name to feature types, e.g. ``{"augustus": "CDS",
+        "helixer": "exon"}``.  Use ``"CDS"`` for tools like Augustus that emit
+        CDS features instead of exon features.
     exclude_features : list[str] | None
         GFF feature types to ignore (e.g., ``["gene"]``).
     transcript_types : list[str] | None
@@ -77,6 +143,9 @@ def benchmark_from_gff(
         ``FULL_DISCOVERY`` (default) maximises 1:1 matches.
         ``BEST_PER_LOCUS`` keeps only the single best-scoring pair per locus;
         suited for single-transcript predictors (e.g. Augustus).
+    infer_introns : bool
+        If ``True``, fill background gaps between adjacent coding segments
+        with ``label_config.intron_label`` before benchmarking.
 
     Returns
     -------
@@ -85,7 +154,15 @@ def benchmark_from_gff(
     """
     exclude_features = exclude_features or []
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
-    exon_types = list(label_config.exon_feature_type)
+    gt_exon_types = _coerce_feature_types(
+        gt_exon_feature_types,
+        arg_name="gt_exon_feature_types",
+    )
+    pred_exon_types_by_name = _normalise_pred_exon_feature_types(
+        list(pred_paths.keys()),
+        pred_exon_feature_types,
+        default=gt_exon_types,
+    )
     if metrics is None:
         metrics = [EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION]
 
@@ -97,15 +174,15 @@ def benchmark_from_gff(
     }
 
     # 2. Map transcripts
-    # GT intron chains use the default "exon" feature type (covers GENCODE,
-    # Ensembl, stringtie and other reference annotations).
-    # Pred intron chains use exon_types from the label config so that CDS-only
-    # predictors (e.g. Augustus) have their introns computed correctly.
+    # Intron-chain mapping is derived from the selected exon-like feature rows.
+    # GT and prediction feature names are independent because references usually
+    # expose "exon" rows while some predictors, such as Augustus, emit "CDS".
     mappings = map_transcripts(
         gt_path=gt_path,
         pred_paths={name: str(p) for name, p in pred_paths.items()},
         transcript_types=transcript_types,
-        pred_exon_types=exon_types,
+        exon_types=gt_exon_types,
+        pred_exon_types=pred_exon_types_by_name,
         exclude_features=exclude_features,
         locus_matching_mode=locus_matching_mode,
     )
@@ -130,8 +207,8 @@ def benchmark_from_gff(
             pred_dfs=pred_dfs,
             label_config=label_config,
             transcript_types=transcript_types,
-            exon_types=None,             # GT: paint all non-transcript child features
-            pred_exon_types=exon_types,  # Pred: specific feature type from label config
+            exon_types=gt_exon_types,
+            pred_exon_types=pred_exon_types_by_name,
         )
 
         for pred_name in pred_paths:
@@ -161,6 +238,7 @@ def benchmark_from_gff(
             pred_labels=pred_labels,
             label_config=label_config,
             metrics=metrics,
+            infer_introns=infer_introns,
         )
 
         global_result = compute_global_metrics(
@@ -169,7 +247,8 @@ def benchmark_from_gff(
             mappings=mappings,
             predictor_name=pred_name,
             label_config=label_config,
-            exon_types=exon_types,
+            gt_exon_types=gt_exon_types,
+            pred_exon_types=pred_exon_types_by_name[pred_name],
             transcript_types=transcript_types,
         )
 

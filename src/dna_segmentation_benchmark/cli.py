@@ -86,7 +86,7 @@ def _load_label_config(path: Path) -> LabelConfig:
         intron_label: 2
         splice_donor_label: 1
         splice_acceptor_label: 3
-        exon_feature_type: exon       # or [exon, CDS]
+        # GFF/GTF feature names such as exon/CDS are CLI options, not label config.
     """
     import yaml
     with open(path) as fh:
@@ -98,6 +98,47 @@ def _load_npz_to_list(path: Path) -> list[np.ndarray]:
     """Load an ``.npz`` file and return its arrays as a list."""
     npz = np.load(str(path), allow_pickle=True)
     return [npz[key] for key in npz.keys()]
+
+
+def _parse_pred_exon_feature_specs(
+    specs: tuple[str, ...],
+) -> str | list[str] | dict[str, str | list[str]] | None:
+    """Parse ``--pred-exon-feature-type`` values from the CLI.
+
+    Plain values apply to every predictor, e.g. ``CDS`` or repeated
+    ``exon --pred-exon-feature-type CDS``.  Named values use
+    ``predictor:type`` and allow mixed predictor inputs, e.g.
+    ``augustus:CDS`` and ``helixer:exon``.
+    """
+    if not specs:
+        return None
+
+    has_named = any(":" in spec for spec in specs)
+    has_plain = any(":" not in spec for spec in specs)
+    if has_named and has_plain:
+        raise click.BadParameter(
+            "Use either plain feature types for all predictors or "
+            "predictor:type entries, not both.",
+            param_hint="--pred-exon-feature-type",
+        )
+
+    if has_plain:
+        return list(specs)
+
+    by_predictor: dict[str, list[str]] = {}
+    for spec in specs:
+        predictor, _, feature_type = spec.partition(":")
+        if not predictor or not feature_type:
+            raise click.BadParameter(
+                "Expected predictor:type, e.g. augustus:CDS.",
+                param_hint="--pred-exon-feature-type",
+            )
+        by_predictor.setdefault(predictor, []).append(feature_type)
+
+    return {
+        predictor: values[0] if len(values) == 1 else values
+        for predictor, values in by_predictor.items()
+    }
 
 
 def _serialise_results(results: dict) -> dict:
@@ -172,6 +213,29 @@ def cli():
     help="Feature types that define transcript boundaries (repeatable).",
 )
 @click.option(
+    "--gt-exon-feature-type",
+    "gt_exon_feature_types",
+    type=str,
+    multiple=True,
+    default=("exon",),
+    show_default=True,
+    help=(
+        "GT GFF/GTF feature type to treat as exon/coding interval. "
+        "Repeat for multiple types."
+    ),
+)
+@click.option(
+    "--pred-exon-feature-type",
+    "pred_exon_feature_specs",
+    type=str,
+    multiple=True,
+    help=(
+        "Prediction feature type to treat as exon/coding interval. Repeat plain "
+        "values for all predictors, or use predictor:type for mixed inputs "
+        "(e.g. augustus:CDS helixer:exon). Defaults to GT feature types."
+    ),
+)
+@click.option(
     "--metrics", "metric_names",
     type=click.Choice(list(_METRIC_NAMES.keys()), case_sensitive=False),
     multiple=True,
@@ -206,17 +270,29 @@ def cli():
         "best-scoring pair per locus (single-transcript tools, e.g. Augustus)."
     ),
 )
+@click.option(
+    "--infer-introns",
+    is_flag=True,
+    default=False,
+    help=(
+        "Fill background gaps between adjacent coding segments with the "
+        "configured intron label before benchmarking."
+    ),
+)
 def run(
     gt_path: Path,
     pred_specs: tuple[str, ...],
     config_path: Path,
     exclude_features: tuple[str, ...],
     transcript_types: tuple[str, ...],
+    gt_exon_feature_types: tuple[str, ...],
+    pred_exon_feature_specs: tuple[str, ...],
     metric_names: tuple[str, ...],
     output_path: Path | None,
     individual: bool,
     mapping_output_path: Path | None,
     locus_matching: str,
+    infer_introns: bool,
 ):
     """Run the benchmark on ground-truth vs. prediction GFF/GTF files."""
     from .io_utils import collect_gff
@@ -224,6 +300,10 @@ def run(
         build_paired_arrays,
         export_mapping_table,
         map_transcripts,
+    )
+    from .pipeline import (
+        _coerce_feature_types,
+        _normalise_pred_exon_feature_types,
     )
 
     # ------------------------------------------------------------------
@@ -250,7 +330,16 @@ def run(
 
     excl_list = list(exclude_features)
     tt_list = list(transcript_types)
-    exon_types = list(label_config.exon_feature_type)
+    gt_exon_types = _coerce_feature_types(
+        list(gt_exon_feature_types),
+        arg_name="--gt-exon-feature-type",
+    )
+    pred_exon_feature_types = _parse_pred_exon_feature_specs(pred_exon_feature_specs)
+    pred_exon_types_by_name = _normalise_pred_exon_feature_types(
+        list(pred_paths.keys()),
+        pred_exon_feature_types,
+        default=gt_exon_types,
+    )
     metrics = [_METRIC_NAMES[name.upper()] for name in metric_names]
 
     # ------------------------------------------------------------------
@@ -276,7 +365,8 @@ def run(
         gt_path=gt_path,
         pred_paths={name: str(p) for name, p in pred_paths.items()},
         transcript_types=tt_list,
-        exon_types=exon_types,
+        exon_types=gt_exon_types,
+        pred_exon_types=pred_exon_types_by_name,
         exclude_features=excl_list,
         locus_matching_mode=mode,
     )
@@ -309,7 +399,8 @@ def run(
             pred_dfs=pred_dfs,
             label_config=label_config,
             transcript_types=tt_list,
-            exon_types=exon_types,
+            exon_types=gt_exon_types,
+            pred_exon_types=pred_exon_types_by_name,
         )
 
         for pred_name in pred_paths:
@@ -343,7 +434,9 @@ def run(
             f"  Benchmarking '{pred_name}': "
             f"{len(gt_labels)} transcript(s) | "
             f"classes={[label_config.name_of(c) for c in eval_classes]} | "
-            f"metrics={[m.name for m in metrics]}"
+            f"metrics={[m.name for m in metrics]} | "
+            f"gt_features={gt_exon_types} | "
+            f"pred_features={pred_exon_types_by_name[pred_name]}"
         )
 
         per_transcript = benchmark_gt_vs_pred_multiple(
@@ -352,6 +445,7 @@ def run(
             label_config=label_config,
             metrics=metrics,
             return_individual_results=individual,
+            infer_introns=infer_introns,
         )
 
         # Individual mode returns a list, not a dict — skip global aggregation.
@@ -365,7 +459,8 @@ def run(
             mappings=mappings,
             predictor_name=pred_name,
             label_config=label_config,
-            exon_types=exon_types,
+            gt_exon_types=gt_exon_types,
+            pred_exon_types=pred_exon_types_by_name[pred_name],
             transcript_types=tt_list,
         )
 
@@ -408,11 +503,15 @@ def init_config(output_path: Path):
         "intron_label": 2,
         "splice_donor_label": 1,
         "splice_acceptor_label": 3,
-        # "exon_feature_type": "exon",  # default; use "CDS" for Augustus
     }
     import yaml
     content = yaml.dump(template, sort_keys=False)
-    content += "# exon_feature_type: exon  # default; use 'CDS' for Augustus\n"
+    content += (
+        "# GFF/GTF feature names are CLI options:\n"
+        "#   --gt-exon-feature-type exon\n"
+        "#   --pred-exon-feature-type CDS\n"
+        "#   --pred-exon-feature-type augustus:CDS --pred-exon-feature-type helixer:exon\n"
+    )
     output_path.write_text(content)
     click.echo(f"Template config written to {output_path}")
     click.echo(

@@ -1,13 +1,12 @@
 """Label configuration for the DNA segmentation benchmark.
 
 This module provides :class:`LabelConfig`, a Pydantic model that is the single
-source of truth for what integer tokens mean in the benchmark and which GFF
-feature types to treat as exons.
+source of truth for what integer tokens mean in the benchmark.
 
 Each semantic role is a named field rather than an entry in a generic dict.
-This makes the YAML config self-documenting and avoids the need to pass a
-``classes`` list or ``exon_types`` list separately — both are derived from the
-config at runtime.
+This makes the YAML config self-documenting and keeps label semantics separate
+from parser choices such as which GFF/GTF feature types should be read as exon
+intervals.  Those parser choices belong to the GFF pipeline API.
 
 Backward-compatible properties (``coding_label``, ``labels``) are provided so
 that internal modules (``state_transitions``, plotting, ``io_utils``, …) require
@@ -19,7 +18,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, model_validator
 
 
 class LabelConfig(BaseModel):
@@ -42,14 +41,6 @@ class LabelConfig(BaseModel):
     splice_acceptor_label : int | None
         Token for the 3' acceptor splice site.
 
-    GFF feature selection
-    ---------------------
-    exon_feature_type : list[str]
-        GFF/GTF feature types to treat as exons when parsing annotations.
-        Accepts a single string (``"exon"``) or a list (``["exon", "CDS"]``).
-        Defaults to ``["exon"]``.  Use ``["CDS"]`` for tools like Augustus
-        that emit CDS features instead of exon features.
-
     Examples
     --------
     >>> # Helixer / SegmentNT — uses "exon" features
@@ -61,12 +52,8 @@ class LabelConfig(BaseModel):
     ...     splice_acceptor_label=3,
     ... )
 
-    >>> # Augustus — uses "CDS" features
-    >>> config = LabelConfig(
-    ...     background_label=8,
-    ...     exon_label=0,
-    ...     exon_feature_type=["CDS"],
-    ... )
+    GFF/GTF feature names such as ``"exon"`` or ``"CDS"`` are passed to
+    ``benchmark_from_gff`` / ``map_transcripts`` separately.
     """
 
     model_config = {"frozen": True}
@@ -76,18 +63,6 @@ class LabelConfig(BaseModel):
     intron_label: Optional[int] = None
     splice_donor_label: Optional[int] = None
     splice_acceptor_label: Optional[int] = None
-    exon_feature_type: list[str] = ["exon"]
-
-    # ------------------------------------------------------------------
-    # Normalisation: accept plain string → list[str]
-    # ------------------------------------------------------------------
-
-    @field_validator("exon_feature_type", mode="before")
-    @classmethod
-    def _coerce_to_list(cls, v: object) -> list[str]:
-        if isinstance(v, str):
-            return [v]
-        return v  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Validation

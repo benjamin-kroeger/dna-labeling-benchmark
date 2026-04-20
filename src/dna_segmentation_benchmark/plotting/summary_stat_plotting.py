@@ -83,6 +83,9 @@ def compare_multiple_predictions(
     all_false_transition_data: dict[str, dict] = {}
 
     for method_name, benchmark_results in per_method_benchmark_res.items():
+        if len(benchmark_results) == 2:
+            benchmark_results = benchmark_results["per_transcript"]
+            print(benchmark_results["global"])
         transition_matrices = benchmark_results.pop("transition_failures", {})
         fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
         if fig_transitions is not None:

@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import math
-
 import numpy as np
+import pytest
 
+from dna_segmentation_benchmark.eval.evaluate_predictors import (
+    EvalMetrics,
+    benchmark_gt_vs_pred_single,
+)
+import dna_segmentation_benchmark.eval.evaluate_predictors as evaluate_predictors
 from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
 from dna_segmentation_benchmark.eval.chain_comparison import (
     _compute_per_transcript_exon_soft_metrics,
@@ -97,3 +102,88 @@ def test_single_exon_transcript_is_supported():
     res = _run([(10, 99)], [(10, 99)], length=200)
     assert res["exon_recall_per_transcript"] == 1.0
     assert res["hallucinated_exon_count_per_transcript"] == 0
+
+
+def test_intron_chain_fails_when_introns_are_inferable_but_missing():
+    labels = np.array([8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8])
+
+    with pytest.raises(ValueError, match="infer_introns=True"):
+        benchmark_gt_vs_pred_single(
+            gt_labels=labels,
+            pred_labels=labels,
+            label_config=BEND_LABEL_CONFIG,
+            metrics=[EvalMetrics.STRUCTURAL_COHERENCE],
+        )
+
+
+def test_infer_introns_fills_gaps_before_structural_metrics():
+    labels = np.array([8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8])
+
+    result = benchmark_gt_vs_pred_single(
+        gt_labels=labels,
+        pred_labels=labels,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.STRUCTURAL_COHERENCE],
+        infer_introns=True,
+    )
+
+    assert result["EXON"]["STRUCTURAL_COHERENCE"]["intron_chain"] == {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+    }
+
+
+def test_infer_introns_warns_on_large_arrays(monkeypatch):
+    monkeypatch.setattr(
+        evaluate_predictors,
+        "_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH",
+        10,
+    )
+    labels = np.array([8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8])
+
+    with pytest.warns(UserWarning, match="large input array"):
+        benchmark_gt_vs_pred_single(
+            gt_labels=labels,
+            pred_labels=labels,
+            label_config=BEND_LABEL_CONFIG,
+            metrics=[EvalMetrics.STRUCTURAL_COHERENCE],
+            infer_introns=True,
+        )
+
+
+def test_large_array_intron_inference_skips_comparatively_large_gaps(monkeypatch):
+    monkeypatch.setattr(
+        evaluate_predictors,
+        "_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH",
+        10,
+    )
+    labels = np.full(104, BEND_LABEL_CONFIG.background_label, dtype=np.int64)
+    labels[1:3] = BEND_LABEL_CONFIG.exon_label
+    labels[5:7] = BEND_LABEL_CONFIG.exon_label
+    labels[100:102] = BEND_LABEL_CONFIG.exon_label
+
+    with pytest.warns(UserWarning, match="large input array"):
+        inferred = evaluate_predictors._infer_introns_from_coding_gaps(
+            labels,
+            BEND_LABEL_CONFIG,
+        )
+
+    assert (inferred[3:5] == BEND_LABEL_CONFIG.intron_label).all()
+    assert (inferred[7:100] == BEND_LABEL_CONFIG.background_label).all()
+
+
+def test_large_array_gap_cutoff_uses_bimodal_jump_before_second_mode():
+    cutoff = evaluate_predictors._large_array_inferable_gap_cutoff(
+        [8, 10, 12, 14, 2_000, 2_300, 2_700],
+    )
+
+    assert 14 < cutoff < 2_000
+
+
+def test_large_array_gap_cutoff_falls_back_without_clear_mode_split():
+    cutoff = evaluate_predictors._large_array_inferable_gap_cutoff(
+        [8, 10, 12, 14, 16, 18, 20],
+    )
+
+    assert cutoff == 200

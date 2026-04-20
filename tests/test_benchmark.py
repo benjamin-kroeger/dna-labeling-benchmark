@@ -8,6 +8,10 @@ from dna_segmentation_benchmark.eval.evaluate_predictors import (
     benchmark_gt_vs_pred_multiple,
     EvalMetrics,
 )
+from dna_segmentation_benchmark.pipeline import (
+    _coerce_feature_types,
+    _normalise_pred_exon_feature_types,
+)
 
 from benchmark_test_cases import (
     SINGLE_SEQUENCE_TEST_CASES,
@@ -143,9 +147,17 @@ class TestLabelConfig:
         with pytest.raises(ValueError, match="duplicates"):
             LabelConfig(background_label=0, exon_label=0)
 
-    def test_exon_feature_type_coercion(self):
-        config = LabelConfig(background_label=8, exon_label=0, exon_feature_type="CDS")
-        assert config.exon_feature_type == ["CDS"]
+    def test_gff_feature_type_coercion_lives_in_pipeline_api(self):
+        assert _coerce_feature_types("CDS", arg_name="feature") == ["CDS"]
+        assert _coerce_feature_types(["exon", "CDS"], arg_name="feature") == ["exon", "CDS"]
+
+    def test_prediction_feature_types_can_be_predictor_specific(self):
+        result = _normalise_pred_exon_feature_types(
+            ["augustus", "helixer"],
+            {"augustus": "CDS"},
+            default=["exon"],
+        )
+        assert result == {"augustus": ["CDS"], "helixer": ["exon"]}
 
     def test_name_of(self):
         config = BEND_LABEL_CONFIG
