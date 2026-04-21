@@ -8,7 +8,9 @@ Public API
 .. autofunction:: benchmark_gt_vs_pred_multiple
 .. autofunction:: compare_multiple_predictions
 .. autofunction:: log_benchmark_scalars
-.. autofunction:: log_benchmark_full
+.. autofunction:: log_benchmark_media
+.. autofunction:: log_benchmark_media_videos
+.. autofunction:: clear_benchmark_media_video_buffer
 .. autofunction:: init_wandb_with_presets
 """
 
@@ -20,8 +22,10 @@ from .eval.evaluate_predictors import (
 )
 from .plotting.summary_stat_plotting import compare_multiple_predictions
 from .wandb_logger import (
+    clear_benchmark_media_video_buffer,
     log_benchmark_scalars,
-    log_benchmark_full,
+    log_benchmark_media,
+    log_benchmark_media_videos,
     init_wandb_with_presets,
 )
 from .pipeline import benchmark_from_gff
@@ -36,7 +40,10 @@ __all__ = [
     "benchmark_gt_vs_pred_multiple",
     "benchmark_from_gff",
     "compare_multiple_predictions",
+    "clear_benchmark_media_video_buffer",
     "log_benchmark_scalars",
+    "log_benchmark_media",
+    "log_benchmark_media_videos",
     "log_benchmark_full",
     "init_wandb_with_presets",
 ]

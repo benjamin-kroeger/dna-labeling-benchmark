@@ -81,10 +81,10 @@ def compare_multiple_predictions(
 
     # Collect false transition data across all methods for combined plotting
     all_false_transition_data: dict[str, dict] = {}
+    single_method_mode = len(per_method_benchmark_res) == 1
 
     for method_name, benchmark_results in per_method_benchmark_res.items():
         if set(benchmark_results.keys()) == {"per_transcript", "global"}:
-            print(benchmark_results["global"])
             benchmark_results = benchmark_results["per_transcript"]
 
         benchmark_results = dict(benchmark_results)
@@ -92,7 +92,8 @@ def compare_multiple_predictions(
         transition_matrices = benchmark_results.pop("transition_failures", {})
         fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
         if fig_transitions is not None:
-             figures[f"{method_name}_transition_matrices"] = fig_transitions
+             key = "transition_matrices" if single_method_mode else f"{method_name}_transition_matrices"
+             figures[key] = fig_transitions
 
         all_false_transition_data[method_name] = benchmark_results.pop("false_transitions", {})
 

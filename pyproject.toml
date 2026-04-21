@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-wandb = ["wandb>=0.16"]
+wandb = ["wandb[media]>=0.26"]
 docs = [
     "myst-parser>=4.0",
     "sphinx>=8.0",

@@ -23,9 +23,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from .label_definition import LabelConfig
+from .plotting.summary_stat_plotting import compare_multiple_predictions
+from .eval.evaluate_predictors import EvalMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,39 @@ _GROUP_DISPLAY_NAMES = {
     "DIAGNOSTIC_DEPTH": "Diagnostic Depth",
 }
 
+# Training-time scalar subset: stable, high-signal metrics only.
+_ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
+    "BOUNDARY_EXACTNESS": {
+        "iou_mean": ("iou_stats", "mean"),
+    },
+    "REGION_DISCOVERY": {
+        "full_coverage_hit/precision": ("full_coverage_hit", "precision"),
+        "full_coverage_hit/recall": ("full_coverage_hit", "recall"),
+        "internal_hit/precision": ("internal_hit", "precision"),
+        "internal_hit/recall": ("internal_hit", "recall"),
+        "neighborhood_hit/precision": ("neighborhood_hit", "precision"),
+        "neighborhood_hit/recall": ("neighborhood_hit", "recall"),
+        "perfect_boundary_hit/precision": ("perfect_boundary_hit", "precision"),
+        "perfect_boundary_hit/recall": ("perfect_boundary_hit", "recall"),
+    },
+    "STRUCTURAL_COHERENCE": {
+        "intron_chain/precision": ("intron_chain", "precision"),
+        "intron_chain/recall": ("intron_chain", "recall"),
+        "transcript_exact/precision": ("transcript_exact", "precision"),
+        "transcript_exact/recall": ("transcript_exact", "recall"),
+    },
+}
+
+_MEDIA_FIGURE_KEYS = {
+    "position_bias": "position_bias",
+    "transition_matrices": "transition_matrices",
+    "false_transitions": "false_transitions",
+}
+
+_BUFFERED_MEDIA_FRAMES: dict[str, list[np.ndarray]] = {}
+_DEFAULT_VIDEO_FPS = 2
+_DEFAULT_VIDEO_FORMAT = "gif"
+
 
 def _flatten_leaf(
         data: dict,
@@ -75,32 +111,145 @@ def _flatten_leaf(
     return flat
 
 
-def _flatten_scalars(
+def _get_nested_scalar(data: dict, path: tuple[str, ...]) -> float | None:
+    """Return a nested scalar value or ``None`` when the path is unavailable."""
+    current: Any = data
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    if isinstance(current, _SCALAR_TYPES):
+        return float(current)
+    return None
+
+
+def _flatten_selected_scalars(
         results: dict,
-        label_config: LabelConfig,
+        *,
         prefix: str = "",
 ) -> dict[str, float]:
-    """Flatten benchmark results into W&B-friendly scalar key-value pairs.
+    """Flatten the online scalar allowlist into W&B-friendly key-value pairs."""
+    flat: dict[str, float] = {}
+    for group_key, metrics in _ONLINE_SCALAR_SPECS.items():
+        group_data = results.get(group_key)
+        if not isinstance(group_data, dict):
+            continue
+        group_display = _GROUP_DISPLAY_NAMES.get(group_key, group_key)
+        section = f"{prefix}/{group_display}" if prefix else group_display
+        for leaf_name, source_path in metrics.items():
+            value = _get_nested_scalar(group_data, source_path)
+            if value is not None:
+                flat[f"{section}/{leaf_name}"] = value
+    return flat
 
-    The first ``/``-segment is the metric group display name
-    (e.g. ``"Region Discovery"``), giving each metric group its own
-    expandable section in the W&B dashboard.
 
-    Parameters
-    ----------
-    results : dict
-        Aggregated benchmark result dict as returned by
-        :func:`benchmark_gt_vs_pred_multiple`.
-    label_config : LabelConfig
-        Currently unused; kept for API stability.
-    prefix : str
-        Optional prefix (e.g. ``"val"``) prepended to all keys.
+def _unwrap_per_transcript_results(results: dict) -> dict:
+    """Accept either a raw benchmark result or a pipeline wrapper dict."""
+    if set(results.keys()) == {"per_transcript", "global"}:
+        return results["per_transcript"]
+    return results
 
-    Returns
-    -------
-    dict[str, float]
-        Flat mapping ready for ``wandb.log()``.
-    """
+
+def _normalize_media_name(name: str) -> str:
+    """Normalize a method/plot name for stable W&B video keys."""
+    return "".join(ch.lower() if ch.isalnum() else "_" for ch in name).strip("_")
+
+
+def _build_buffered_video_key(
+        *,
+        plot_name: str,
+        method_name: str,
+        method_prefix: str | None,
+) -> str:
+    """Build the final W&B key stem used for buffered plot videos."""
+    normalized_method = _normalize_media_name(method_name)
+    plot_stem = plot_name if normalized_method in ("", "model") else f"{normalized_method}_{plot_name}"
+    key = f"plots/{plot_stem}"
+    if method_prefix:
+        key = f"{method_prefix}/{key}"
+    return key
+
+
+def _render_benchmark_media_figures(
+        results: dict,
+        label_config: LabelConfig,
+        *,
+        method_name: str,
+) -> dict[str, Any]:
+    """Render the benchmark media figures for one aggregated result dict."""
+    per_transcript_results = _unwrap_per_transcript_results(results)
+    metrics_to_eval = _infer_metrics_from_results(per_transcript_results)
+    if not metrics_to_eval and "transition_failures" not in per_transcript_results:
+        return {}
+
+    return compare_multiple_predictions(
+        per_method_benchmark_res={method_name: per_transcript_results},
+        label_config=label_config,
+        metrics_to_eval=metrics_to_eval,
+    )
+
+
+def _close_figures(figures: dict[str, Any]) -> None:
+    """Close a figure dict returned by the plotting layer."""
+    for fig in figures.values():
+        plt.close(fig)
+
+
+def _figure_to_rgb_frame(fig: Any) -> np.ndarray:
+    """Render one matplotlib figure to a uint8 RGB image array."""
+    fig.canvas.draw()
+    rgba = np.asarray(fig.canvas.buffer_rgba())
+    return np.ascontiguousarray(rgba[:, :, :3])
+
+
+def _pad_frames_to_common_shape(frames: list[np.ndarray]) -> list[np.ndarray]:
+    """Pad RGB frames to a common height/width with a white background."""
+    max_height = max(frame.shape[0] for frame in frames)
+    max_width = max(frame.shape[1] for frame in frames)
+    padded: list[np.ndarray] = []
+    for frame in frames:
+        height, width, channels = frame.shape
+        canvas = np.full((max_height, max_width, channels), 255, dtype=np.uint8)
+        canvas[:height, :width, :] = frame
+        padded.append(canvas)
+    return padded
+
+
+def _buffer_media_frames(
+        figures: dict[str, Any],
+        *,
+        method_name: str,
+        method_prefix: str | None,
+) -> None:
+    """Append the current media figures to the internal video-frame buffer."""
+    for fig_name, plot_name in _MEDIA_FIGURE_KEYS.items():
+        fig = figures.get(fig_name)
+        if fig is None:
+            continue
+        buffer_key = _build_buffered_video_key(
+            plot_name=plot_name,
+            method_name=method_name,
+            method_prefix=method_prefix,
+        )
+        _BUFFERED_MEDIA_FRAMES.setdefault(buffer_key, []).append(_figure_to_rgb_frame(fig))
+
+
+def _infer_metrics_from_results(results: dict) -> list[EvalMetrics]:
+    """Infer which metric groups are present in a flattened benchmark result."""
+    metrics: list[EvalMetrics] = []
+    metric_names = set(results.keys())
+    for metric in EvalMetrics:
+        if metric.name in metric_names:
+            metrics.append(metric)
+    return metrics
+
+
+def _flatten_all_scalars(
+        results: dict,
+        *,
+        prefix: str = "",
+) -> dict[str, float]:
+    """Flatten all scalar-like benchmark results for post-hoc logging."""
     flat: dict[str, float] = {}
 
     for group_key, group_data in results.items():
@@ -138,7 +287,7 @@ def log_benchmark_scalars(
         Aggregated result dict from :func:`benchmark_gt_vs_pred_multiple`.
         Can contain any subset of metrics.
     label_config : LabelConfig
-        Resolves label IDs to human-readable names.
+        Currently unused; kept for API compatibility.
     step : int, optional
         Training step or epoch number.  If ``None``, W&B uses its internal
         step counter.
@@ -152,8 +301,7 @@ def log_benchmark_scalars(
     """
     wandb = _require_wandb()
 
-    flat = _flatten_scalars(results, label_config)
-
+    flat = _flatten_selected_scalars(results, prefix="")
     if method_prefix:
         flat = {f"{method_prefix}/{k}": v for k, v in flat.items()}
 
@@ -167,71 +315,110 @@ def log_benchmark_scalars(
     return flat
 
 
-# ---------------------------------------------------------------------------
-# Public API: post-hoc full logging
-# ---------------------------------------------------------------------------
-
-
-def log_benchmark_full(
-        per_method_results: dict[str, dict],
-        figures: dict[str, Any],
+def log_benchmark_media(
+        results: dict,
         label_config: LabelConfig,
-) -> None:
-    """Log a complete benchmark comparison to an active W&B run.
+        step: Optional[int] = None,
+        method_prefix: Optional[str] = None,
+        method_name: str = "model",
+) -> dict[str, Any]:
+    """Log key diagnostic plots to W&B as stepwise media history.
 
-    Designed for **post-hoc model comparison**: call this after
-    :func:`compare_multiple_predictions` with both the aggregated results
-    and the generated figures.
+    The helper accepts one aggregated benchmark result dict and logs a
+    focused set of high-value diagnostic plots:
 
-    This logs:
-
-    * All scalar metrics (per method, per metric group)
-    * IoU score distributions as interactive ``wandb.Table`` objects
-    * All matplotlib figures as ``wandb.Image`` panels
+    * error location bias
+    * GT transition confusion matrices
+    * false transitions at GT-stable positions
 
     Parameters
     ----------
-    per_method_results : dict[str, dict]
-        Outer key = method name, inner dict = aggregated benchmark result.
-    figures : dict[str, Figure]
-        Figures returned by :func:`compare_multiple_predictions`.
+    results : dict
+        Aggregated benchmark result dict from
+        :func:`benchmark_gt_vs_pred_multiple`. A pipeline-style wrapper
+        ``{"per_transcript": ..., "global": ...}`` is also accepted.
     label_config : LabelConfig
-        Resolves label IDs to human-readable names.
+        Label semantics for plot labelling.
+    step : int, optional
+        Training step or epoch number for W&B media history.
+    method_prefix : str, optional
+        Optional namespace prefix such as ``"val"``.
+    method_name : str
+        Method label used inside the generated plots.
+
+    Returns
+    -------
+    dict[str, Any]
+        The logged W&B media payload.
     """
     wandb = _require_wandb()
 
-    log_dict: dict[str, Any] = {}
-
-    # ---- Scalar metrics per method --------------------------------------
-    for method_name, results in per_method_results.items():
-        flat = _flatten_scalars(results, label_config, prefix=method_name)
-        log_dict.update(flat)
-
-    # ---- IoU distributions as W&B Tables --------------------------------
-    for method_name, results in per_method_results.items():
-        be = results.get("BOUNDARY_EXACTNESS", {})
-        iou_scores = be.get("iou_scores")
-        if iou_scores is not None and len(iou_scores) > 0:
-            table = wandb.Table(
-                columns=["method", "iou"],
-                data=[[method_name, float(s)] for s in iou_scores],
-            )
-            table_key = f"{method_name}/iou_distribution"
-            log_dict[table_key] = table
-
-    # ---- Figures as wandb.Image -----------------------------------------
-    for fig_name, fig in figures.items():
-        log_dict[f"plots/{fig_name}"] = wandb.Image(fig)
-
-    wandb.log(log_dict)
-
-    num_scalars = sum(1 for v in log_dict.values() if isinstance(v, _SCALAR_TYPES))
-    num_tables = sum(1 for v in log_dict.values() if isinstance(v, wandb.Table))
-    num_images = sum(1 for v in log_dict.values() if isinstance(v, wandb.Image))
-    logger.info(
-        "Logged to W&B: %d scalars, %d tables, %d images.",
-        num_scalars, num_tables, num_images,
+    figures = _render_benchmark_media_figures(
+        results,
+        label_config,
+        method_name=method_name,
     )
+    try:
+        media_payload: dict[str, Any] = {}
+        for fig_name, target_name in _MEDIA_FIGURE_KEYS.items():
+            fig = figures.get(fig_name)
+            if fig is None:
+                continue
+            key = f"plots/{target_name}"
+            if method_prefix:
+                key = f"{method_prefix}/{key}"
+            media_payload[key] = wandb.Image(fig)
+
+        _buffer_media_frames(
+            figures,
+            method_name=method_name,
+            method_prefix=method_prefix,
+        )
+
+        if not media_payload:
+            logger.info("No W&B media plots were generated from the benchmark results.")
+            return {}
+
+        log_kwargs: dict[str, Any] = {"data": media_payload}
+        if step is not None:
+            log_kwargs["step"] = step
+        wandb.log(**log_kwargs)
+        logger.info("Logged %d benchmark media panels to W&B (step=%s).", len(media_payload), step)
+        return media_payload
+    finally:
+        _close_figures(figures)
+
+
+def clear_benchmark_media_video_buffer() -> None:
+    """Drop any buffered media frames without logging them."""
+    _BUFFERED_MEDIA_FRAMES.clear()
+
+
+def log_benchmark_media_videos() -> dict[str, Any]:
+    """Log buffered benchmark media histories as W&B videos and clear the buffer."""
+    wandb = _require_wandb()
+
+    video_payload: dict[str, Any] = {}
+    for plot_key, frames in _BUFFERED_MEDIA_FRAMES.items():
+        if not frames:
+            continue
+        normalized_frames = _pad_frames_to_common_shape(frames)
+        video_array = np.stack(normalized_frames, axis=0).transpose(0, 3, 1, 2)
+        video_payload[f"{plot_key}_video"] = wandb.Video(
+            video_array,
+            fps=_DEFAULT_VIDEO_FPS,
+            format=_DEFAULT_VIDEO_FORMAT,
+        )
+
+    if not video_payload:
+        logger.info("No benchmark media videos were generated from the frame history.")
+        return {}
+
+    wandb.log(video_payload)
+    logger.info("Logged %d benchmark media videos to W&B.", len(video_payload))
+    _BUFFERED_MEDIA_FRAMES.clear()
+    return video_payload
+
 
 
 # ---------------------------------------------------------------------------
@@ -250,8 +437,8 @@ def init_wandb_with_presets(
     """Initialise a W&B run with pre-configured metric groupings.
 
     Calls ``wandb.init()`` and then ``wandb.define_metric()`` to set up
-    dashboard sections grouped by class and metric type.  This ensures
-    that every new run gets an organised dashboard out of the box.
+    dashboard sections grouped by metric family. This ensures that every
+    new run gets an organised dashboard out of the box.
 
     Parameters
     ----------
@@ -260,9 +447,9 @@ def init_wandb_with_presets(
     run_name : str
         Display name for this run.
     label_config : LabelConfig
-        Used to derive class names for metric grouping.
+        Currently unused; kept for API compatibility.
     classes : list[int]
-        Token values being evaluated, used to set up per-class metric groups.
+        Currently unused; kept for API compatibility.
     config : dict, optional
         Extra configuration to attach to the W&B run (e.g., hyperparameters).
     **wandb_init_kwargs
@@ -283,19 +470,17 @@ def init_wandb_with_presets(
     )
 
     # ---- Define metric groupings for auto-dashboard layout ---------------
-    # Section names use "CLASS · Group" format so each metric group
-    # gets its own expandable section in the W&B panel list.
-    for class_token in classes:
-        class_name = label_config.name_of(class_token)
-        for group_display in _GROUP_DISPLAY_NAMES.values():
-            wandb.define_metric(f"{class_name} · {group_display}/*")
+    for group_display in _GROUP_DISPLAY_NAMES.values():
+        wandb.define_metric(f"{group_display}/*")
+        wandb.define_metric(f"val/{group_display}/*")
 
     # Validation-prefixed metrics (for online logging with method_prefix="val")
     wandb.define_metric("val/*")
+    wandb.define_metric("val/plots/*")
 
     logger.info(
-        "Initialised W&B run '%s' in project '%s' with metric presets for %d classes.",
-        run_name, project, len(classes),
+        "Initialised W&B run '%s' in project '%s' with metric-family W&B presets.",
+        run_name, project,
     )
 
     return run
