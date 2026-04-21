@@ -1,6 +1,7 @@
 import math
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from dna_segmentation_benchmark.eval.evaluate_predictors import (
@@ -8,6 +9,8 @@ from dna_segmentation_benchmark.eval.evaluate_predictors import (
     benchmark_gt_vs_pred_multiple,
     EvalMetrics,
 )
+import dna_segmentation_benchmark.eval.evaluate_predictors as evaluate_predictors
+from dna_segmentation_benchmark.eval.utils import recursive_merge
 from dna_segmentation_benchmark.pipeline import (
     _coerce_feature_types,
     _normalise_pred_exon_feature_types,
@@ -110,6 +113,81 @@ def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, metrics, expec
             expected_errors[metric.name],
             benchmark_results[metric.name],
         )
+
+
+def test_benchmark_multiple_streaming_aggregation_matches_merged_individual_results():
+    gt_arrays = [
+        np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
+        np.array([8, 0, 0, 2, 2, 0, 0, 2, 2, 8]),
+    ]
+    pred_arrays = [
+        np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
+        np.array([8, 0, 0, 2, 2, 2, 2, 0, 0, 8]),
+    ]
+    metrics = [
+        EvalMetrics.REGION_DISCOVERY,
+        EvalMetrics.BOUNDARY_EXACTNESS,
+        EvalMetrics.STRUCTURAL_COHERENCE,
+        EvalMetrics.DIAGNOSTIC_DEPTH,
+    ]
+
+    aggregated = benchmark_gt_vs_pred_multiple(
+        gt_labels=gt_arrays,
+        pred_labels=pred_arrays,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=metrics,
+    )
+
+    individual = benchmark_gt_vs_pred_multiple(
+        gt_labels=gt_arrays,
+        pred_labels=pred_arrays,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=metrics,
+        return_individual_results=True,
+    )
+
+    merged = {}
+    for result in individual:
+        recursive_merge(merged, result)
+    merged = evaluate_predictors._aggregate_summary_metrics(merged, metrics)
+
+    _assert_metric_value_equal(merged, aggregated, "aggregated")
+
+
+def test_benchmark_multiple_return_individual_results_matches_single_sequence_outputs():
+    gt_arrays = [
+        np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
+        np.array([8, 0, 0, 2, 2, 0, 0, 2, 2, 8]),
+    ]
+    pred_arrays = [
+        np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
+        np.array([8, 0, 0, 2, 2, 2, 2, 0, 0, 8]),
+    ]
+    metrics = [
+        EvalMetrics.REGION_DISCOVERY,
+        EvalMetrics.BOUNDARY_EXACTNESS,
+        EvalMetrics.STRUCTURAL_COHERENCE,
+    ]
+
+    individual = benchmark_gt_vs_pred_multiple(
+        gt_labels=gt_arrays,
+        pred_labels=pred_arrays,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=metrics,
+        return_individual_results=True,
+    )
+
+    expected = [
+        benchmark_gt_vs_pred_single(
+            gt_labels=gt,
+            pred_labels=pred,
+            label_config=BEND_LABEL_CONFIG,
+            metrics=metrics,
+        )
+        for gt, pred in zip(gt_arrays, pred_arrays)
+    ]
+
+    _assert_metric_value_equal(expected, individual, "individual_results")
 
 
 # ------------------------------------------------------------------
@@ -271,6 +349,24 @@ def _assert_metric_value_equal(expected, computed, key_name: str):
         for sub_key in expected:
             assert sub_key in computed, f"Missing sub-key {sub_key} in {key_name}"
             _assert_metric_value_equal(expected[sub_key], computed[sub_key], f"{key_name}.{sub_key}")
+    elif isinstance(expected, np.ndarray):
+        assert isinstance(computed, np.ndarray), f"Expected ndarray for {key_name}, got {type(computed)}"
+        assert np.array_equal(expected, computed), (
+            f"Array mismatch for {key_name}: expected {expected}, got {computed}"
+        )
+    elif isinstance(expected, pd.DataFrame):
+        assert isinstance(computed, pd.DataFrame), f"Expected DataFrame for {key_name}, got {type(computed)}"
+        assert expected.equals(computed), f"DataFrame mismatch for {key_name}"
+    elif isinstance(expected, pd.Series):
+        assert isinstance(computed, pd.Series), f"Expected Series for {key_name}, got {type(computed)}"
+        assert expected.equals(computed), f"Series mismatch for {key_name}"
+    elif isinstance(expected, tuple):
+        assert isinstance(computed, tuple), f"Expected tuple for {key_name}, got {type(computed)}"
+        assert len(computed) == len(expected), (
+            f"Tuple length mismatch for {key_name}: expected {len(expected)}, got {len(computed)}"
+        )
+        for i, (exp_item, comp_item) in enumerate(zip(expected, computed)):
+            _assert_metric_value_equal(exp_item, comp_item, f"{key_name}[{i}]")
     elif isinstance(expected, list):
         assert isinstance(computed, list), f"Expected list for {key_name}, got {type(computed)}"
         assert len(computed) == len(expected), (

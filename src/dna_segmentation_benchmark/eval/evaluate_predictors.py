@@ -517,7 +517,8 @@ def benchmark_gt_vs_pred_multiple(
             stacklevel=2,
         )
 
-    results = []
+    results = [] if return_individual_results else None
+    aggregated: dict = {}
     for i in tqdm(range(len(gt_labels)), desc="Running benchmark"):
         seq_result = benchmark_gt_vs_pred_single(
             gt_labels=gt_labels[i],
@@ -527,12 +528,13 @@ def benchmark_gt_vs_pred_multiple(
             mask_labels=mask_labels[i] if mask_labels is not None else None,
             infer_introns=infer_introns,
         )
-        results.append(seq_result)
+        if return_individual_results:
+            results.append(seq_result)
+        elif seq_result:
+            recursive_merge(aggregated, seq_result)
 
     if return_individual_results:
         return results
-
-    aggregated = functools.reduce(recursive_merge, [res for res in results if res], {})
 
     aggregated = _aggregate_summary_metrics(aggregated, metrics)
 
