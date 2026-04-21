@@ -40,13 +40,11 @@ def test_benchmark_single(gt_pred_array, label_config, metrics, expected_errors)
         f"The benchmark keys do not match the expected keys. Expected {expected_errors.keys()}, got {filtered_keys}"
     )
 
-    for class_key in benchmark_results:
-        if class_key in ("transition_failures", "false_transitions"):
-            continue
-        class_results = benchmark_results[class_key]
-        expected_results = expected_errors[class_key]
-        for metric in metrics:
-            _METRIC_EVAL_DISPATCH[metric](expected_results[metric.name], class_results[metric.name])
+    for metric in metrics:
+        _METRIC_EVAL_DISPATCH[metric](
+            expected_errors[metric.name],
+            benchmark_results[metric.name],
+        )
 
 
 @pytest.mark.parametrize(
@@ -62,11 +60,11 @@ def test_structural_coherence(gt_pred_array, label_config, metrics, expected_err
         metrics=metrics,
     )
 
-    for class_key in expected_errors:
-        class_results = benchmark_results[class_key]
-        expected_results = expected_errors[class_key]
-        for metric in metrics:
-            _METRIC_EVAL_DISPATCH[metric](expected_results[metric.name], class_results[metric.name])
+    for metric in metrics:
+        _METRIC_EVAL_DISPATCH[metric](
+            expected_errors[metric.name],
+            benchmark_results[metric.name],
+        )
 
 
 @pytest.mark.parametrize(
@@ -82,11 +80,11 @@ def test_diagnostic_depth(gt_pred_array, label_config, metrics, expected_errors)
         metrics=metrics,
     )
 
-    for class_key in expected_errors:
-        class_results = benchmark_results[class_key]
-        expected_results = expected_errors[class_key]
-        for metric in metrics:
-            _METRIC_EVAL_DISPATCH[metric](expected_results[metric.name], class_results[metric.name])
+    for metric in metrics:
+        _METRIC_EVAL_DISPATCH[metric](
+            expected_errors[metric.name],
+            benchmark_results[metric.name],
+        )
 
 
 @pytest.mark.parametrize(
@@ -107,13 +105,11 @@ def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, metrics, expec
         f"The benchmark keys do not match the expected keys. Expected {expected_errors.keys()}, got {filtered_keys}"
     )
 
-    for class_key in benchmark_results:
-        if class_key in ("transition_failures", "false_transitions"):
-            continue
-        class_results = benchmark_results[class_key]
-        expected_results = expected_errors[class_key]
-        for metric in metrics:
-            _METRIC_EVAL_DISPATCH[metric](expected_results[metric.name], class_results[metric.name])
+    for metric in metrics:
+        _METRIC_EVAL_DISPATCH[metric](
+            expected_errors[metric.name],
+            benchmark_results[metric.name],
+        )
 
 
 # ------------------------------------------------------------------

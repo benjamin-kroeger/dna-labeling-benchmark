@@ -82,9 +82,9 @@ def _flatten_scalars(
 ) -> dict[str, float]:
     """Flatten benchmark results into W&B-friendly scalar key-value pairs.
 
-    The first ``/``-segment combines class name and metric group
-    (e.g. ``"EXON · Region Discovery"``), giving each metric group
-    its own expandable section in the W&B dashboard.
+    The first ``/``-segment is the metric group display name
+    (e.g. ``"Region Discovery"``), giving each metric group its own
+    expandable section in the W&B dashboard.
 
     Parameters
     ----------
@@ -92,7 +92,7 @@ def _flatten_scalars(
         Aggregated benchmark result dict as returned by
         :func:`benchmark_gt_vs_pred_multiple`.
     label_config : LabelConfig
-        Used only to skip transition-specific keys.
+        Currently unused; kept for API stability.
     prefix : str
         Optional prefix (e.g. ``"val"``) prepended to all keys.
 
@@ -103,23 +103,15 @@ def _flatten_scalars(
     """
     flat: dict[str, float] = {}
 
-    for class_key, class_data in results.items():
-        if class_key in ("transition_failures", "false_transitions"):
+    for group_key, group_data in results.items():
+        if group_key in ("transition_failures", "false_transitions"):
             continue
-        if not isinstance(class_data, dict):
+        if not isinstance(group_data, dict):
             continue
 
-        for group_key, group_data in class_data.items():
-            if not isinstance(group_data, dict):
-                continue
-
-            # Build section name: "EXON · Region Discovery"
-            group_display = _GROUP_DISPLAY_NAMES.get(group_key, group_key)
-            section = f"{class_key} · {group_display}"
-            if prefix:
-                section = f"{prefix}/{section}"
-
-            flat.update(_flatten_leaf(group_data, prefix=section))
+        group_display = _GROUP_DISPLAY_NAMES.get(group_key, group_key)
+        section = f"{prefix}/{group_display}" if prefix else group_display
+        flat.update(_flatten_leaf(group_data, prefix=section))
 
     return flat
 
@@ -193,7 +185,7 @@ def log_benchmark_full(
 
     This logs:
 
-    * All scalar metrics (per method, per class, per metric group)
+    * All scalar metrics (per method, per metric group)
     * IoU score distributions as interactive ``wandb.Table`` objects
     * All matplotlib figures as ``wandb.Image`` panels
 
@@ -217,19 +209,15 @@ def log_benchmark_full(
 
     # ---- IoU distributions as W&B Tables --------------------------------
     for method_name, results in per_method_results.items():
-        for class_key, class_data in results.items():
-            if not isinstance(class_data, dict):
-                continue
-            # Look for iou_scores in BOUNDARY_EXACTNESS
-            be = class_data.get("BOUNDARY_EXACTNESS", {})
-            iou_scores = be.get("iou_scores")
-            if iou_scores is not None and len(iou_scores) > 0:
-                table = wandb.Table(
-                    columns=["method", "class", "iou"],
-                    data=[[method_name, class_key, float(s)] for s in iou_scores],
-                )
-                table_key = f"{method_name}/{class_key}/iou_distribution"
-                log_dict[table_key] = table
+        be = results.get("BOUNDARY_EXACTNESS", {})
+        iou_scores = be.get("iou_scores")
+        if iou_scores is not None and len(iou_scores) > 0:
+            table = wandb.Table(
+                columns=["method", "iou"],
+                data=[[method_name, float(s)] for s in iou_scores],
+            )
+            table_key = f"{method_name}/iou_distribution"
+            log_dict[table_key] = table
 
     # ---- Figures as wandb.Image -----------------------------------------
     for fig_name, fig in figures.items():

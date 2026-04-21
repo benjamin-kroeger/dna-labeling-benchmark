@@ -26,69 +26,67 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [np.array([0, 1, 2])],
-                    "3_prime_extensions": [np.array([17, 18])],
-                    "whole_insertions": [np.array([8, 9, 10, 11])],
-                    "5_prime_deletions": [np.array([12])],
-                    "3_prime_deletions": [np.array([5, 6, 7])],
-                    "whole_deletions": [np.array([19, 20])],
-                    "split": [],
-                    "joined": [],
-                },
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 2, "fn": 1, "fp": 1},
-                    "internal_hit": {"tp": 0, "fn": 3},
-                    "full_coverage_hit": {"tp": 0, "fn": 3},
-                    "perfect_boundary_hit": {"tp": 0, "fn": 3, "fp": 3},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 0,
-                    "last_sec_correct_5_prime_boundary": 0,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 4, "fp": 9, "fn": 6, "tp": 6},
-                },
-            }
+            "INDEL": {
+                "5_prime_extensions": [np.array([0, 1, 2])],
+                "3_prime_extensions": [np.array([17, 18])],
+                "whole_insertions": [np.array([8, 9, 10, 11])],
+                "5_prime_deletions": [np.array([12])],
+                "3_prime_deletions": [np.array([5, 6, 7])],
+                "whole_deletions": [np.array([19, 20])],
+                "split": [],
+                "joined": [],
+            },
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 2, "fn": 1, "fp": 1},
+                "internal_hit": {"tp": 0, "fn": 3},
+                "full_coverage_hit": {"tp": 0, "fn": 3},
+                "perfect_boundary_hit": {"tp": 0, "fn": 3, "fp": 3},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 0,
+                "last_sec_correct_5_prime_boundary": 0,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 4, "fp": 9, "fn": 6, "tp": 6},
+            },
         },
         id="exon_all_insertions_deletions",
     ),
     pytest.param(
         np.array(
             [
-                [8, 8, 8,   0, 0, 0, 0, 0,   2, 2, 2, 2,    0, 0, 0, 0, 0,   2, 2,  0, 0,    8, 8, 8, 8],
-                [8, 8, 8,   0, 2, 0, 2, 0,   2, 0, 2, 2,    0, 2, 0, 2, 0,   2, 2,  0, 0,    8, 8, 0, 8],
+                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
+                [8, 8, 8, 0, 2, 0, 2, 0, 2, 0, 2, 2, 0, 2, 0, 2, 0, 2, 2, 0, 0, 8, 8, 0, 8],
             ]
         ),
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [np.array([9]), np.array([23])],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [],
-                    "whole_deletions": [],
-                    "split": [np.array([4]), np.array([6]), np.array([13]), np.array(15)],
-                    "joined": [],
-                },
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 3, "fn": 0, "fp": 6},
-                    "internal_hit": {"tp": 3, "fn": 0, "fp":6},
-                    "full_coverage_hit": {"tp": 1, "fn": 2, "fp":6},
-                    "perfect_boundary_hit": {"tp": 1, "fn": 2, "fp": 8},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 1,
-                    "last_sec_correct_5_prime_boundary": 1,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 11, "fp": 2, "fn": 4, "tp": 8},
-                },
-            }
+
+            "INDEL": {
+                "5_prime_extensions": [],
+                "3_prime_extensions": [],
+                "whole_insertions": [np.array([9]), np.array([23])],
+                "5_prime_deletions": [],
+                "3_prime_deletions": [],
+                "whole_deletions": [],
+                "split": [np.array([4]), np.array([6]), np.array([13]), np.array(15)],
+                "joined": [],
+            },
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 3, "fn": 0, "fp": 6},
+                "internal_hit": {"tp": 3, "fn": 0, "fp": 6},
+                "full_coverage_hit": {"tp": 1, "fn": 2, "fp": 6},
+                "perfect_boundary_hit": {"tp": 1, "fn": 2, "fp": 8},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 1,
+                "last_sec_correct_5_prime_boundary": 1,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 11, "fp": 2, "fn": 4, "tp": 8},
+            },
+
         },
         id="uncertain_predictions",
     ),
@@ -102,31 +100,31 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [],
-                    "whole_deletions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
-                    "split": [],
-                    "joined": [],
-                },
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 0, "fn": 3, "fp": 0},
-                    "internal_hit": {"tp": 0, "fn": 3},
-                    "full_coverage_hit": {"tp": 0, "fn": 3},
-                    "perfect_boundary_hit": {"tp": 0, "fn": 3, "fp": 0},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 0,
-                    "last_sec_correct_5_prime_boundary": 0,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 13, "fp": 0, "fn": 12, "tp": 0},
-                },
-            }
+
+            "INDEL": {
+                "5_prime_extensions": [],
+                "3_prime_extensions": [],
+                "whole_insertions": [],
+                "5_prime_deletions": [],
+                "3_prime_deletions": [],
+                "whole_deletions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
+                "split": [],
+                "joined": [],
+            },
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 0, "fn": 3, "fp": 0},
+                "internal_hit": {"tp": 0, "fn": 3},
+                "full_coverage_hit": {"tp": 0, "fn": 3},
+                "perfect_boundary_hit": {"tp": 0, "fn": 3, "fp": 0},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 0,
+                "last_sec_correct_5_prime_boundary": 0,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 13, "fp": 0, "fn": 12, "tp": 0},
+            },
+
         },
         id="empty_pred",
     ),
@@ -140,31 +138,31 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [],
-                    "whole_deletions": [],
-                    "split": [],
-                    "joined": [],
-                },
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 0, "fn": 0, "fp": 3},
-                    "internal_hit": {"tp": 0, "fn": 0},
-                    "full_coverage_hit": {"tp": 0, "fn": 0},
-                    "perfect_boundary_hit": {"tp": 0, "fn": 0, "fp": 3},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 0,
-                    "last_sec_correct_5_prime_boundary": 0,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 13, "fp": 12, "fn": 0, "tp": 0},
-                },
-            }
+
+            "INDEL": {
+                "5_prime_extensions": [],
+                "3_prime_extensions": [],
+                "whole_insertions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
+                "5_prime_deletions": [],
+                "3_prime_deletions": [],
+                "whole_deletions": [],
+                "split": [],
+                "joined": [],
+            },
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 0, "fn": 0, "fp": 3},
+                "internal_hit": {"tp": 0, "fn": 0},
+                "full_coverage_hit": {"tp": 0, "fn": 0},
+                "perfect_boundary_hit": {"tp": 0, "fn": 0, "fp": 3},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 0,
+                "last_sec_correct_5_prime_boundary": 0,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 13, "fp": 12, "fn": 0, "tp": 0},
+            },
+
         },
         id="empty_gt",
     ),
@@ -178,21 +176,21 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 4, "fn": 0, "fp": 0},
-                    "internal_hit": {"tp": 1, "fn": 3},
-                    "full_coverage_hit": {"tp": 4, "fn": 0},
-                    "perfect_boundary_hit": {"tp": 1, "fn": 3, "fp": 3},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 1,
-                    "last_sec_correct_5_prime_boundary": 1,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 11, "fp": 6, "fn": 0, "tp": 12},
-                },
-            }
+
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 4, "fn": 0, "fp": 0},
+                "internal_hit": {"tp": 1, "fn": 3},
+                "full_coverage_hit": {"tp": 4, "fn": 0},
+                "perfect_boundary_hit": {"tp": 1, "fn": 3, "fp": 3},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 1,
+                "last_sec_correct_5_prime_boundary": 1,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 11, "fp": 6, "fn": 0, "tp": 12},
+            },
+
         },
         id="in_depth_section_test",
     ),
@@ -204,34 +202,34 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [],
-                    "5_prime_deletions": [np.array([0, 1, 2])],
-                    "3_prime_deletions": [np.array([8, 9])],
-                    "whole_deletions": [],
-                    "split": [],
-                    "joined": [np.array([4, 5, 6])],
-                },
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 1, "fn": 1, "fp": 0},
-                    "internal_hit": {"tp": 0, "fn": 2},
-                    "full_coverage_hit": {"tp": 0, "fn": 2},
-                    "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 0,
-                    "last_sec_correct_5_prime_boundary": 0,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 0, "fp": 3, "fn": 5, "tp": 2},
-                },
-            }
+
+            "INDEL": {
+                "5_prime_extensions": [],
+                "3_prime_extensions": [],
+                "whole_insertions": [],
+                "5_prime_deletions": [np.array([0, 1, 2])],
+                "3_prime_deletions": [np.array([8, 9])],
+                "whole_deletions": [],
+                "split": [],
+                "joined": [np.array([4, 5, 6])],
+            },
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 1, "fn": 1, "fp": 0},
+                "internal_hit": {"tp": 0, "fn": 2},
+                "full_coverage_hit": {"tp": 0, "fn": 2},
+                "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 0,
+                "last_sec_correct_5_prime_boundary": 0,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 0, "fp": 3, "fn": 5, "tp": 2},
+            },
+
         },
         id="exon_joined_with_deletions",
     ),
@@ -245,21 +243,21 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 3, "fn": 0, "fp": 0},
-                    "internal_hit": {"tp": 3, "fn": 0},
-                    "full_coverage_hit": {"tp": 3, "fn": 0},
-                    "perfect_boundary_hit": {"tp": 3, "fn": 0, "fp": 0},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 1,
-                    "last_sec_correct_5_prime_boundary": 1,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 13, "fp": 0, "fn": 0, "tp": 12},
-                },
-            }
+
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 3, "fn": 0, "fp": 0},
+                "internal_hit": {"tp": 3, "fn": 0},
+                "full_coverage_hit": {"tp": 3, "fn": 0},
+                "perfect_boundary_hit": {"tp": 3, "fn": 0, "fp": 0},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 1,
+                "last_sec_correct_5_prime_boundary": 1,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 13, "fp": 0, "fn": 0, "tp": 12},
+            },
+
         },
         id="exon_fully_correct",
     ),
@@ -273,21 +271,21 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 1, "fn": 0, "fp": 0},
-                    "internal_hit": {"tp": 1, "fn": 0},
-                    "full_coverage_hit": {"tp": 1, "fn": 0},
-                    "perfect_boundary_hit": {"tp": 1, "fn": 0, "fp": 0},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 1,
-                    "last_sec_correct_5_prime_boundary": 1,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 7, "fp": 0, "fn": 0, "tp": 5},
-                },
-            }
+
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 1, "fn": 0, "fp": 0},
+                "internal_hit": {"tp": 1, "fn": 0},
+                "full_coverage_hit": {"tp": 1, "fn": 0},
+                "perfect_boundary_hit": {"tp": 1, "fn": 0, "fp": 0},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 1,
+                "last_sec_correct_5_prime_boundary": 1,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 7, "fp": 0, "fn": 0, "tp": 5},
+            },
+
         },
         id="exon_fully_correct_2",
     ),
@@ -301,31 +299,31 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [np.array([4])],
-                    "whole_deletions": [np.array([9, 10])],
-                    "split": [],
-                    "joined": [],
-                },
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": 1, "fn": 1, "fp": 0},
-                    "internal_hit": {"tp": 1, "fn": 1},
-                    "full_coverage_hit": {"tp": 0, "fn": 2},
-                    "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": 0,
-                    "last_sec_correct_5_prime_boundary": 0,
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": 7, "fp": 0, "fn": 3, "tp": 1},
-                },
+
+            "INDEL": {
+                "5_prime_extensions": [],
+                "3_prime_extensions": [],
+                "whole_insertions": [],
+                "5_prime_deletions": [],
+                "3_prime_deletions": [np.array([4])],
+                "whole_deletions": [np.array([9, 10])],
+                "split": [],
+                "joined": [],
             },
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": 1, "fn": 1, "fp": 0},
+                "internal_hit": {"tp": 1, "fn": 1},
+                "full_coverage_hit": {"tp": 0, "fn": 2},
+                "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 0,
+                "last_sec_correct_5_prime_boundary": 0,
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": 7, "fp": 0, "fn": 3, "tp": 1},
+            },
+
         },
         id="exon_test2",
     ),
@@ -339,13 +337,13 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.FRAMESHIFT],
         {
-            "EXON": {
-                "FRAMESHIFT": {
-                    "gt_frames": np.array(
-                        [np.inf] * 3 + [0, 0] + [np.inf] * 8 + [0, 0, 0, 0] + [np.inf] * 4
-                    )
-                }
+
+            "FRAMESHIFT": {
+                "gt_frames": np.array(
+                    [np.inf] * 3 + [0, 0] + [np.inf] * 8 + [0, 0, 0, 0] + [np.inf] * 4
+                )
             }
+
         },
         id="Frameshift_test",
     ),
@@ -360,18 +358,18 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CUSTOM_CONFIG,
         [EvalMetrics.INDEL],
         {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [np.array([0, 1, 2])],
-                    "3_prime_extensions": [np.array([17, 18])],
-                    "whole_insertions": [np.array([8, 9, 10, 11])],
-                    "5_prime_deletions": [np.array([12])],
-                    "3_prime_deletions": [np.array([5, 6, 7])],
-                    "whole_deletions": [np.array([19, 20])],
-                    "split": [],
-                    "joined": [],
-                }
+
+            "INDEL": {
+                "5_prime_extensions": [np.array([0, 1, 2])],
+                "3_prime_extensions": [np.array([17, 18])],
+                "whole_insertions": [np.array([8, 9, 10, 11])],
+                "5_prime_deletions": [np.array([12])],
+                "3_prime_deletions": [np.array([5, 6, 7])],
+                "whole_deletions": [np.array([19, 20])],
+                "split": [],
+                "joined": [],
             }
+
         },
         id="Different_label_test",
     ),
@@ -384,24 +382,24 @@ SINGLE_SEQUENCE_TEST_CASES = [
             ]
         ),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"tp": [1, 1], "fn": [0, 0], "fp": [0, 0]},
-                    "internal_hit": {"tp": [1, 1], "fn": [0, 0]},
-                    "full_coverage_hit": {"tp": [1, 1], "fn": [0, 0]},
-                    "perfect_boundary_hit": {"tp": [1, 1], "fn": [0, 0], "fp": [0, 0]},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": [1, 1],
-                    "last_sec_correct_5_prime_boundary": [1, 1],
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"tn": [3, 4], "fp": [0, 0], "fn": [0, 0], "tp": [3, 2]},
-                },
-            }
+
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"tp": [1, 1], "fn": [0, 0], "fp": [0, 0]},
+                "internal_hit": {"tp": [1, 1], "fn": [0, 0]},
+                "full_coverage_hit": {"tp": [1, 1], "fn": [0, 0]},
+                "perfect_boundary_hit": {"tp": [1, 1], "fn": [0, 0], "fp": [0, 0]},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": [1, 1],
+                "last_sec_correct_5_prime_boundary": [1, 1],
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"tn": [3, 4], "fp": [0, 0], "fn": [0, 0], "tp": [3, 2]},
+            },
+
         },
         id="mask_test",
     ),
@@ -443,18 +441,18 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    "intron_chain": {"tp": 1, "fp": 0, "fn": 0},
-                    "transcript_match_class": "exact",
-                    "segment_count_delta": 0,
-                    "transcript_exact": {"tp": 1, "fn": 0, "fp": 0},
-                    "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
-                    "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
-                    "boundary_shift_count": 0,
-                    "boundary_shift_total": 0,
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                "intron_chain": {"tp": 1, "fp": 0, "fn": 0},
+                "transcript_match_class": "exact",
+                "segment_count_delta": 0,
+                "transcript_exact": {"tp": 1, "fn": 0, "fp": 0},
+                "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
+                "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                "boundary_shift_count": 0,
+                "boundary_shift_total": 0,
+            },
+
         },
         id="sc_exact_match",
     ),
@@ -474,18 +472,18 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                    "transcript_match_class": "boundary_shift",
-                    "segment_count_delta": 0,
-                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
-                    "boundary_shift_count": 3,
-                    "boundary_shift_total": 3,
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
+                "transcript_match_class": "boundary_shift",
+                "segment_count_delta": 0,
+                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                "boundary_shift_count": 3,
+                "boundary_shift_total": 3,
+            },
+
         },
         id="sc_boundary_shift",
     ),
@@ -502,18 +500,18 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                    "transcript_match_class": "missing_segments",
-                    "segment_count_delta": -1,
-                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
-                    "boundary_shift_count": 0,
-                    "boundary_shift_total": 0,
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
+                "transcript_match_class": "missing_segments",
+                "segment_count_delta": -1,
+                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                "boundary_shift_count": 0,
+                "boundary_shift_total": 0,
+            },
+
         },
         id="sc_missing_segments",
     ),
@@ -530,18 +528,18 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    "intron_chain": {"tp": 0, "fp": 0, "fn": 0},  # GT has single intron → no chain
-                    "transcript_match_class": "extra_segments",
-                    "segment_count_delta": 1,
-                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
-                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
-                    "boundary_shift_count": 0,
-                    "boundary_shift_total": 0,
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                "intron_chain": {"tp": 0, "fp": 0, "fn": 0},  # GT has single intron → no chain
+                "transcript_match_class": "extra_segments",
+                "segment_count_delta": 1,
+                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
+                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                "boundary_shift_count": 0,
+                "boundary_shift_total": 0,
+            },
+
         },
         id="sc_extra_segments",
     ),
@@ -557,18 +555,18 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                    "transcript_match_class": "structurally_different",
-                    "segment_count_delta": -1,
-                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
-                    "boundary_shift_count": 0,
-                    "boundary_shift_total": 0,
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
+                "transcript_match_class": "structurally_different",
+                "segment_count_delta": -1,
+                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                "boundary_shift_count": 0,
+                "boundary_shift_total": 0,
+            },
+
         },
         id="sc_structurally_different",
     ),
@@ -583,18 +581,18 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    "intron_chain": {"tp": 0, "fp": 0, "fn": 0},  # single intron, no chain
-                    "transcript_match_class": "missed",
-                    "segment_count_delta": -2,
-                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 0},
-                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 0},
-                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 0},
-                    "boundary_shift_count": 0,
-                    "boundary_shift_total": 0,
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                "intron_chain": {"tp": 0, "fp": 0, "fn": 0},  # single intron, no chain
+                "transcript_match_class": "missed",
+                "segment_count_delta": -2,
+                "transcript_exact": {"tp": 0, "fn": 1, "fp": 0},
+                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 0},
+                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 0},
+                "boundary_shift_count": 0,
+                "boundary_shift_total": 0,
+            },
+
         },
         id="sc_missed",
     ),
@@ -608,11 +606,11 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
+            },
+
         },
         id="sc_no_gt_segments",
     ),
@@ -627,22 +625,22 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             [0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    # GT intron chain: (5,7),(9,11),(13,15),(17,19) — pred misses (5,7)
-                    "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                    "transcript_match_class": "structurally_different",
-                    "segment_count_delta": -1,
-                    "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
-                    "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
-                    "boundary_shift_count": 0,
-                    "boundary_shift_total": 0,
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                # GT intron chain: (5,7),(9,11),(13,15),(17,19) — pred misses (5,7)
+                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
+                "transcript_match_class": "structurally_different",
+                "segment_count_delta": -1,
+                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                "boundary_shift_count": 0,
+                "boundary_shift_total": 0,
+            },
+
         },
         id="sc_six_exon_mixed_errors",
     ),
@@ -654,25 +652,25 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             [8, 8, 0, 0, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "EXON": {
-                "STRUCTURAL_COHERENCE": {
-                    # Single exon on both sides → no introns → no chain (vacuous tp=fp=fn=0)
-                    "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
-                    "transcript_match_class": "exact",
-                    "segment_count_delta": 0,
-                    "transcript_exact": {"tp": 1, "fn": 0, "fp": 0},
-                    "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
-                    "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
-                    "boundary_shift_count": 0,
-                    "boundary_shift_total": 0,
-                },
-            }
+
+            "STRUCTURAL_COHERENCE": {
+                # Single exon on both sides → no introns → no chain (vacuous tp=fp=fn=0)
+                "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
+                "transcript_match_class": "exact",
+                "segment_count_delta": 0,
+                "transcript_exact": {"tp": 1, "fn": 0, "fp": 0},
+                "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
+                "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                "boundary_shift_count": 0,
+                "boundary_shift_total": 0,
+            },
+
         },
         id="sc_single_segment",
-    ),
+    )
 ]
 
 # ------------------------------------------------------------------
@@ -688,16 +686,14 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-            "EXON": {
-                "DIAGNOSTIC_DEPTH": {
-                    "gt_segment_lengths": [3, 3],
-                    "pred_segment_lengths": [3, 3],
-                    "length_emd": 0.0,
-                    "position_bias_histogram": [0] * 100,
-                },
+            "DIAGNOSTIC_DEPTH": {
+                "gt_segment_lengths": [3, 3],
+                "pred_segment_lengths": [3, 3],
+                "length_emd": 0.0,
+                "position_bias_histogram": [0] * 100,
             }
         },
         id="dd_no_errors",
@@ -711,17 +707,17 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
             [8, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-            "EXON": {
-                "DIAGNOSTIC_DEPTH": {
-                    "gt_segment_lengths": [2, 2, 2],
-                    "pred_segment_lengths": [2, 2],
-                    "length_emd": 0.0,
-                    "position_bias_histogram": [0] * 40 + [1] * 21 + [0] * 39,
-                },
-            }
+
+            "DIAGNOSTIC_DEPTH": {
+                "gt_segment_lengths": [2, 2, 2],
+                "pred_segment_lengths": [2, 2],
+                "length_emd": 0.0,
+                "position_bias_histogram": [0] * 40 + [1] * 21 + [0] * 39,
+            },
+
         },
         id="dd_exon_skip",
     ),
@@ -734,17 +730,17 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
             [8, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-            "EXON": {
-                "DIAGNOSTIC_DEPTH": {
-                    "gt_segment_lengths": [9],
-                    "pred_segment_lengths": [3, 4],
-                    "length_emd": 5.5,
-                    "position_bias_histogram": [1] * 34 + [0] * 66,
-                },
-            }
+
+            "DIAGNOSTIC_DEPTH": {
+                "gt_segment_lengths": [9],
+                "pred_segment_lengths": [3, 4],
+                "length_emd": 5.5,
+                "position_bias_histogram": [1] * 34 + [0] * 66,
+            },
+
         },
         id="dd_novel_insertion",
     ),
@@ -758,17 +754,17 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-            "EXON": {
-                "DIAGNOSTIC_DEPTH": {
-                    "gt_segment_lengths": [3, 3, 3, 3],
-                    "pred_segment_lengths": [3, 3, 3, 3],
-                    "length_emd": 0.0,
-                    "position_bias_histogram": [0] * 100,
-                },
-            }
+
+            "DIAGNOSTIC_DEPTH": {
+                "gt_segment_lengths": [3, 3, 3, 3],
+                "pred_segment_lengths": [3, 3, 3, 3],
+                "length_emd": 0.0,
+                "position_bias_histogram": [0] * 100,
+            },
+
         },
         id="dd_cascade_shift",
     ),
@@ -781,17 +777,17 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
             [8, 0, 0, 0, 0, 2, 0, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-            "EXON": {
-                "DIAGNOSTIC_DEPTH": {
-                    "gt_segment_lengths": [3, 3],
-                    "pred_segment_lengths": [4, 4],
-                    "length_emd": 1.0,
-                    "position_bias_histogram": [0] * 100,
-                },
-            }
+
+            "DIAGNOSTIC_DEPTH": {
+                "gt_segment_lengths": [3, 3],
+                "pred_segment_lengths": [4, 4],
+                "length_emd": 1.0,
+                "position_bias_histogram": [0] * 100,
+            },
+
         },
         id="dd_compensating_errors",
     ),
@@ -800,41 +796,41 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
 MULTI_SEQUENCE_TEST_CASES = [
     pytest.param(
         [np.array([8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8])],
-                [np.array([8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])],
+        [np.array([8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])],
         BEND_LABEL_CONFIG,
-        
+
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "EXON": {
-                "INDEL": {
-                    "5_prime_extensions": [],
-                    "3_prime_extensions": [],
-                    "whole_insertions": [],
-                    "5_prime_deletions": [],
-                    "3_prime_deletions": [],
-                    "whole_deletions": [
-                        np.array([3, 4, 5, 6, 7]),
-                        np.array([12, 13, 14, 15, 16]),
-                        np.array([19, 20]),
-                    ],
-                    "split": [],
-                    "joined": [],
-                },
-                "REGION_DISCOVERY": {
-                    "neighborhood_hit": {"precision": 0, "recall": 0.0},
-                    "internal_hit": {"precision": 0.0, "recall": 0.0},
-                    "full_coverage_hit": {"precision": 0.0, "recall": 0.0},
-                    "perfect_boundary_hit": {"precision": 0, "recall": 0.0},
-                },
-                "BOUNDARY_EXACTNESS": {
-                    "first_sec_correct_3_prime_boundary": [0],
-                    "last_sec_correct_5_prime_boundary": [0],
-                    "iou_stats": {"mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0, "count": 0},
-                },
-                "NUCLEOTIDE_CLASSIFICATION": {
-                    "nucleotide": {"precision": 0, "recall": 0.0, "f1": 0.0},
-                },
-            }
+
+            "INDEL": {
+                "5_prime_extensions": [],
+                "3_prime_extensions": [],
+                "whole_insertions": [],
+                "5_prime_deletions": [],
+                "3_prime_deletions": [],
+                "whole_deletions": [
+                    np.array([3, 4, 5, 6, 7]),
+                    np.array([12, 13, 14, 15, 16]),
+                    np.array([19, 20]),
+                ],
+                "split": [],
+                "joined": [],
+            },
+            "REGION_DISCOVERY": {
+                "neighborhood_hit": {"precision": 0, "recall": 0.0},
+                "internal_hit": {"precision": 0.0, "recall": 0.0},
+                "full_coverage_hit": {"precision": 0.0, "recall": 0.0},
+                "perfect_boundary_hit": {"precision": 0, "recall": 0.0},
+            },
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": [0],
+                "last_sec_correct_5_prime_boundary": [0],
+                "iou_stats": {"mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0, "count": 0},
+            },
+            "NUCLEOTIDE_CLASSIFICATION": {
+                "nucleotide": {"precision": 0, "recall": 0.0, "f1": 0.0},
+            },
+
         },
         id="no_nuc_positives",
     ),

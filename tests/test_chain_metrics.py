@@ -127,7 +127,7 @@ def test_infer_introns_fills_gaps_before_structural_metrics():
         infer_introns=True,
     )
 
-    assert result["EXON"]["STRUCTURAL_COHERENCE"]["intron_chain"] == {
+    assert result["STRUCTURAL_COHERENCE"]["intron_chain"] == {
         "tp": 1,
         "fp": 0,
         "fn": 0,

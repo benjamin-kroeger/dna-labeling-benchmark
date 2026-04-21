@@ -224,7 +224,7 @@ def benchmark_gt_vs_pred_single(
         metrics: Optional[list[EvalMetrics]] = None,
         mask_labels: Optional[np.ndarray] = None,
         infer_introns: bool = False,
-) -> dict[str, dict[str, dict]]:
+) -> dict[str, dict]:
     """Compare a single ground-truth sequence against a single prediction.
 
     Parameters
@@ -247,9 +247,10 @@ def benchmark_gt_vs_pred_single(
     Returns
     -------
     dict
-        Nested dict keyed by human-readable class name → metric group →
-        results.  When ``STRUCTURAL_COHERENCE`` is requested the inner
-        dict contains:
+        Dict keyed directly by metric group name plus the transition
+        analysis keys ``"transition_failures"`` and
+        ``"false_transitions"``. When ``STRUCTURAL_COHERENCE`` is
+        requested, the ``STRUCTURAL_COHERENCE`` entry contains:
 
         * ``intron_chain`` — strict binary TP/FP/FN (1 iff the entire
           GT and pred intron sets are identical), aggregated to corpus
@@ -318,9 +319,6 @@ def benchmark_gt_vs_pred_single(
         "stable_position_counts": transition_analysis.stable_position_counts,
     }
 
-    class_name = label_config.name_of(label_config.coding_label)
-    metric_results[class_name] = {}
-
     # Boolean masks for insertions / deletions coding label
     insertion_mask = (arr[0, :] != label_config.coding_label) & (arr[1, :] == label_config.coding_label)
     insertion_indices = np.where(insertion_mask)[0]
@@ -371,7 +369,7 @@ def benchmark_gt_vs_pred_single(
             "split": split,
         }
         if EvalMetrics.INDEL in metrics:
-            metric_results[class_name][EvalMetrics.INDEL.name] = indel_results
+            metric_results[EvalMetrics.INDEL.name] = indel_results
 
     # ---- Section-overlap analysis (shared by REGION_DISCOVERY & BOUNDARY_EXACTNESS)
     if _needs_section_analysis(metrics):
@@ -382,7 +380,7 @@ def benchmark_gt_vs_pred_single(
 
         # -- REGION_DISCOVERY: precision & recall at four strictness levels
         if EvalMetrics.REGION_DISCOVERY in metrics:
-            metric_results[class_name][EvalMetrics.REGION_DISCOVERY.name] = {
+            metric_results[EvalMetrics.REGION_DISCOVERY.name] = {
                 "neighborhood_hit": section_data["neighborhood_hit"],
                 "internal_hit": section_data["internal_hit"],
                 "full_coverage_hit": section_data["full_coverage_hit"],
@@ -391,7 +389,7 @@ def benchmark_gt_vs_pred_single(
 
         # -- BOUNDARY_EXACTNESS: IoU, boundary residuals, section-boundary flags
         if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
-            metric_results[class_name][EvalMetrics.BOUNDARY_EXACTNESS.name] = {
+            metric_results[EvalMetrics.BOUNDARY_EXACTNESS.name] = {
                 "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
                 "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
                 "iou_scores": section_data["iou_scores"],
@@ -401,7 +399,7 @@ def benchmark_gt_vs_pred_single(
     # ---- NUCLEOTIDE_CLASSIFICATION: per-base precision, recall, F1 ----
     if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
         nuc_confusion = _compute_nucleotide_level_confusion(gt_labels, pred_labels, label_config.coding_label)
-        metric_results[class_name][EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
+        metric_results[EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
             "nucleotide": nuc_confusion,
         }
 
@@ -415,7 +413,7 @@ def benchmark_gt_vs_pred_single(
                 "your LabelConfig."
             )
 
-        metric_results[class_name][EvalMetrics.FRAMESHIFT.name] = (
+        metric_results[EvalMetrics.FRAMESHIFT.name] = (
                 _get_frame_shift_metrics(
                     gt_labels=gt_labels,
                     pred_labels=pred_labels,
@@ -446,14 +444,14 @@ def benchmark_gt_vs_pred_single(
         transcript_pr = _compute_transcript_level_pr(match_cls, boundary_shift_count, boundary_shift_total)
         if transcript_pr is not None:
             sc_result.update(transcript_pr)
-        metric_results[class_name][EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
+        metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
 
     # ---- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
         summary = _compute_structural_summary(
             gt_struct, pred_struct, label_config.coding_label,
         )
-        metric_results[class_name][EvalMetrics.DIAGNOSTIC_DEPTH.name] = summary
+        metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = summary
 
     return metric_results
 
@@ -548,74 +546,59 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
     precision & recall (and F1 for nucleotide level).  Raw counts are
     *replaced* by the computed summaries so they are not exposed to the user.
     """
-    for _class_name, class_results in aggregated.items():
-        if _class_name == "transition_failures":
-            continue
-        if _class_name == "false_transitions":
-            # recursive_merge sums np.ndarray (matrices) element-wise already.
-            # It wraps int values (totals) into lists — sum them back.
-            class_results["stable_position_counts"] = {
-                k: sum(v) if isinstance(v, list) else v
-                for k, v in class_results["stable_position_counts"].items()
-            }
-            continue
+    if "false_transitions" in aggregated:
+        # recursive_merge sums np.ndarray (matrices) element-wise already.
+        # It wraps int values (totals) into lists — sum them back.
+        aggregated["false_transitions"]["stable_position_counts"] = {
+            k: sum(v) if isinstance(v, list) else v
+            for k, v in aggregated["false_transitions"]["stable_position_counts"].items()
+        }
 
-        # -- REGION_DISCOVERY: precision & recall per strictness level ------
-        if EvalMetrics.REGION_DISCOVERY in metrics:
-            rd = class_results[EvalMetrics.REGION_DISCOVERY.name]
-            for level_key in ("neighborhood_hit", "internal_hit",
-                              "full_coverage_hit", "perfect_boundary_hit"):
-                rd[level_key] = _compute_summary_statistics(**rd[level_key])
+    # -- REGION_DISCOVERY: precision & recall per strictness level ------
+    if EvalMetrics.REGION_DISCOVERY in metrics and EvalMetrics.REGION_DISCOVERY.name in aggregated:
+        rd = aggregated[EvalMetrics.REGION_DISCOVERY.name]
+        for level_key in ("neighborhood_hit", "internal_hit",
+                          "full_coverage_hit", "perfect_boundary_hit"):
+            rd[level_key] = _compute_summary_statistics(**rd[level_key])
 
-        # -- BOUNDARY_EXACTNESS: IoU stats + landscape -
-        if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
-            be = class_results[EvalMetrics.BOUNDARY_EXACTNESS.name]
+    # -- BOUNDARY_EXACTNESS: IoU stats + landscape -
+    if EvalMetrics.BOUNDARY_EXACTNESS in metrics and EvalMetrics.BOUNDARY_EXACTNESS.name in aggregated:
+        be = aggregated[EvalMetrics.BOUNDARY_EXACTNESS.name]
 
-            # IoU distribution statistics
-            if "iou_scores" in be:
-                be["iou_stats"] = _compute_distribution_stats(be["iou_scores"], is_abs=False)
+        if "iou_scores" in be:
+            be["iou_stats"] = _compute_distribution_stats(be["iou_scores"], is_abs=False)
 
-            # Boundary-residual bias / reliability landscape
-            if "fuzzy_metrics" in be:
-                be["fuzzy_metrics"] = _compute_boundary_precision_landscape(
-                    residuals=be["fuzzy_metrics"]["boundary_residuals"],
-                    total_gt_count=sum(be["fuzzy_metrics"]["total_gt"]),
-                )
+        if "fuzzy_metrics" in be:
+            be["fuzzy_metrics"] = _compute_boundary_precision_landscape(
+                residuals=be["fuzzy_metrics"]["boundary_residuals"],
+                total_gt_count=sum(be["fuzzy_metrics"]["total_gt"]),
+            )
 
-        # -- NUCLEOTIDE_CLASSIFICATION: precision, recall, F1 ---------------
-        if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
-            nc = class_results[EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name]
-            nuc_counts = nc["nucleotide"]
-            summary = _compute_summary_statistics(**nuc_counts)
-            # Add F1 (only meaningful at nucleotide level)
-            p, r = summary.get("precision", 0), summary.get("recall", 0)
-            summary["f1"] = (2 * p * r / (p + r)) if (p + r) > 0 else 0.0
-            nc["nucleotide"] = summary
+    # -- NUCLEOTIDE_CLASSIFICATION: precision, recall, F1 ---------------
+    if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics and EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name in aggregated:
+        nc = aggregated[EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name]
+        nuc_counts = nc["nucleotide"]
+        summary = _compute_summary_statistics(**nuc_counts)
+        p, r = summary.get("precision", 0), summary.get("recall", 0)
+        summary["f1"] = (2 * p * r / (p + r)) if (p + r) > 0 else 0.0
+        nc["nucleotide"] = summary
 
-        # -- STRUCTURAL_COHERENCE: chain, grammar, transcript classification --
-        if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
-            sc = class_results.get(EvalMetrics.STRUCTURAL_COHERENCE.name, {})
+    # -- STRUCTURAL_COHERENCE: chain, grammar, transcript classification --
+    if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
+        sc = aggregated.get(EvalMetrics.STRUCTURAL_COHERENCE.name, {})
+        if sc:
             sc["intron_chain"] = _compute_summary_statistics(**sc["intron_chain"])
-            # Per-transcript soft-exon metrics (exon_recall_per_transcript,
-            # hallucinated_exon_count_per_transcript) stay as raw lists so the
-            # distribution plot can draw histograms — same pattern as
-            # boundary_shift_count.
 
-            # Segment count delta distribution
             if "segment_count_delta" in sc and isinstance(sc["segment_count_delta"], list):
                 sc["segment_count_delta"] = _compute_distribution_stats(
                     sc["segment_count_delta"], is_abs=False,
                 )
 
-            # Sum raw counts
             for key in ("segment_count_gt", "segment_count_pred",
                         "intron_count_gt", "intron_count_pred"):
                 if key in sc and isinstance(sc[key], list):
                     sc[key] = sum(sc[key])
 
-
-
-            # Transcript match classification distribution
             if "transcript_match_class" in sc and isinstance(sc["transcript_match_class"], list):
                 from collections import Counter
                 counts = Counter(sc["transcript_match_class"])
@@ -625,33 +608,25 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
                     counts.get("exact", 0) / total if total > 0 else 0.0
                 )
 
-            # Transcript-level P/R tiers
             for tier_key in ("transcript_exact",
                              "pred_is_superset", "pred_is_subset"):
                 if tier_key in sc:
                     sc[tier_key] = _compute_summary_statistics(**sc[tier_key])
 
-        # -- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
-        if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
-            dd = class_results.get(EvalMetrics.DIAGNOSTIC_DEPTH.name, {})
-            if dd:
-                # Length EMD distribution
-                if "length_emd" in dd and isinstance(dd["length_emd"], list):
-                    dd["length_emd"] = _compute_distribution_stats(
-                        dd["length_emd"], is_abs=False,
-                    )
+    # -- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
+    if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
+        dd = aggregated.get(EvalMetrics.DIAGNOSTIC_DEPTH.name, {})
+        if dd:
+            if "length_emd" in dd and isinstance(dd["length_emd"], list):
+                dd["length_emd"] = _compute_distribution_stats(
+                    dd["length_emd"], is_abs=False,
+                )
 
-                # Position bias histogram — element-wise sum across sequences.
-                # recursive_merge concatenates the per-sequence lists, giving a
-                # flat list of length 100 × N.  Reshape and sum column-wise.
-                if "position_bias_histogram" in dd and isinstance(dd["position_bias_histogram"], list):
-                    raw = dd["position_bias_histogram"]
-                    if len(raw) > 100:
-                        arr = np.array(raw).reshape(-1, 100)
-                        dd["position_bias_histogram"] = arr.sum(axis=0).tolist()
-
-                # Segment length lists — keep for plotting
-                # (already extended by recursive_merge)
+            if "position_bias_histogram" in dd and isinstance(dd["position_bias_histogram"], list):
+                raw = dd["position_bias_histogram"]
+                if len(raw) > 100:
+                    arr = np.array(raw).reshape(-1, 100)
+                    dd["position_bias_histogram"] = arr.sum(axis=0).tolist()
 
     return aggregated
 
