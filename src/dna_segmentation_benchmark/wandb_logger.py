@@ -4,9 +4,10 @@ Provides plug-and-play Weights & Biases integration for two use cases:
 
 1. **Online batch logging** – call :func:`log_benchmark_scalars` inside a
    training loop to track lightweight scalar metrics per step/epoch.
-2. **Post-hoc comparison** – call :func:`log_benchmark_full` after running
-   :func:`compare_multiple_predictions` to log figures, tables, and all
-   scalar metrics at once.
+2. **Online visual tracking** – call :func:`log_benchmark_media` on the same
+   aggregated benchmark results to attach stepwise figures, and optionally
+   call :func:`log_benchmark_media_videos` later to flush the buffered figure
+   history as GIF videos.
 
 Use :func:`init_wandb_with_presets` to initialise a W&B run with
 pre-configured metric groupings so the dashboard is organised from the start.

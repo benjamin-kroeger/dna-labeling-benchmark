@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd

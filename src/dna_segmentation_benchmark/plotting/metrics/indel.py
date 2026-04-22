@@ -121,10 +121,10 @@ def plot_individual_error_lengths_histograms(
     # Deduplicated legend
     handles, labels = [], []
     for ax_ in axes:
-        for h, l in zip(*ax_.get_legend_handles_labels()):
-            if l not in labels:
-                handles.append(h)
-                labels.append(l)
+        for handle, label in zip(*ax_.get_legend_handles_labels()):
+            if label not in labels:
+                handles.append(handle)
+                labels.append(label)
     if handles:
         fig.legend(
             handles, labels, loc="lower center",

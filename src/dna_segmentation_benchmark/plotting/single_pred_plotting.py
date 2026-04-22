@@ -1,10 +1,9 @@
 import numpy as np
-from bokeh.plotting import figure, show, output_file
-from bokeh.models import ColumnDataSource, HoverTool, Range1d, Text # Import Text for alternative Y-axis labels
-from matplotlib import pyplot as plt
-import seaborn as sns
 import pandas as pd
-
+import seaborn as sns
+from bokeh.models import ColumnDataSource, HoverTool, Range1d  # Import Text for alternative Y-axis labels
+from bokeh.plotting import figure, show, output_file
+from matplotlib import pyplot as plt
 
 TYPE_COLORS = {0: "lightgreen", 2: "lightblue", 8: "black"}
 RF_COLORS = {
@@ -80,7 +79,6 @@ def plot_pred_vs_gt_enhanced(
     if ground_truth.shape != prediction.shape:
         raise ValueError("Ground truth and prediction arrays must have the same shape.")
 
-    array_length = len(ground_truth)
 
     if reading_frame is not None:
         reading_frame = np.asarray(reading_frame)

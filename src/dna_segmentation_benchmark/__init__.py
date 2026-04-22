@@ -6,6 +6,7 @@ Public API
 .. autoclass:: EvalMetrics
 .. autofunction:: benchmark_gt_vs_pred_single
 .. autofunction:: benchmark_gt_vs_pred_multiple
+.. autofunction:: benchmark_from_gff
 .. autofunction:: compare_multiple_predictions
 .. autofunction:: log_benchmark_scalars
 .. autofunction:: log_benchmark_media
@@ -44,6 +45,5 @@ __all__ = [
     "log_benchmark_scalars",
     "log_benchmark_media",
     "log_benchmark_media_videos",
-    "log_benchmark_full",
     "init_wandb_with_presets",
 ]
