@@ -76,12 +76,14 @@ def _wasserstein_distance(a: list[int], b: list[int]) -> float:
 
     try:
         from scipy.stats import wasserstein_distance
+
         return float(wasserstein_distance(a, b))
     except ImportError:
         sa = sorted(a)
         sb = sorted(b)
         n = max(len(sa), len(sb))
         import numpy as np
+
         qa = np.interp(np.linspace(0, 1, n), np.linspace(0, 1, len(sa)), sa)
         qb = np.interp(np.linspace(0, 1, n), np.linspace(0, 1, len(sb)), sb)
         return float(np.mean(np.abs(qa - qb)))
@@ -114,7 +116,7 @@ def _compute_position_bias_histogram(
     if not gt_segs:
         return [0] * n_bins
 
-    coding_start = gt_segs[0].start   # segments are ordered by position
+    coding_start = gt_segs[0].start  # segments are ordered by position
     coding_end = gt_segs[-1].end
     span = coding_end - coding_start + 1
     if span == 0:

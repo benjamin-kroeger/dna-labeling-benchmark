@@ -89,6 +89,7 @@ def _load_label_config(path: Path) -> LabelConfig:
         # GFF/GTF feature names such as exon/CDS are CLI options, not label config.
     """
     import yaml
+
     with open(path) as fh:
         raw = yaml.safe_load(fh)
     return LabelConfig(**raw)
@@ -117,8 +118,7 @@ def _parse_pred_exon_feature_specs(
     has_plain = any(":" not in spec for spec in specs)
     if has_named and has_plain:
         raise click.BadParameter(
-            "Use either plain feature types for all predictors or "
-            "predictor:type entries, not both.",
+            "Use either plain feature types for all predictors or predictor:type entries, not both.",
             param_hint="--pred-exon-feature-type",
         )
 
@@ -135,15 +135,13 @@ def _parse_pred_exon_feature_specs(
             )
         by_predictor.setdefault(predictor, []).append(feature_type)
 
-    return {
-        predictor: values[0] if len(values) == 1 else values
-        for predictor, values in by_predictor.items()
-    }
+    return {predictor: values[0] if len(values) == 1 else values for predictor, values in by_predictor.items()}
 
 
 def _serialise_results(results: dict) -> dict:
     """Convert numpy types in the results dict to JSON-serialisable types."""
     import pandas as pd
+
     if isinstance(results, dict):
         return {k: _serialise_results(v) for k, v in results.items()}
     if isinstance(results, (list, tuple)):
@@ -165,6 +163,7 @@ def _serialise_results(results: dict) -> dict:
 # CLI group
 # ------------------------------------------------------------------
 
+
 @click.group()
 @click.version_option(package_name="dna-segmentation-benchmark")
 def cli():
@@ -175,15 +174,18 @@ def cli():
 # `run` command
 # ------------------------------------------------------------------
 
+
 @cli.command()
 @click.option(
-    "--gt", "gt_path",
+    "--gt",
+    "gt_path",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Path to ground-truth annotations (.gff3 or .gtf file).",
 )
 @click.option(
-    "--pred", "pred_specs",
+    "--pred",
+    "pred_specs",
     required=True,
     type=str,
     multiple=True,
@@ -193,19 +195,22 @@ def cli():
     ),
 )
 @click.option(
-    "--config", "config_path",
+    "--config",
+    "config_path",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Path to label configuration file (.yaml).",
 )
 @click.option(
-    "--exclude-features", "exclude_features",
+    "--exclude-features",
+    "exclude_features",
     type=str,
     multiple=True,
     help="GFF feature types to ignore (e.g. --exclude-features gene).",
 )
 @click.option(
-    "--transcript-types", "transcript_types",
+    "--transcript-types",
+    "transcript_types",
     type=str,
     multiple=True,
     default=["mRNA", "transcript"],
@@ -219,10 +224,7 @@ def cli():
     multiple=True,
     default=("exon",),
     show_default=True,
-    help=(
-        "GT GFF/GTF feature type to treat as exon/coding interval. "
-        "Repeat for multiple types."
-    ),
+    help=("GT GFF/GTF feature type to treat as exon/coding interval. Repeat for multiple types."),
 )
 @click.option(
     "--pred-exon-feature-type",
@@ -236,7 +238,8 @@ def cli():
     ),
 )
 @click.option(
-    "--metrics", "metric_names",
+    "--metrics",
+    "metric_names",
     type=click.Choice(list(_METRIC_NAMES.keys()), case_sensitive=False),
     multiple=True,
     default=["REGION_DISCOVERY", "NUCLEOTIDE_CLASSIFICATION"],
@@ -244,23 +247,28 @@ def cli():
     help="Metric group(s) to compute (repeatable).",
 )
 @click.option(
-    "--output", "output_path",
+    "--output",
+    "output_path",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
     help="Write results to this JSON file instead of stdout.",
 )
 @click.option(
-    "--individual", is_flag=True, default=False,
+    "--individual",
+    is_flag=True,
+    default=False,
     help="Return per-sequence results instead of aggregated.",
 )
 @click.option(
-    "--mapping-output", "mapping_output_path",
+    "--mapping-output",
+    "mapping_output_path",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
     help="Write the GT <-> prediction mapping to this TSV file for debugging.",
 )
 @click.option(
-    "--locus-matching", "locus_matching",
+    "--locus-matching",
+    "locus_matching",
     type=click.Choice([m.value for m in LocusMatchingMode], case_sensitive=False),
     default=LocusMatchingMode.FULL_DISCOVERY.value,
     show_default=True,
@@ -275,8 +283,7 @@ def cli():
     is_flag=True,
     default=False,
     help=(
-        "Fill background gaps between adjacent coding segments with the "
-        "configured intron label before benchmarking."
+        "Fill background gaps between adjacent coding segments with the configured intron label before benchmarking."
     ),
 )
 def run(
@@ -322,8 +329,7 @@ def run(
             )
         if name in pred_paths:
             raise click.BadParameter(
-                f"Duplicate predictor name '{name}'. Use 'name:path' "
-                f"format to give each prediction a unique name.",
+                f"Duplicate predictor name '{name}'. Use 'name:path' format to give each prediction a unique name.",
                 param_hint="--pred",
             )
         pred_paths[name] = path
@@ -345,16 +351,10 @@ def run(
     # ------------------------------------------------------------------
     # 2. Read GFF files once into memory
     # ------------------------------------------------------------------
-    click.echo(
-        f"Reading GT: {gt_path.name} and "
-        f"{len(pred_paths)} prediction file(s)..."
-    )
+    click.echo(f"Reading GT: {gt_path.name} and {len(pred_paths)} prediction file(s)...")
 
     gt_df = collect_gff(str(gt_path), exclude_features=excl_list)
-    pred_dfs = {
-        name: collect_gff(str(p), exclude_features=excl_list)
-        for name, p in pred_paths.items()
-    }
+    pred_dfs = {name: collect_gff(str(p), exclude_features=excl_list) for name, p in pred_paths.items()}
 
     # ------------------------------------------------------------------
     # 3. Map GT <-> predictions
@@ -385,12 +385,8 @@ def run(
     # ------------------------------------------------------------------
     # 4. Build arrays and benchmark each predictor
     # ------------------------------------------------------------------
-    gt_by_pred: dict[str, list[np.ndarray]] = {
-        name: [] for name in pred_paths
-    }
-    pred_by_pred: dict[str, list[np.ndarray]] = {
-        name: [] for name in pred_paths
-    }
+    gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
+    pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
 
     for mapping in mappings:
         gt_arr, pred_arrs = build_paired_arrays(
@@ -404,9 +400,7 @@ def run(
         )
 
         for pred_name in pred_paths:
-            has_match = any(
-                m.predictor_name == pred_name for m in mapping.matched_predictions
-            )
+            has_match = any(m.predictor_name == pred_name for m in mapping.matched_predictions)
             if mapping.is_unmatched_prediction:
                 if not has_match:
                     continue
@@ -423,10 +417,7 @@ def run(
         pred_labels = pred_by_pred[pred_name]
 
         if not gt_labels:
-            click.echo(
-                f"  Warning: No mapped transcripts for "
-                f"predictor '{pred_name}', skipping."
-            )
+            click.echo(f"  Warning: No mapped transcripts for predictor '{pred_name}', skipping.")
             continue
 
         eval_classes = list(label_config.evaluation_labels.keys())
@@ -487,9 +478,11 @@ def run(
 # `init-config` command
 # ------------------------------------------------------------------
 
+
 @cli.command("init-config")
 @click.option(
-    "--output", "output_path",
+    "--output",
+    "output_path",
     type=click.Path(dir_okay=False, path_type=Path),
     default=Path("label_config.yaml"),
     show_default=True,
@@ -505,6 +498,7 @@ def init_config(output_path: Path):
         "splice_acceptor_label": 3,
     }
     import yaml
+
     content = yaml.dump(template, sort_keys=False)
     content += (
         "# GFF/GTF feature names are CLI options:\n"
@@ -514,7 +508,4 @@ def init_config(output_path: Path):
     )
     output_path.write_text(content)
     click.echo(f"Template config written to {output_path}")
-    click.echo(
-        "Edit the file to match your label set, then use: "
-        "dna-benchmark run --config " + str(output_path)
-    )
+    click.echo("Edit the file to match your label set, then use: dna-benchmark run --config " + str(output_path))

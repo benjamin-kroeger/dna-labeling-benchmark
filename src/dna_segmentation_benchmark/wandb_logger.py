@@ -38,6 +38,7 @@ def _require_wandb():
     """Lazily import wandb or raise a clear error."""
     try:
         import wandb
+
         return wandb
     except ImportError as exc:
         raise ImportError(
@@ -98,8 +99,8 @@ _DEFAULT_VIDEO_FORMAT = "gif"
 
 
 def _flatten_leaf(
-        data: dict,
-        prefix: str,
+    data: dict,
+    prefix: str,
 ) -> dict[str, float]:
     """Recursively flatten a dict to scalar key-value pairs."""
     flat: dict[str, float] = {}
@@ -125,9 +126,9 @@ def _get_nested_scalar(data: dict, path: tuple[str, ...]) -> float | None:
 
 
 def _flatten_selected_scalars(
-        results: dict,
-        *,
-        prefix: str = "",
+    results: dict,
+    *,
+    prefix: str = "",
 ) -> dict[str, float]:
     """Flatten the online scalar allowlist into W&B-friendly key-value pairs."""
     flat: dict[str, float] = {}
@@ -157,10 +158,10 @@ def _normalize_media_name(name: str) -> str:
 
 
 def _build_buffered_video_key(
-        *,
-        plot_name: str,
-        method_name: str,
-        method_prefix: str | None,
+    *,
+    plot_name: str,
+    method_name: str,
+    method_prefix: str | None,
 ) -> str:
     """Build the final W&B key stem used for buffered plot videos."""
     normalized_method = _normalize_media_name(method_name)
@@ -172,10 +173,10 @@ def _build_buffered_video_key(
 
 
 def _render_benchmark_media_figures(
-        results: dict,
-        label_config: LabelConfig,
-        *,
-        method_name: str,
+    results: dict,
+    label_config: LabelConfig,
+    *,
+    method_name: str,
 ) -> dict[str, Any]:
     """Render the benchmark media figures for one aggregated result dict."""
     per_transcript_results = _unwrap_per_transcript_results(results)
@@ -217,10 +218,10 @@ def _pad_frames_to_common_shape(frames: list[np.ndarray]) -> list[np.ndarray]:
 
 
 def _buffer_media_frames(
-        figures: dict[str, Any],
-        *,
-        method_name: str,
-        method_prefix: str | None,
+    figures: dict[str, Any],
+    *,
+    method_name: str,
+    method_prefix: str | None,
 ) -> None:
     """Append the current media figures to the internal video-frame buffer."""
     for fig_name, plot_name in _MEDIA_FIGURE_KEYS.items():
@@ -246,9 +247,9 @@ def _infer_metrics_from_results(results: dict) -> list[EvalMetrics]:
 
 
 def _flatten_all_scalars(
-        results: dict,
-        *,
-        prefix: str = "",
+    results: dict,
+    *,
+    prefix: str = "",
 ) -> dict[str, float]:
     """Flatten all scalar-like benchmark results for post-hoc logging."""
     flat: dict[str, float] = {}
@@ -272,10 +273,10 @@ def _flatten_all_scalars(
 
 
 def log_benchmark_scalars(
-        results: dict,
-        label_config: LabelConfig,
-        step: Optional[int] = None,
-        method_prefix: Optional[str] = None,
+    results: dict,
+    label_config: LabelConfig,
+    step: Optional[int] = None,
+    method_prefix: Optional[str] = None,
 ) -> dict[str, float]:
     """Log scalar benchmark metrics to an active W&B run.
 
@@ -317,11 +318,11 @@ def log_benchmark_scalars(
 
 
 def log_benchmark_media(
-        results: dict,
-        label_config: LabelConfig,
-        step: Optional[int] = None,
-        method_prefix: Optional[str] = None,
-        method_name: str = "model",
+    results: dict,
+    label_config: LabelConfig,
+    step: Optional[int] = None,
+    method_prefix: Optional[str] = None,
+    method_name: str = "model",
 ) -> dict[str, Any]:
     """Log key diagnostic plots to W&B as stepwise media history.
 
@@ -421,19 +422,18 @@ def log_benchmark_media_videos() -> dict[str, Any]:
     return video_payload
 
 
-
 # ---------------------------------------------------------------------------
 # Public API: W&B initialisation with metric presets
 # ---------------------------------------------------------------------------
 
 
 def init_wandb_with_presets(
-        project: str,
-        run_name: str,
-        label_config: LabelConfig,
-        classes: list[int],
-        config: Optional[dict] = None,
-        **wandb_init_kwargs,
+    project: str,
+    run_name: str,
+    label_config: LabelConfig,
+    classes: list[int],
+    config: Optional[dict] = None,
+    **wandb_init_kwargs,
 ) -> Any:
     """Initialise a W&B run with pre-configured metric groupings.
 
@@ -481,7 +481,8 @@ def init_wandb_with_presets(
 
     logger.info(
         "Initialised W&B run '%s' in project '%s' with metric-family W&B presets.",
-        run_name, project,
+        run_name,
+        project,
     )
 
     return run

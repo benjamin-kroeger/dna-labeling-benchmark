@@ -54,11 +54,13 @@ def _normalise_pyranges_df(gr_df: pd.DataFrame, fmt: str) -> pd.DataFrame:
     Returns columns: ``seqid``, ``type``, ``start``, ``end``, ``strand``,
     ``gff_id``, ``parent``.
     """
-    df = gr_df.rename(columns={
-        "Chromosome": "seqid",
-        "Feature": "type",
-        "Strand": "strand",
-    })
+    df = gr_df.rename(
+        columns={
+            "Chromosome": "seqid",
+            "Feature": "type",
+            "Strand": "strand",
+        }
+    )
 
     # PyRanges 0-based half-open → 1-based inclusive
     df["start"] = df["Start"] + 1
@@ -182,9 +184,7 @@ def read_gff_to_arrays(
         If the GFF file cannot be parsed.
     """
     if label_config.coding_label is None:
-        raise ValueError(
-            "LabelConfig must have `coding_label` set to parse GFF features."
-        )
+        raise ValueError("LabelConfig must have `coding_label` set to parse GFF features.")
 
     coding_val = label_config.coding_label
     bg_val = label_config.background_label
@@ -217,9 +217,10 @@ def read_gff_to_arrays(
 
         if pd.isna(t_id) or pd.isna(t_start) or pd.isna(t_end):
             logger.debug(
-                "Skipping transcript with missing field(s): "
-                "id=%s, start=%s, end=%s",
-                t_id, t_start, t_end,
+                "Skipping transcript with missing field(s): id=%s, start=%s, end=%s",
+                t_id,
+                t_start,
+                t_end,
             )
             continue
 
@@ -254,7 +255,11 @@ def read_gff_to_arrays(
             logger.debug(
                 "Child feature of %s extends outside transcript boundaries "
                 "(child: %d-%d, transcript: %d-%d). Clipping to transcript span.",
-                parent_id, c_start, c_end, t_start, t_start + len(arr) - 1,
+                parent_id,
+                c_start,
+                c_end,
+                t_start,
+                t_start + len(arr) - 1,
             )
 
         if local_start < local_end:

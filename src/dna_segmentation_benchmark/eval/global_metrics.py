@@ -87,19 +87,35 @@ def compute_global_metrics(
     """
     return {
         "nucleotide": _compute_global_nucleotide_metrics(
-            gt_df, pred_df, label_config, gt_exon_types, pred_exon_types, transcript_types,
+            gt_df,
+            pred_df,
+            label_config,
+            gt_exon_types,
+            pred_exon_types,
+            transcript_types,
         ),
         "exon": _compute_global_exon_metrics(
-            gt_df, pred_df, gt_exon_types, pred_exon_types,
+            gt_df,
+            pred_df,
+            gt_exon_types,
+            pred_exon_types,
         ),
         "exon_lenient": _compute_global_exon_lenient_metrics(
-            gt_df, pred_df, gt_exon_types, pred_exon_types,
+            gt_df,
+            pred_df,
+            gt_exon_types,
+            pred_exon_types,
         ),
         "transcript": _compute_transcript_level_metrics(
-            mappings, predictor_name,
+            mappings,
+            predictor_name,
         ),
         "gene": _compute_gene_level_metrics(
-            gt_df, pred_df, mappings, predictor_name, transcript_types,
+            gt_df,
+            pred_df,
+            mappings,
+            predictor_name,
+            transcript_types,
         ),
     }
 
@@ -135,10 +151,7 @@ def _compute_global_nucleotide_metrics(
 
     total_tp = total_fp = total_fn = 0
 
-    all_seqids = (
-        set(gt_df["seqid"].dropna().unique())
-        | set(pred_df["seqid"].dropna().unique())
-    )
+    all_seqids = set(gt_df["seqid"].dropna().unique()) | set(pred_df["seqid"].dropna().unique())
 
     for seqid in sorted(all_seqids):
         for strand in ("+", "-"):
@@ -153,12 +166,24 @@ def _compute_global_nucleotide_metrics(
                 length = region_end - region_start + 1
 
                 ref_arr = _build_exon_union_array(
-                    gt_df, seqid, strand, region_start, length,
-                    gt_exon_types, coding_val, bg_val,
+                    gt_df,
+                    seqid,
+                    strand,
+                    region_start,
+                    length,
+                    gt_exon_types,
+                    coding_val,
+                    bg_val,
                 )
                 pred_arr = _build_exon_union_array(
-                    pred_df, seqid, strand, region_start, length,
-                    pred_exon_types, coding_val, bg_val,
+                    pred_df,
+                    seqid,
+                    strand,
+                    region_start,
+                    length,
+                    pred_exon_types,
+                    coding_val,
+                    bg_val,
                 )
 
                 ref_exonic = ref_arr == coding_val
@@ -168,7 +193,7 @@ def _compute_global_nucleotide_metrics(
                 total_fn += int(np.sum(ref_exonic & ~pred_exonic))
 
     precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
-    recall    = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
+    recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
 
     return {
         "tp": total_tp,
@@ -205,23 +230,23 @@ def _compute_global_exon_metrics(
     first/last exons), but avoids the ambiguity introduced by UTR variation
     and TSS heterogeneity.
     """
-    ref_exon_keys  = _collect_exon_keys(gt_df, gt_exon_types)
+    ref_exon_keys = _collect_exon_keys(gt_df, gt_exon_types)
     pred_exon_keys = _collect_exon_keys(pred_df, pred_exon_types)
 
-    n_matched  = len(ref_exon_keys & pred_exon_keys)
-    ref_total  = len(ref_exon_keys)
+    n_matched = len(ref_exon_keys & pred_exon_keys)
+    ref_total = len(ref_exon_keys)
     pred_total = len(pred_exon_keys)
 
-    sensitivity = n_matched / ref_total  if ref_total  > 0 else 0.0
-    precision   = n_matched / pred_total if pred_total > 0 else 0.0
+    sensitivity = n_matched / ref_total if ref_total > 0 else 0.0
+    precision = n_matched / pred_total if pred_total > 0 else 0.0
 
     return {
-        "ref_exon_count":   ref_total,
+        "ref_exon_count": ref_total,
         "ref_exon_matched": n_matched,
-        "pred_exon_count":   pred_total,
+        "pred_exon_count": pred_total,
         "pred_exon_matched": n_matched,
         "sensitivity": sensitivity,
-        "precision":   precision,
+        "precision": precision,
         "f1": _f1(sensitivity, precision),
     }
 
@@ -337,12 +362,14 @@ def _collect_exon_keys(
         & df["end"].notna()
     )
     exons = df[mask]
-    return set(zip(
-        exons["seqid"],
-        exons["strand"],
-        exons["start"].astype(int),
-        exons["end"].astype(int),
-    ))
+    return set(
+        zip(
+            exons["seqid"],
+            exons["strand"],
+            exons["start"].astype(int),
+            exons["end"].astype(int),
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -364,31 +391,28 @@ def _compute_transcript_level_metrics(
     ref_total = ref_matched = pred_total = pred_matched = 0
 
     for mapping in mappings:
-        pred_hits = [
-            m for m in mapping.matched_predictions
-            if m.predictor_name == predictor_name
-        ]
+        pred_hits = [m for m in mapping.matched_predictions if m.predictor_name == predictor_name]
 
         if mapping.is_unmatched_prediction:
             if pred_hits:
-                pred_total += 1          # unmatched pred lowers precision
+                pred_total += 1  # unmatched pred lowers precision
         else:
             ref_total += 1
             if pred_hits:
                 ref_matched += 1
-                pred_total   += 1
+                pred_total += 1
                 pred_matched += 1
 
-    sensitivity = ref_matched  / ref_total  if ref_total  > 0 else 0.0
-    precision   = pred_matched / pred_total if pred_total > 0 else 0.0
+    sensitivity = ref_matched / ref_total if ref_total > 0 else 0.0
+    precision = pred_matched / pred_total if pred_total > 0 else 0.0
 
     return {
-        "ref_transcript_count":   ref_total,
+        "ref_transcript_count": ref_total,
         "ref_transcript_matched": ref_matched,
-        "pred_transcript_count":   pred_total,
+        "pred_transcript_count": pred_total,
         "pred_transcript_matched": pred_matched,
         "sensitivity": sensitivity,
-        "precision":   precision,
+        "precision": precision,
         "f1": _f1(sensitivity, precision),
     }
 
@@ -426,19 +450,19 @@ def _compute_gene_level_metrics(
         if m.predictor_name == predictor_name
     }
 
-    gt_locus_count,   gt_locus_matched   = _count_matched_loci(gt_df,   transcript_types, matched_gt_ids)
+    gt_locus_count, gt_locus_matched = _count_matched_loci(gt_df, transcript_types, matched_gt_ids)
     pred_locus_count, pred_locus_matched = _count_matched_loci(pred_df, transcript_types, matched_pred_ids)
 
-    sensitivity = gt_locus_matched   / gt_locus_count   if gt_locus_count   > 0 else 0.0
-    precision   = pred_locus_matched / pred_locus_count if pred_locus_count > 0 else 0.0
+    sensitivity = gt_locus_matched / gt_locus_count if gt_locus_count > 0 else 0.0
+    precision = pred_locus_matched / pred_locus_count if pred_locus_count > 0 else 0.0
 
     return {
-        "ref_locus_count":   gt_locus_count,
+        "ref_locus_count": gt_locus_count,
         "ref_locus_matched": gt_locus_matched,
-        "pred_locus_count":   pred_locus_count,
+        "pred_locus_count": pred_locus_count,
         "pred_locus_matched": pred_locus_matched,
         "sensitivity": sensitivity,
-        "precision":   precision,
+        "precision": precision,
         "f1": _f1(sensitivity, precision),
     }
 
@@ -509,11 +533,13 @@ def _get_transcript_spans_with_ids(
         & df["gff_id"].notna()
     )
     rows = df[mask]
-    return list(zip(
-        rows["start"].astype(int),
-        rows["end"].astype(int),
-        rows["gff_id"].astype(str),
-    ))
+    return list(
+        zip(
+            rows["start"].astype(int),
+            rows["end"].astype(int),
+            rows["gff_id"].astype(str),
+        )
+    )
 
 
 def _merge_intervals(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -608,7 +634,7 @@ def _build_exon_union_array(
 
     for feat_start, feat_end in zip(exons["start"], exons["end"]):
         local_start = max(0, int(feat_start) - region_start)
-        local_end   = min(array_length, int(feat_end) - region_start + 1)
+        local_end = min(array_length, int(feat_end) - region_start + 1)
         if local_start < local_end:
             arr[local_start:local_end] = coding_val
 

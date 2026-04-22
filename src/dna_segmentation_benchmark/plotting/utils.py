@@ -15,20 +15,18 @@ def _save_figure(fig: plt.Figure, save_path: Path, logger) -> None:
 
 
 def _add_icon_to_ax(
-        ax: plt.Axes,
-        icon_path: str,
-        logger,
-        zoom: float = 0.2,
-        x_rel_pos: float = 0.5,
-        y_rel_pos: float = 1.25,
+    ax: plt.Axes,
+    icon_path: str,
+    logger,
+    zoom: float = 0.2,
+    x_rel_pos: float = 0.5,
+    y_rel_pos: float = 1.25,
 ) -> None:
     """Place an image (icon) above *ax*."""
     try:
         icon_img = plt.imread(icon_path)
         imagebox = OffsetImage(icon_img, zoom=zoom)
-        ab = AnnotationBbox(
-            imagebox, (x_rel_pos, y_rel_pos), xycoords=ax.transAxes, frameon=False
-        )
+        ab = AnnotationBbox(imagebox, (x_rel_pos, y_rel_pos), xycoords=ax.transAxes, frameon=False)
         ax.add_artist(ab)
     except FileNotFoundError:
         logger.warning("Icon not found: %s", icon_path)
@@ -37,10 +35,10 @@ def _add_icon_to_ax(
 
 
 def _add_pictogram_panel(
-        fig: plt.Figure,
-        metadata: PlotMetadata | None,
-        logger,
-        panel_width_fraction: float = 0.22,
+    fig: plt.Figure,
+    metadata: PlotMetadata | None,
+    logger,
+    panel_width_fraction: float = 0.22,
 ) -> None:
     """Add a right-side pictogram panel to *fig*.
 
@@ -55,12 +53,12 @@ def _add_pictogram_panel(
     if metadata is None:
         return
     has_content = (
-            metadata.icon_path is not None
-            or metadata.description
-            or metadata.bullet_points
-            or metadata.caveat
-            or metadata.show_tp_tn_fp_fn
-            or metadata.display_name
+        metadata.icon_path is not None
+        or metadata.description
+        or metadata.bullet_points
+        or metadata.caveat
+        or metadata.show_tp_tn_fp_fn
+        or metadata.display_name
     )
     if not has_content:
         return
@@ -88,12 +86,14 @@ def _add_pictogram_panel(
 
     for ax in existing_axes:
         box = ax.get_position()
-        ax.set_position([
-            left_edge + (box.x0 - left_edge) * scale,
-            box.y0,
-            box.width * scale,
-            box.height,
-        ])
+        ax.set_position(
+            [
+                left_edge + (box.x0 - left_edge) * scale,
+                box.y0,
+                box.width * scale,
+                box.height,
+            ]
+        )
 
     # Create the panel axes on the freed right-hand side
     panel_left = 1 - panel_width_fraction + 0.01
@@ -123,8 +123,13 @@ def _add_pictogram_panel(
         # Text x-position is center of panel, y-position is y_cursor
         text_x = panel_x0 + panel_w / 2
         fig.text(
-            text_x, y_cursor, metadata.display_name,
-            ha="center", va="top", fontsize=13, fontweight="bold",
+            text_x,
+            y_cursor,
+            metadata.display_name,
+            ha="center",
+            va="top",
+            fontsize=13,
+            fontweight="bold",
             wrap=True,
         )
         y_cursor -= panel_h * 0.08  # Move cursor down
@@ -167,7 +172,8 @@ def _add_pictogram_panel(
             y_cursor -= icon_h_fig_frac + panel_h * 0.04  # Move cursor down past icon and add spacing
         except Exception:
             logger.warning(
-                "Could not load panel icon: %s", metadata.icon_path,
+                "Could not load panel icon: %s",
+                metadata.icon_path,
                 exc_info=True,
             )
 
@@ -179,8 +185,12 @@ def _add_pictogram_panel(
     if metadata.description:
         wrapped = textwrap.fill(metadata.description, width=wrap_width)
         fig.text(
-            text_x_left, y_cursor, wrapped,
-            ha="left", va="top", fontsize=11,
+            text_x_left,
+            y_cursor,
+            wrapped,
+            ha="left",
+            va="top",
+            fontsize=11,
             linespacing=1.4,
             style="italic",
         )
@@ -191,12 +201,17 @@ def _add_pictogram_panel(
     if metadata.bullet_points:
         for bullet in metadata.bullet_points:
             bullet_text = textwrap.fill(
-                f"\u2022 {bullet}", width=wrap_width + 4,
+                f"\u2022 {bullet}",
+                width=wrap_width + 4,
                 subsequent_indent="  ",
             )
             fig.text(
-                text_x_left, y_cursor, bullet_text,
-                ha="left", va="top", fontsize=10,
+                text_x_left,
+                y_cursor,
+                bullet_text,
+                ha="left",
+                va="top",
+                fontsize=10,
                 linespacing=1.3,
             )
             n_lines = bullet_text.count("\n") + 1
@@ -207,12 +222,17 @@ def _add_pictogram_panel(
     # --- Caveat box ---
     if metadata.caveat:
         caveat_text = textwrap.fill(
-            f"\u26A0 {metadata.caveat}", width=wrap_width + 4,
+            f"\u26a0 {metadata.caveat}",
+            width=wrap_width + 4,
             subsequent_indent="  ",
         )
         fig.text(
-            text_x_left, y_cursor, caveat_text,
-            ha="left", va="top", fontsize=8,
+            text_x_left,
+            y_cursor,
+            caveat_text,
+            ha="left",
+            va="top",
+            fontsize=8,
             linespacing=1.3,
             color="#8B6914",
             bbox=dict(
@@ -237,10 +257,7 @@ def _add_pictogram_panel(
             defn = getattr(metadata, attr, None) or default
             parts.append(f"\u2022 {label}: {defn}")
 
-        wrapped_parts = [
-            textwrap.fill(p, width=wrap_width + 8, subsequent_indent="  ")
-            for p in parts
-        ]
+        wrapped_parts = [textwrap.fill(p, width=wrap_width + 8, subsequent_indent="  ") for p in parts]
         definitions = "\n".join(wrapped_parts)
 
         # Place at fixed position near the bottom to avoid overlap
@@ -250,8 +267,12 @@ def _add_pictogram_panel(
         final_tp_y = min(y_cursor - panel_h * 0.02, tp_y_top)
 
         fig.text(
-            text_x_left, final_tp_y, definitions,
-            ha="left", va="top", fontsize=8,
+            text_x_left,
+            final_tp_y,
+            definitions,
+            ha="left",
+            va="top",
+            fontsize=8,
             linespacing=1.5,
             family="monospace",
             bbox=dict(

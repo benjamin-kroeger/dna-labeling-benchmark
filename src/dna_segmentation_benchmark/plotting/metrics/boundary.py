@@ -9,11 +9,12 @@ from ..utils import _add_pictogram_panel
 
 logger = logging.getLogger(__name__)
 
+
 def plot_boundary_precision_landscapes(
-        df_fuzzy_boundaries: pd.DataFrame,
-        class_name: str,
-        max_range: int = 10,
-        metadata: PlotMetadata | None = None,
+    df_fuzzy_boundaries: pd.DataFrame,
+    class_name: str,
+    max_range: int = 10,
+    metadata: PlotMetadata | None = None,
 ) -> list[plt.Figure]:
     """Plot the two diagnostic matrices to visualize model bias and reliability.
 
@@ -31,11 +32,9 @@ def plot_boundary_precision_landscapes(
     figures: list[plt.Figure] = []
 
     for method in df_fuzzy_boundaries["method_name"].unique().tolist():
-        bias_matrix, reliability_matrix = (
-            df_fuzzy_boundaries[
-                df_fuzzy_boundaries["method_name"] == method
-                ]["value"].iloc[0]
-        )
+        bias_matrix, reliability_matrix = df_fuzzy_boundaries[df_fuzzy_boundaries["method_name"] == method][
+            "value"
+        ].iloc[0]
 
         fig, axes = plt.subplots(1, 2, figsize=(16, 7))
 
@@ -47,7 +46,9 @@ def plot_boundary_precision_landscapes(
             cbar_kws={"label": f"Frequency (Number of {class_name} Sections)"},
         )
         axes[0].set_title(
-            f"Boundary Bias Landscape (±{max_range}bp)", fontsize=14, pad=15,
+            f"Boundary Bias Landscape (±{max_range}bp)",
+            fontsize=14,
+            pad=15,
         )
         axes[0].set_ylabel(bias_matrix.index.name, fontsize=12)
         axes[0].set_xlabel(bias_matrix.columns.name, fontsize=12)
@@ -81,7 +82,7 @@ def plot_boundary_precision_landscapes(
 
         fig.suptitle(f"{method}", fontsize=14)
         plt.tight_layout()
-        _add_pictogram_panel(fig, metadata,logger=logger)
+        _add_pictogram_panel(fig, metadata, logger=logger)
         figures.append(fig)
 
     return figures

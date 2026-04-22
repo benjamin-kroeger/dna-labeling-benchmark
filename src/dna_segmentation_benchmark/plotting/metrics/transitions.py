@@ -18,9 +18,9 @@ from ...label_definition import LabelConfig
 
 
 def plot_transition_matrices(
-        transition_failures: dict,
-        label_config: LabelConfig,
-        method_name: str,
+    transition_failures: dict,
+    label_config: LabelConfig,
+    method_name: str,
 ) -> plt.Figure | None:
     """Plot a grid of GT-transition confusion matrices.
 
@@ -73,8 +73,8 @@ def plot_transition_matrices(
 
 
 def plot_false_transitions(
-        per_method_data: dict[str, dict],
-        label_config: LabelConfig,
+    per_method_data: dict[str, dict],
+    label_config: LabelConfig,
 ) -> plt.Figure | None:
     """Multi-method false transition comparison using faceted subplots.
 
@@ -121,12 +121,14 @@ def plot_false_transitions(
             catch_up = int(target_vec[row_idx])
             if catch_up > 0:
                 any_false = True
-            rows.append({
-                "GT label": gt_label,
-                "Type": "Late catch-up",
-                "Count": catch_up,
-                "Method": method_name,
-            })
+            rows.append(
+                {
+                    "GT label": gt_label,
+                    "Type": "Late catch-up",
+                    "Count": catch_up,
+                    "Method": method_name,
+                }
+            )
 
             # Spurious (off-diagonal)
             for col_idx, col_lid in enumerate(label_ids):
@@ -135,12 +137,14 @@ def plot_false_transitions(
                     if count > 0:
                         any_false = True
                     target_name = label_config.labels[col_lid]
-                    rows.append({
-                        "GT label": gt_label,
-                        "Type": f"Spurious → {target_name}",
-                        "Count": count,
-                        "Method": method_name,
-                    })
+                    rows.append(
+                        {
+                            "GT label": gt_label,
+                            "Type": f"Spurious → {target_name}",
+                            "Count": count,
+                            "Method": method_name,
+                        }
+                    )
 
     if not any_false:
         return None
@@ -148,9 +152,7 @@ def plot_false_transitions(
     df = pd.DataFrame(rows)
 
     # Order types: "Late catch-up" first, then spurious targets
-    type_order = ["Late catch-up"] + [
-        f"Spurious → {label_config.labels[lid]}" for lid in label_ids
-    ]
+    type_order = ["Late catch-up"] + [f"Spurious → {label_config.labels[lid]}" for lid in label_ids]
     # Keep only types present in data
     type_order = [t for t in type_order if t in df["Type"].values]
 
@@ -159,7 +161,8 @@ def plot_false_transitions(
 
     # ---- Create faceted figure ------------------------------------------
     fig, axes = plt.subplots(
-        1, num_labels,
+        1,
+        num_labels,
         figsize=(6 * num_labels, max(4, num_types * 1.0 + 2)),
         sharey=True,
     )
@@ -194,9 +197,12 @@ def plot_false_transitions(
                 width = bar.get_width()
                 if width > 0:
                     ax.text(
-                        width, bar.get_y() + bar.get_height() / 2,
+                        width,
+                        bar.get_y() + bar.get_height() / 2,
                         f" {int(width)}",
-                        ha="left", va="center", fontsize=9,
+                        ha="left",
+                        va="center",
+                        fontsize=9,
                     )
 
         ax.set_title(f"Inside {gt_label}", fontsize=13, fontweight="bold")

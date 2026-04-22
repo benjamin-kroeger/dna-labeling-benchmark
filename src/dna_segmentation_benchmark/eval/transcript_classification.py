@@ -142,17 +142,23 @@ def _classify_transcript_match(
 
 # Which match classes count as TP at each tier
 _TIER_TP_CLASSES: dict[str, frozenset[TranscriptMatchClass]] = {
-    "transcript_exact": frozenset({
-        TranscriptMatchClass.EXACT,
-    }),
-    "pred_is_superset": frozenset({
-        TranscriptMatchClass.EXACT,
-        TranscriptMatchClass.EXTRA_SEGMENTS,
-    }),
-    "pred_is_subset": frozenset({
-        TranscriptMatchClass.EXACT,
-        TranscriptMatchClass.MISSING_SEGMENTS,
-    }),
+    "transcript_exact": frozenset(
+        {
+            TranscriptMatchClass.EXACT,
+        }
+    ),
+    "pred_is_superset": frozenset(
+        {
+            TranscriptMatchClass.EXACT,
+            TranscriptMatchClass.EXTRA_SEGMENTS,
+        }
+    ),
+    "pred_is_subset": frozenset(
+        {
+            TranscriptMatchClass.EXACT,
+            TranscriptMatchClass.MISSING_SEGMENTS,
+        }
+    ),
 }
 
 
@@ -209,8 +215,8 @@ def _compute_transcript_level_pr(
         is_tp = match_cls in tp_classes
         result[tier_name] = {
             "tp": int(is_tp),
-            "fn": int(not is_tp),                       # GT not recovered at this tier
-            "fp": int(has_pred and not is_tp),          # pred exists but invalid at this tier
+            "fn": int(not is_tp),  # GT not recovered at this tier
+            "fp": int(has_pred and not is_tp),  # pred exists but invalid at this tier
         }
 
     result["boundary_shift_count"] = boundary_shift_count

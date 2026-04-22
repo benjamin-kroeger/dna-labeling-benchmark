@@ -46,10 +46,12 @@ from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
 # Helpers — which groups need section overlap to be computed
 # ---------------------------------------------------------------------------
 
-_SECTION_DEPENDENT_GROUPS = frozenset({
-    EvalMetrics.REGION_DISCOVERY,
-    EvalMetrics.BOUNDARY_EXACTNESS,
-})
+_SECTION_DEPENDENT_GROUPS = frozenset(
+    {
+        EvalMetrics.REGION_DISCOVERY,
+        EvalMetrics.BOUNDARY_EXACTNESS,
+    }
+)
 
 # Arrays at or above this length are treated as possible chromosome-scale input.
 # On such arrays, a coding-to-coding gap can be either a true intron or an
@@ -73,8 +75,8 @@ def _needs_section_analysis(metrics: list[EvalMetrics]) -> bool:
 
 
 def _infer_introns_from_coding_gaps(
-        labels: np.ndarray,
-        label_config: LabelConfig,
+    labels: np.ndarray,
+    label_config: LabelConfig,
 ) -> np.ndarray:
     """Return labels with inferred introns between adjacent coding segments.
 
@@ -127,8 +129,7 @@ def _infer_introns_from_coding_gaps(
 
     if coding is None or intron is None:
         warnings.warn(
-            "infer_introns=True requires both coding_label and intron_label; "
-            "leaving labels unchanged.",
+            "infer_introns=True requires both coding_label and intron_label; leaving labels unchanged.",
             stacklevel=2,
         )
         return labels.copy()
@@ -140,10 +141,7 @@ def _infer_introns_from_coding_gaps(
         for left, right in zip(coding_groups, coding_groups[1:])
         if int(right[0]) > int(left[-1]) + 1
     ]
-    large_gap_cutoff = (
-        _large_array_inferable_gap_cutoff(gap_lengths)
-        if is_large_input else None
-    )
+    large_gap_cutoff = _large_array_inferable_gap_cutoff(gap_lengths) if is_large_input else None
 
     for left, right in zip(coding_groups, coding_groups[1:]):
         gap_start = int(left[-1]) + 1
@@ -204,7 +202,7 @@ def _large_array_inferable_gap_cutoff(gap_lengths: list[int]) -> int | None:
         last_short_gap = sorted_gaps[largest_jump_idx]
         return int(np.floor(np.sqrt(last_short_gap * first_long_gap)))
 
-    lower_half = sorted_gaps[:max(1, len(sorted_gaps) // 2)]
+    lower_half = sorted_gaps[: max(1, len(sorted_gaps) // 2)]
     typical_gap = float(np.median(lower_half))
     if typical_gap <= 0:
         return None
@@ -218,12 +216,12 @@ def _large_array_inferable_gap_cutoff(gap_lengths: list[int]) -> int | None:
 
 
 def benchmark_gt_vs_pred_single(
-        gt_labels: np.ndarray,
-        pred_labels: np.ndarray,
-        label_config: LabelConfig,
-        metrics: Optional[list[EvalMetrics]] = None,
-        mask_labels: Optional[np.ndarray] = None,
-        infer_introns: bool = False,
+    gt_labels: np.ndarray,
+    pred_labels: np.ndarray,
+    label_config: LabelConfig,
+    metrics: Optional[list[EvalMetrics]] = None,
+    mask_labels: Optional[np.ndarray] = None,
+    infer_introns: bool = False,
 ) -> dict[str, dict]:
     """Compare a single ground-truth sequence against a single prediction.
 
@@ -282,7 +280,7 @@ def benchmark_gt_vs_pred_single(
 
     if mask_labels is not None:
         is_valid = ~mask_labels.astype(bool)
-        padded = np.pad(is_valid, (1, 1), mode='constant', constant_values=False)
+        padded = np.pad(is_valid, (1, 1), mode="constant", constant_values=False)
         starts = np.where(~padded[:-1] & padded[1:])[0]
         ends = np.where(padded[:-1] & ~padded[1:])[0]
 
@@ -405,7 +403,6 @@ def benchmark_gt_vs_pred_single(
 
     # ---- Frameshift metrics -------------------------------------------
     if EvalMetrics.FRAMESHIFT in metrics:
-
         if label_config.coding_label is None:
             raise ValueError(
                 "FRAMESHIFT metric requested but LabelConfig.coding_label "
@@ -413,13 +410,11 @@ def benchmark_gt_vs_pred_single(
                 "your LabelConfig."
             )
 
-        metric_results[EvalMetrics.FRAMESHIFT.name] = (
-                _get_frame_shift_metrics(
-                    gt_labels=gt_labels,
-                    pred_labels=pred_labels,
-                    coding_value=label_config.coding_label,
-                )
-            )
+        metric_results[EvalMetrics.FRAMESHIFT.name] = _get_frame_shift_metrics(
+            gt_labels=gt_labels,
+            pred_labels=pred_labels,
+            coding_value=label_config.coding_label,
+        )
 
     # ---- Extract structures once (shared by STRUCTURAL_COHERENCE & DIAGNOSTIC_DEPTH)
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics or EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
@@ -435,7 +430,9 @@ def benchmark_gt_vs_pred_single(
         sc_result.update(soft)
 
         match_cls, boundary_shift_count, boundary_shift_total, n_gt, n_pred = _classify_transcript_match(
-            gt_struct, pred_struct, label_config.coding_label,
+            gt_struct,
+            pred_struct,
+            label_config.coding_label,
         )
         if match_cls is not None:
             sc_result["transcript_match_class"] = match_cls.value
@@ -449,7 +446,9 @@ def benchmark_gt_vs_pred_single(
     # ---- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
         summary = _compute_structural_summary(
-            gt_struct, pred_struct, label_config.coding_label,
+            gt_struct,
+            pred_struct,
+            label_config.coding_label,
         )
         metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = summary
 
@@ -462,13 +461,13 @@ def benchmark_gt_vs_pred_single(
 
 
 def benchmark_gt_vs_pred_multiple(
-        gt_labels: list[np.ndarray],
-        pred_labels: list[np.ndarray],
-        label_config: LabelConfig,
-        metrics: Optional[list[EvalMetrics]] = None,
-        return_individual_results: bool = False,
-        mask_labels: Optional[list[np.ndarray]] = None,
-        infer_introns: bool = False,
+    gt_labels: list[np.ndarray],
+    pred_labels: list[np.ndarray],
+    label_config: LabelConfig,
+    metrics: Optional[list[EvalMetrics]] = None,
+    return_individual_results: bool = False,
+    mask_labels: Optional[list[np.ndarray]] = None,
+    infer_introns: bool = False,
 ) -> dict | list[dict]:
     """Run :func:`benchmark_gt_vs_pred_single` over paired GT/pred lists.
 
@@ -497,15 +496,9 @@ def benchmark_gt_vs_pred_multiple(
         Aggregated (default) or per-sequence results.
     """
     if len(gt_labels) != len(pred_labels):
-        raise ValueError(
-            f"GT and prediction lists must have equal length, "
-            f"got {len(gt_labels)} vs {len(pred_labels)}."
-        )
+        raise ValueError(f"GT and prediction lists must have equal length, got {len(gt_labels)} vs {len(pred_labels)}.")
     if mask_labels is not None and len(mask_labels) != len(gt_labels):
-        raise ValueError(
-            f"Mask list length ({len(mask_labels)}) must match "
-            f"GT list length ({len(gt_labels)})."
-        )
+        raise ValueError(f"Mask list length ({len(mask_labels)}) must match GT list length ({len(gt_labels)}).")
 
     metrics = deepcopy(metrics) if metrics is not None else list(_DEFAULT_METRICS)
 
@@ -559,8 +552,7 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
     # -- REGION_DISCOVERY: precision & recall per strictness level ------
     if EvalMetrics.REGION_DISCOVERY in metrics and EvalMetrics.REGION_DISCOVERY.name in aggregated:
         rd = aggregated[EvalMetrics.REGION_DISCOVERY.name]
-        for level_key in ("neighborhood_hit", "internal_hit",
-                          "full_coverage_hit", "perfect_boundary_hit"):
+        for level_key in ("neighborhood_hit", "internal_hit", "full_coverage_hit", "perfect_boundary_hit"):
             rd[level_key] = _compute_summary_statistics(**rd[level_key])
 
     # -- BOUNDARY_EXACTNESS: IoU stats + landscape -
@@ -593,25 +585,23 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
 
             if "segment_count_delta" in sc and isinstance(sc["segment_count_delta"], list):
                 sc["segment_count_delta"] = _compute_distribution_stats(
-                    sc["segment_count_delta"], is_abs=False,
+                    sc["segment_count_delta"],
+                    is_abs=False,
                 )
 
-            for key in ("segment_count_gt", "segment_count_pred",
-                        "intron_count_gt", "intron_count_pred"):
+            for key in ("segment_count_gt", "segment_count_pred", "intron_count_gt", "intron_count_pred"):
                 if key in sc and isinstance(sc[key], list):
                     sc[key] = sum(sc[key])
 
             if "transcript_match_class" in sc and isinstance(sc["transcript_match_class"], list):
                 from collections import Counter
+
                 counts = Counter(sc["transcript_match_class"])
                 total = sum(counts.values())
                 sc["transcript_match_distribution"] = dict(counts)
-                sc["exact_match_rate"] = (
-                    counts.get("exact", 0) / total if total > 0 else 0.0
-                )
+                sc["exact_match_rate"] = counts.get("exact", 0) / total if total > 0 else 0.0
 
-            for tier_key in ("transcript_exact",
-                             "pred_is_superset", "pred_is_subset"):
+            for tier_key in ("transcript_exact", "pred_is_superset", "pred_is_subset"):
                 if tier_key in sc:
                     sc[tier_key] = _compute_summary_statistics(**sc[tier_key])
 
@@ -621,7 +611,8 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
         if dd:
             if "length_emd" in dd and isinstance(dd["length_emd"], list):
                 dd["length_emd"] = _compute_distribution_stats(
-                    dd["length_emd"], is_abs=False,
+                    dd["length_emd"],
+                    is_abs=False,
                 )
 
             if "position_bias_histogram" in dd and isinstance(dd["position_bias_histogram"], list):
@@ -634,9 +625,9 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
 
 
 def _classify_mismatches(
-        grouped_indices: list[np.ndarray],
-        gt_pred_arr: np.ndarray,
-        class_value: int,
+    grouped_indices: list[np.ndarray],
+    gt_pred_arr: np.ndarray,
+    class_value: int,
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray]]:
     """Sort contiguous mismatch groups into four categories.
 
@@ -660,17 +651,9 @@ def _classify_mismatches(
         first_idx = mismatch[0]
         last_idx = mismatch[-1]
 
-        target_on_3_prime = (
-                int(gt_pred_arr[0, last_idx + 1])
-                == int(gt_pred_arr[1, last_idx + 1])
-                == class_value
-        )
+        target_on_3_prime = int(gt_pred_arr[0, last_idx + 1]) == int(gt_pred_arr[1, last_idx + 1]) == class_value
 
-        target_on_5_prime = (
-                int(gt_pred_arr[0, first_idx - 1])
-                == int(gt_pred_arr[1, first_idx - 1])
-                == class_value
-        )
+        target_on_5_prime = int(gt_pred_arr[0, first_idx - 1]) == int(gt_pred_arr[1, first_idx - 1]) == class_value
 
         adjusted = mismatch - 1
 
@@ -692,9 +675,7 @@ def _classify_mismatches(
 
 
 def _compute_nucleotide_level_confusion(
-        gt_labels: np.ndarray,
-        pred_labels: np.ndarray,
-        class_value: int
+    gt_labels: np.ndarray, pred_labels: np.ndarray, class_value: int
 ) -> dict[str, int]:
     """Calculate granular base accuracy as a dict of confusion metrics."""
     binary_gt = np.where(gt_labels == class_value, 1, 0)
@@ -708,8 +689,8 @@ def _compute_nucleotide_level_confusion(
 
 
 def _analyze_section_overlap_and_boundaries(
-        grouped_gt_section_indices: list[np.ndarray],
-        grouped_pred_section_indices: list[np.ndarray],
+    grouped_gt_section_indices: list[np.ndarray],
+    grouped_pred_section_indices: list[np.ndarray],
 ) -> dict:
     """Analyze overlap and boundary precision between section groups.
 
@@ -777,8 +758,10 @@ def _analyze_section_overlap_and_boundaries(
                     # IoU (computed for every overlapping pair)
                     iou_scores.append(
                         _compute_intersection_over_union_score(
-                            gt_start=gt_min, gt_end=gt_max,
-                            pred_start=p_min, pred_end=p_max,
+                            gt_start=gt_min,
+                            gt_end=gt_max,
+                            pred_start=p_min,
+                            pred_end=p_max,
                         )
                     )
 
@@ -868,13 +851,10 @@ def _analyze_section_overlap_and_boundaries(
         "perfect_boundary_hit": {
             "tp": int(np.sum(gt_hit_strict)),
             "fn": int(total_gt - np.sum(gt_hit_strict)),
-            "fp": int(total_pred - np.sum(pred_hit_strict))
+            "fp": int(total_pred - np.sum(pred_hit_strict)),
         },
         "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
         "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
         "iou_scores": iou_scores,
-        "fuzzy_metrics": {
-            "boundary_residuals": boundary_residuals,
-            "total_gt": total_gt
-        }
+        "fuzzy_metrics": {"boundary_residuals": boundary_residuals, "total_gt": total_gt},
     }

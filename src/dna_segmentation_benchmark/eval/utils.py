@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def recursive_merge(target: dict, source: dict) -> dict:
     """Recursively merge *source* into *target*, skipping ``None`` values."""
     for key, source_value in source.items():
@@ -65,10 +66,10 @@ def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
         "count": len(arr),
         "mean": float(np.mean(arr)),
         "mae": float(np.mean(np.abs(arr))) if is_abs else float(np.mean(arr)),
-        "rmse": float(np.sqrt(np.mean(arr ** 2))),
+        "rmse": float(np.sqrt(np.mean(arr**2))),
         "std": float(np.std(arr)),
         "min": float(np.min(arr)),
-        "max": float(np.max(arr))
+        "max": float(np.max(arr)),
     }
 
 

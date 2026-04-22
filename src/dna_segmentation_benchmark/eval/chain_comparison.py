@@ -31,9 +31,9 @@ from .. import LabelConfig
 
 
 def _compute_intron_chain_metrics(
-        gt_structure: ExtractedStructure,
-        pred_structure: ExtractedStructure,
-        label_config: LabelConfig,
+    gt_structure: ExtractedStructure,
+    pred_structure: ExtractedStructure,
+    label_config: LabelConfig,
 ) -> dict:
     """Compare explicit intron-label chains for one transcript pair.
 
@@ -99,9 +99,9 @@ def _compute_intron_chain_metrics(
 
 
 def _raise_if_introns_missing_but_inferable(
-        structure: ExtractedStructure,
-        label_config: LabelConfig,
-        side_name: str,
+    structure: ExtractedStructure,
+    label_config: LabelConfig,
+    side_name: str,
 ) -> None:
     """Reject exon/CDS-only structures before intron-chain scoring.
 
@@ -134,9 +134,9 @@ def _raise_if_introns_missing_but_inferable(
 
 
 def _compute_per_transcript_exon_soft_metrics(
-        gt_structure: ExtractedStructure,
-        pred_structure: ExtractedStructure,
-        label_config: LabelConfig,
+    gt_structure: ExtractedStructure,
+    pred_structure: ExtractedStructure,
+    label_config: LabelConfig,
 ) -> dict:
     """Per-transcript continuous exon-recovery metrics.
 
@@ -194,8 +194,8 @@ def _boundaries(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
 
 
 def _lcs_length(
-        seq_a: list[tuple[int, int]],
-        seq_b: list[tuple[int, int]],
+    seq_a: list[tuple[int, int]],
+    seq_b: list[tuple[int, int]],
 ) -> int:
     """Length of the longest common subsequence of boundary pairs."""
     n = len(seq_a)

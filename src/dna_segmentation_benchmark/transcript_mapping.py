@@ -227,8 +227,8 @@ class _TranscriptInfo:
     """Lightweight per-transcript summary used only during matching."""
 
     gff_id: str
-    start: int                              # 1-based inclusive
-    end: int                                # 1-based inclusive
+    start: int  # 1-based inclusive
+    end: int  # 1-based inclusive
     intron_chain: frozenset[tuple[int, int]]
     """Unordered set of ``(exon_end, next_exon_start)`` intron boundaries."""
     is_single_exon: bool
@@ -266,9 +266,7 @@ def _build_intron_chain_index(
         if len(starts) < 2:
             index[str(parent_id)] = frozenset()
         else:
-            index[str(parent_id)] = frozenset(
-                (ends[i], starts[i + 1]) for i in range(len(starts) - 1)
-            )
+            index[str(parent_id)] = frozenset((ends[i], starts[i + 1]) for i in range(len(starts) - 1))
 
     return index
 
@@ -294,13 +292,15 @@ def _build_transcript_infos(
     for row in rows.to_dict(orient="records"):
         gff_id = str(row["gff_id"])
         chain = chain_index.get(gff_id, frozenset())
-        infos.append(_TranscriptInfo(
-            gff_id=gff_id,
-            start=int(row["start"]),
-            end=int(row["end"]),
-            intron_chain=chain,
-            is_single_exon=len(chain) == 0,
-        ))
+        infos.append(
+            _TranscriptInfo(
+                gff_id=gff_id,
+                start=int(row["start"]),
+                end=int(row["end"]),
+                intron_chain=chain,
+                is_single_exon=len(chain) == 0,
+            )
+        )
     return infos
 
 
@@ -345,10 +345,7 @@ def _find_preds_overlapping_locus(
     """Return predictions whose span overlaps the locus span."""
     locus_start = min(t.start for t in locus)
     locus_end = max(t.end for t in locus)
-    return [
-        p for p in pred_infos
-        if p.start <= locus_end and p.end >= locus_start
-    ]
+    return [p for p in pred_infos if p.start <= locus_end and p.end >= locus_start]
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +354,10 @@ def _find_preds_overlapping_locus(
 
 
 def _base_overlap(
-    start_a: int, end_a: int,
-    start_b: int, end_b: int,
+    start_a: int,
+    end_a: int,
+    start_b: int,
+    end_b: int,
 ) -> int:
     """Number of overlapping bases between two 1-based inclusive intervals."""
     return max(0, min(end_a, end_b) - max(start_a, start_b) + 1)
@@ -390,18 +389,10 @@ def _classify_pair(gt: _TranscriptInfo, pred: _TranscriptInfo) -> MatchClass:
     if gt.intron_chain == pred.intron_chain:
         return MatchClass.EXACT
 
-    if (
-        pred.intron_chain <= gt.intron_chain
-        and pred.start >= gt.start
-        and pred.end <= gt.end
-    ):
+    if pred.intron_chain <= gt.intron_chain and pred.start >= gt.start and pred.end <= gt.end:
         return MatchClass.CONTAINED
 
-    if (
-        gt.intron_chain <= pred.intron_chain
-        and gt.start >= pred.start
-        and gt.end <= pred.end
-    ):
+    if gt.intron_chain <= pred.intron_chain and gt.start >= pred.start and gt.end <= pred.end:
         return MatchClass.CONTAINS
 
     if gt.intron_chain & pred.intron_chain:
@@ -552,11 +543,19 @@ def _map_strand(
     (locus, predictor) pair appears; unmatched GTs and extra preds are dropped.
     """
     gt_infos = _build_transcript_infos(
-        gt_df, seqid, strand, transcript_types, gt_chain_index,
+        gt_df,
+        seqid,
+        strand,
+        transcript_types,
+        gt_chain_index,
     )
     pred_infos_by_name: dict[str, list[_TranscriptInfo]] = {
         name: _build_transcript_infos(
-            df, seqid, strand, transcript_types, pred_chain_indices[name],
+            df,
+            seqid,
+            strand,
+            transcript_types,
+            pred_chain_indices[name],
         )
         for name, df in pred_dfs.items()
     }
@@ -565,9 +564,7 @@ def _map_strand(
     gt_info_lookup: dict[str, _TranscriptInfo] = {t.gff_id: t for t in gt_infos}
 
     # Per predictor: collect optimal per-locus assignments.
-    gt_to_matches: dict[str, list[PredictionMatch]] = {
-        t.gff_id: [] for t in gt_infos
-    }
+    gt_to_matches: dict[str, list[PredictionMatch]] = {t.gff_id: [] for t in gt_infos}
     matched_pred_ids: dict[str, set[str]] = {name: set() for name in pred_dfs}
 
     for pred_name, pred_infos in pred_infos_by_name.items():
@@ -575,9 +572,7 @@ def _map_strand(
             preds_in_locus = _find_preds_overlapping_locus(locus, pred_infos)
             if not preds_in_locus:
                 continue
-            for gt_id, match in _assign_optimal_locus(
-                locus, preds_in_locus, pred_name, mode
-            ).items():
+            for gt_id, match in _assign_optimal_locus(locus, preds_in_locus, pred_name, mode).items():
                 gt_to_matches[gt_id].append(match)
                 matched_pred_ids[pred_name].add(match.transcript_id)
 
@@ -587,14 +582,16 @@ def _map_strand(
     if mode == LocusMatchingMode.FULL_DISCOVERY:
         # One TranscriptMapping per GT transcript (including unmatched ones).
         for gt_id, matches in gt_to_matches.items():
-            mappings.append(TranscriptMapping(
-                seqid=seqid,
-                strand=strand,
-                gt_id=gt_id,
-                gt_start=gt_info_lookup[gt_id].start,
-                gt_end=gt_info_lookup[gt_id].end,
-                matched_predictions=matches,
-            ))
+            mappings.append(
+                TranscriptMapping(
+                    seqid=seqid,
+                    strand=strand,
+                    gt_id=gt_id,
+                    gt_start=gt_info_lookup[gt_id].start,
+                    gt_end=gt_info_lookup[gt_id].end,
+                    matched_predictions=matches,
+                )
+            )
 
         # Sentinel entries for predictions that were not assigned to any GT.
         for pred_name, pred_infos in pred_infos_by_name.items():
@@ -603,39 +600,43 @@ def _map_strand(
 
             for pred_id in sorted(unmatched_ids):
                 pred = pred_lookup[pred_id]
-                mappings.append(TranscriptMapping(
-                    seqid=seqid,
-                    strand=strand,
-                    gt_id=f"{_UNMATCHED_PRED_PREFIX}{pred_id}",
-                    gt_start=pred.start,
-                    gt_end=pred.end,
-                    is_unmatched_prediction=True,
-                    matched_predictions=[
-                        PredictionMatch(
-                            predictor_name=pred_name,
-                            transcript_id=pred_id,
-                            start=pred.start,
-                            end=pred.end,
-                            match_class=MatchClass.OVERLAPPING,
-                            base_overlap=0,
-                            junction_f1=0.0,
-                        )
-                    ],
-                ))
+                mappings.append(
+                    TranscriptMapping(
+                        seqid=seqid,
+                        strand=strand,
+                        gt_id=f"{_UNMATCHED_PRED_PREFIX}{pred_id}",
+                        gt_start=pred.start,
+                        gt_end=pred.end,
+                        is_unmatched_prediction=True,
+                        matched_predictions=[
+                            PredictionMatch(
+                                predictor_name=pred_name,
+                                transcript_id=pred_id,
+                                start=pred.start,
+                                end=pred.end,
+                                match_class=MatchClass.OVERLAPPING,
+                                base_overlap=0,
+                                junction_f1=0.0,
+                            )
+                        ],
+                    )
+                )
 
     else:  # BEST_PER_LOCUS
         # Only include GT transcripts that have at least one prediction match.
         # Unmatched GTs and extra preds within the locus are dropped.
         matched_gt_ids = {gt_id for gt_id, matches in gt_to_matches.items() if matches}
         for gt_id in matched_gt_ids:
-            mappings.append(TranscriptMapping(
-                seqid=seqid,
-                strand=strand,
-                gt_id=gt_id,
-                gt_start=gt_info_lookup[gt_id].start,
-                gt_end=gt_info_lookup[gt_id].end,
-                matched_predictions=gt_to_matches[gt_id],
-            ))
+            mappings.append(
+                TranscriptMapping(
+                    seqid=seqid,
+                    strand=strand,
+                    gt_id=gt_id,
+                    gt_start=gt_info_lookup[gt_id].start,
+                    gt_end=gt_info_lookup[gt_id].end,
+                    matched_predictions=gt_to_matches[gt_id],
+                )
+            )
 
     return mappings
 
@@ -657,22 +658,23 @@ def _process_single_seqid(
         default=exon_types,
     )
     pred_chain_indices = {
-        name: _build_intron_chain_index(df, seqid, pred_exon_types_by_name[name])
-        for name, df in pred_dfs.items()
+        name: _build_intron_chain_index(df, seqid, pred_exon_types_by_name[name]) for name, df in pred_dfs.items()
     }
 
     mappings: list[TranscriptMapping] = []
     for strand in ("+", "-"):
-        mappings.extend(_map_strand(
-            seqid=seqid,
-            strand=strand,
-            gt_df=gt_df,
-            pred_dfs=pred_dfs,
-            transcript_types=transcript_types,
-            gt_chain_index=gt_chain_index,
-            pred_chain_indices=pred_chain_indices,
-            mode=mode,
-        ))
+        mappings.extend(
+            _map_strand(
+                seqid=seqid,
+                strand=strand,
+                gt_df=gt_df,
+                pred_dfs=pred_dfs,
+                transcript_types=transcript_types,
+                gt_chain_index=gt_chain_index,
+                pred_chain_indices=pred_chain_indices,
+                mode=mode,
+            )
+        )
     return mappings
 
 
@@ -742,8 +744,7 @@ def map_transcripts(
 
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
     pred_dfs: dict[str, pd.DataFrame] = {
-        name: collect_gff(str(path), exclude_features=exclude_features)
-        for name, path in pred_paths.items()
+        name: collect_gff(str(path), exclude_features=exclude_features) for name, path in pred_paths.items()
     }
     pred_exon_types_by_name = _normalise_pred_exon_types(
         list(pred_paths.keys()),
@@ -759,27 +760,32 @@ def map_transcripts(
 
     logger.info(
         "Found %d GT seqid(s), %d prediction seqid(s) (%d total).",
-        len(gt_seqids), len(pred_seqids), len(all_seqids),
+        len(gt_seqids),
+        len(pred_seqids),
+        len(all_seqids),
     )
 
     all_mappings: list[TranscriptMapping] = []
     for seqid in sorted(all_seqids):
         all_mappings.extend(
             _process_single_seqid(
-                seqid, gt_df, pred_dfs, transcript_types, exon_types, locus_matching_mode,
+                seqid,
+                gt_df,
+                pred_dfs,
+                transcript_types,
+                exon_types,
+                locus_matching_mode,
                 pred_exon_types=pred_exon_types_by_name,
             )
         )
 
     n_unmatched = sum(1 for m in all_mappings if m.is_unmatched_prediction)
-    n_no_pred = sum(
-        1 for m in all_mappings
-        if not m.is_unmatched_prediction and not m.matched_predictions
-    )
+    n_no_pred = sum(1 for m in all_mappings if not m.is_unmatched_prediction and not m.matched_predictions)
     logger.info(
-        "Mapping complete: %d entries (%d unmatched predictions, "
-        "%d GT transcripts with no match).",
-        len(all_mappings), n_unmatched, n_no_pred,
+        "Mapping complete: %d entries (%d unmatched predictions, %d GT transcripts with no match).",
+        len(all_mappings),
+        n_unmatched,
+        n_no_pred,
     )
     return all_mappings
 
@@ -910,10 +916,7 @@ def _resolve_build_pred_exon_types(
         return default
     if isinstance(pred_exon_types, dict):
         value = pred_exon_types.get(pred_name, default)
-        return (
-            _coerce_feature_types(value, arg_name=f"pred_exon_types[{pred_name!r}]")
-            if value is not None else None
-        )
+        return _coerce_feature_types(value, arg_name=f"pred_exon_types[{pred_name!r}]") if value is not None else None
     return _coerce_feature_types(pred_exon_types, arg_name="pred_exon_types")
 
 
@@ -950,10 +953,7 @@ def _build_annotation_array_from_df(
     if coding_val is None:
         return arr
 
-    mask = (
-        (df["seqid"] == seqid)
-        & (df["parent"] == transcript_id)
-    )
+    mask = (df["seqid"] == seqid) & (df["parent"] == transcript_id)
     if exon_types is not None:
         mask &= df["type"].isin(exon_types)
     else:
@@ -1061,9 +1061,19 @@ def export_mapping_table(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = [
-        "seqid", "strand", "gt_id", "gt_start", "gt_end",
-        "is_unmatched_prediction", "predictor", "pred_id",
-        "pred_start", "pred_end", "match_class", "base_overlap", "junction_f1",
+        "seqid",
+        "strand",
+        "gt_id",
+        "gt_start",
+        "gt_end",
+        "is_unmatched_prediction",
+        "predictor",
+        "pred_id",
+        "pred_start",
+        "pred_end",
+        "match_class",
+        "base_overlap",
+        "junction_f1",
     ]
 
     with output_path.open("w", newline="") as fh:
@@ -1081,28 +1091,32 @@ def export_mapping_table(
             }
 
             if not mapping.matched_predictions:
-                writer.writerow({
-                    **base_row,
-                    "predictor": "",
-                    "pred_id": "",
-                    "pred_start": "",
-                    "pred_end": "",
-                    "match_class": "",
-                    "base_overlap": "",
-                    "junction_f1": "",
-                })
+                writer.writerow(
+                    {
+                        **base_row,
+                        "predictor": "",
+                        "pred_id": "",
+                        "pred_start": "",
+                        "pred_end": "",
+                        "match_class": "",
+                        "base_overlap": "",
+                        "junction_f1": "",
+                    }
+                )
             else:
                 for match in mapping.matched_predictions:
-                    writer.writerow({
-                        **base_row,
-                        "predictor": match.predictor_name,
-                        "pred_id": match.transcript_id,
-                        "pred_start": match.start,
-                        "pred_end": match.end,
-                        "match_class": match.match_class.value,
-                        "base_overlap": match.base_overlap,
-                        "junction_f1": f"{match.junction_f1:.4f}",
-                    })
+                    writer.writerow(
+                        {
+                            **base_row,
+                            "predictor": match.predictor_name,
+                            "pred_id": match.transcript_id,
+                            "pred_start": match.start,
+                            "pred_end": match.end,
+                            "match_class": match.match_class.value,
+                            "base_overlap": match.base_overlap,
+                            "junction_f1": f"{match.junction_f1:.4f}",
+                        }
+                    )
 
     logger.info("Mapping table written to %s", output_path)
     return output_path

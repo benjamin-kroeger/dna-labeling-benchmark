@@ -55,11 +55,13 @@ def plot_transcript_match_distribution(
     for _, row in df_sc.iterrows():
         if row["metric_key"] == "transcript_match_distribution" and isinstance(row["value"], dict):
             for match_class, count in row["value"].items():
-                rows.append({
-                    "method_name": row["method_name"],
-                    "match_class": match_class,
-                    "count": count,
-                })
+                rows.append(
+                    {
+                        "method_name": row["method_name"],
+                        "match_class": match_class,
+                        "count": count,
+                    }
+                )
 
     if not rows:
         return None
@@ -67,8 +69,11 @@ def plot_transcript_match_distribution(
     plot_df = pd.DataFrame(rows)
 
     raw_pivot = plot_df.pivot_table(
-        index="method_name", columns="match_class",
-        values="count", fill_value=0, aggfunc="sum",
+        index="method_name",
+        columns="match_class",
+        values="count",
+        fill_value=0,
+        aggfunc="sum",
     )
 
     # Normalise to fractions for the stacked bar
@@ -84,17 +89,24 @@ def plot_transcript_match_distribution(
             if height < 0.02:
                 continue
             method = norm_pivot.index[bar_idx]
-            raw_count = int(raw_pivot.at[method, col_name]) if (
-                method in raw_pivot.index and col_name in raw_pivot.columns
-            ) else 0
+            raw_count = (
+                int(raw_pivot.at[method, col_name])
+                if (method in raw_pivot.index and col_name in raw_pivot.columns)
+                else 0
+            )
             if raw_count == 0:
                 continue
             x = patch.get_x() + patch.get_width() / 2
             y = patch.get_y() + height / 2
             ax.text(
-                x, y, str(raw_count),
-                ha="center", va="center",
-                fontsize=8, fontweight="bold", color="white",
+                x,
+                y,
+                str(raw_count),
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+                color="white",
             )
 
     ax.set_title(f"{class_name} — Transcript Match Classification")
@@ -145,11 +157,13 @@ def plot_segment_count_delta(
     rows = []
     for _, row in df_sc.iterrows():
         if row["metric_key"] == "segment_count_delta" and isinstance(row["value"], dict):
-            rows.append({
-                "method_name": row["method_name"],
-                "mean_delta": row["value"].get("mean", 0.0),
-                "std": row["value"].get("std", 0.0),
-            })
+            rows.append(
+                {
+                    "method_name": row["method_name"],
+                    "mean_delta": row["value"].get("mean", 0.0),
+                    "std": row["value"].get("std", 0.0),
+                }
+            )
 
     if not rows:
         return None
@@ -157,14 +171,15 @@ def plot_segment_count_delta(
     plot_df = pd.DataFrame(rows)
 
     fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-    colors = [
-        "#e74c3c" if d > 0 else "#3498db" if d < 0 else "#95a5a6"
-        for d in plot_df["mean_delta"]
-    ]
+    colors = ["#e74c3c" if d > 0 else "#3498db" if d < 0 else "#95a5a6" for d in plot_df["mean_delta"]]
     ax.bar(
-        plot_df["method_name"], plot_df["mean_delta"],
-        yerr=plot_df["std"], capsize=4,
-        color=colors, edgecolor="black", linewidth=0.5,
+        plot_df["method_name"],
+        plot_df["mean_delta"],
+        yerr=plot_df["std"],
+        capsize=4,
+        color=colors,
+        edgecolor="black",
+        linewidth=0.5,
     )
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
     ax.set_title(f"{class_name} — Segment Count Delta (pred \u2212 GT)")
@@ -264,9 +279,14 @@ def plot_boundary_shift_distribution(
     max_count = int(df_hist["count"].max())
     bins_count = np.arange(0.5, max_count + 1.5, 1)
     sns.histplot(
-        data=df_hist, x="count", hue="method",
-        bins=bins_count, multiple="layer", element="step",
-        alpha=0.4, ax=axes[0],
+        data=df_hist,
+        x="count",
+        hue="method",
+        bins=bins_count,
+        multiple="layer",
+        element="step",
+        alpha=0.4,
+        ax=axes[0],
     )
     axes[0].set_xlabel("Shifted boundary positions per transcript", labelpad=8)
     axes[0].set_ylabel("Transcripts")
@@ -277,9 +297,14 @@ def plot_boundary_shift_distribution(
     max_total = float(df_hist["total"].max())
     bins_total = np.linspace(0, max_total, 31)
     sns.histplot(
-        data=df_hist, x="total", hue="method",
-        bins=bins_total, multiple="layer", element="step",
-        alpha=0.4, ax=axes[1],
+        data=df_hist,
+        x="total",
+        hue="method",
+        bins=bins_total,
+        multiple="layer",
+        element="step",
+        alpha=0.4,
+        ax=axes[1],
     )
     axes[1].set_xlabel("Total bp offset across shifted boundaries", labelpad=8)
     axes[1].set_ylabel("Transcripts")
@@ -287,8 +312,13 @@ def plot_boundary_shift_distribution(
 
     # Panel 3 — scatter: count vs total (log y, integer x ticks at unit interval)
     sns.scatterplot(
-        data=df_scatter, x="count", y="total", hue="method",
-        alpha=0.65, s=40, ax=axes[2],
+        data=df_scatter,
+        x="count",
+        y="total",
+        hue="method",
+        alpha=0.65,
+        s=40,
+        ax=axes[2],
     )
     axes[2].set_xlabel("Shifted boundary count", labelpad=8)
     axes[2].set_ylabel("Total bp offset (log scale)")
@@ -384,9 +414,14 @@ def plot_per_transcript_soft_exon_metrics(
         df_recall = pd.DataFrame(recall_rows)
         recall_bins = np.linspace(0.0, 1.0, 21)
         sns.histplot(
-            data=df_recall, x="value", hue="method",
-            bins=recall_bins, multiple="layer", element="step",
-            alpha=0.4, ax=axes[0],
+            data=df_recall,
+            x="value",
+            hue="method",
+            bins=recall_bins,
+            multiple="layer",
+            element="step",
+            alpha=0.4,
+            ax=axes[0],
         )
         axes[0].set_xlim(0.0, 1.0)
     else:
@@ -402,9 +437,14 @@ def plot_per_transcript_soft_exon_metrics(
         # Discrete integer bins [0, 1, 2, ..., max+1]
         hallu_bins = np.arange(-0.5, max_count + 1.5, 1)
         sns.histplot(
-            data=df_hallu, x="value", hue="method",
-            bins=hallu_bins, multiple="layer", element="step",
-            alpha=0.4, ax=axes[1],
+            data=df_hallu,
+            x="value",
+            hue="method",
+            bins=hallu_bins,
+            multiple="layer",
+            element="step",
+            alpha=0.4,
+            ax=axes[1],
         )
         axes[1].xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     else:

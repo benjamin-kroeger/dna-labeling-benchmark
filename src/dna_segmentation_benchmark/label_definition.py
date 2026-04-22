@@ -84,8 +84,7 @@ class LabelConfig(BaseModel):
                 continue
             if value in seen:
                 raise ValueError(
-                    f"{field_name}={value} duplicates {seen[value]}={value}. "
-                    "All label integers must be unique."
+                    f"{field_name}={value} duplicates {seen[value]}={value}. All label integers must be unique."
                 )
             seen[value] = field_name
         return self

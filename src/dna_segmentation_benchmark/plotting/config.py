@@ -82,7 +82,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         display_name="Neighborhood Hit Metrics",
         icon_path=ICON_PATH / "overlap.png",
         description="Do predicted sections overlap ground truth sections at all? "
-                    "Uses 1:1 greedy matching by overlap length.",
+        "Uses 1:1 greedy matching by overlap length.",
         show_tp_tn_fp_fn=True,
         tp_definition="GT section matched to a prediction (any overlap)",
         tn_definition="N/A",
@@ -93,7 +93,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         display_name="Internal Hit Metrics",
         icon_path=ICON_PATH / "internal.png",
         description="Is the matched prediction contained within the GT boundaries? "
-                    "Forgiving to under-prediction. Uses 1:1 matching.",
+        "Forgiving to under-prediction. Uses 1:1 matching.",
         show_tp_tn_fp_fn=True,
         tp_definition="Matched prediction is completely contained within its GT section",
         tn_definition="N/A",
@@ -104,7 +104,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         display_name="Full Coverage Hit Metrics",
         icon_path=ICON_PATH / "full_coverage.png",
         description="Does the matched prediction fully cover the GT section? "
-                    "Forgiving to over-prediction. Uses 1:1 matching.",
+        "Forgiving to over-prediction. Uses 1:1 matching.",
         show_tp_tn_fp_fn=True,
         tp_definition="Matched prediction fully covers its GT section",
         tn_definition="N/A",
@@ -115,7 +115,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         display_name="Perfect Boundary Hit Metrics",
         icon_path=ICON_PATH / "prefect_hit.png",
         description="Does the prediction exactly reproduce the GT boundaries (100% IoU)? "
-                    "Uses sweep-based matching (no 1:1 constraint).",
+        "Uses sweep-based matching (no 1:1 constraint).",
         show_tp_tn_fp_fn=True,
         tp_definition="Matched prediction exactly matches its GT section's boundaries",
         tn_definition="N/A",
@@ -139,19 +139,18 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         description="Reading frame deviation (mod-3) between GT and predicted coding exons.",
         caveat="Only valid on single-transcript sequences with a coding label configured.",
     ),
-
     # --- Structural Coherence ---
     "boundary_shift_distribution": PlotMetadata(
         display_name="Boundary Shift Distribution",
         description="Distribution of splice-site boundary errors among BOUNDARY_SHIFT transcripts "
-                    "(same segment count, ≥1 position shifted).",
+        "(same segment count, ≥1 position shifted).",
         bullet_points=(
             "Left: number of shifted boundary positions per transcript",
             "Middle: total absolute bp offset summed across shifted positions",
             "Right: scatter — count vs total bp offset per transcript",
         ),
         caveat="Only transcripts classified as BOUNDARY_SHIFT are included. "
-               "Transcripts with no boundary shifts (exact, missed, etc.) are excluded.",
+        "Transcripts with no boundary shifts (exact, missed, etc.) are excluded.",
     ),
     "ts_level_precision": PlotMetadata(
         display_name="Transcript-Level Precision metrics",
@@ -171,7 +170,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Exact transcript: All predicted exons match",
             "Superset: All predicted exons match, or are novel exons",
             "Subset: All predicted exons are part of the gt transcript",
-        )
+        ),
     ),
     "transcript_match": PlotMetadata(
         display_name="Transcript Match Classification",
@@ -197,8 +196,8 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     "per_transcript_soft_exon": PlotMetadata(
         display_name="Per-transcript Soft Exon Metrics",
         description="Continuous per-transcript view of structural quality, "
-                    "complementing the strict all-or-nothing intron_chain and "
-                    "the corpus-averaged perfect_boundary_hit metrics.",
+        "complementing the strict all-or-nothing intron_chain and "
+        "the corpus-averaged perfect_boundary_hit metrics.",
         bullet_points=(
             "Left: fraction of GT exons whose (start, end) is recovered exactly "
             "— a transcript with 9/10 exons right scores 0.9",
@@ -207,10 +206,9 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Histograms are overlayed across methods for direct comparison",
         ),
         caveat="Only transcripts with at least one GT exon are included. "
-               "A near-zero recall mass with a fat right tail of hallucinations "
-               "indicates a model that guesses without recovering true structure.",
+        "A near-zero recall mass with a fat right tail of hallucinations "
+        "indicates a model that guesses without recovering true structure.",
     ),
-
     # --- Transcript-level P/R tiers ---
     "transcript_exact": PlotMetadata(
         display_name="Transcript Exact Match",
@@ -236,7 +234,6 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="Prediction contains segments not in GT",
         fn_definition="GT transcript not matched at this level",
     ),
-
     # --- Diagnostic Depth ---
     "junction_errors": PlotMetadata(
         display_name="Junction Error Taxonomy",
@@ -252,7 +249,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     "position_bias": PlotMetadata(
         display_name="Position Bias",
         description="Boundary prediction error for position in coding span, if a predicted exon does not perfectly"
-                    "match the gt, all the bins with in the coding span of set exon are incremented by 1",
+        "match the gt, all the bins with in the coding span of set exon are incremented by 1",
         caveat="Greedy matching for maximum overlap is used to match 2 exons ",
     ),
 }

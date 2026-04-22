@@ -168,10 +168,7 @@ def benchmark_from_gff(
 
     # 1. Parse files
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
-    pred_dfs = {
-        name: collect_gff(str(p), exclude_features=exclude_features)
-        for name, p in pred_paths.items()
-    }
+    pred_dfs = {name: collect_gff(str(p), exclude_features=exclude_features) for name, p in pred_paths.items()}
 
     # 2. Map transcripts
     # Intron-chain mapping is derived from the selected exon-like feature rows.

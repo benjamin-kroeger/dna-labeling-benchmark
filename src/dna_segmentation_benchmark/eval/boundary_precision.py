@@ -1,10 +1,9 @@
 import pandas as pd
 import numpy as np
 
+
 def _compute_boundary_precision_landscape(
-        residuals: list[tuple[int, int]],
-        total_gt_count: int,
-        max_range: int = 10
+    residuals: list[tuple[int, int]], total_gt_count: int, max_range: int = 10
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Compute two matrices for boundary evaluation.
 
@@ -43,9 +42,7 @@ def _compute_boundary_precision_landscape(
     bins = np.arange(-max_range, max_range + 2) - 0.5
     # np.histogram2d: x → rows (dim 0), y → cols (dim 1)
     # ==> rows = 5', cols = 3'
-    bias_values, _, _ = np.histogram2d(
-        x=res_arr[:, 0], y=res_arr[:, 1], bins=bins
-    )
+    bias_values, _, _ = np.histogram2d(x=res_arr[:, 0], y=res_arr[:, 1], bins=bins)
     bias_matrix = pd.DataFrame(
         bias_values,
         index=pd.Index(bias_ticks, name="5' Residual (Pred − GT)"),
@@ -55,10 +52,10 @@ def _compute_boundary_precision_landscape(
     # --- Matrix 2: Reliability Matrix (vectorized broadcast) ---
     abs_res = np.abs(res_arr)
     # Broadcast: tolerance thresholds (T, 1) against residual values (N,)
-    tol_5 = tolerance_ticks.reshape(-1, 1, 1)     # (T, 1, 1)
-    tol_3 = tolerance_ticks.reshape(1, -1, 1)     # (1, T, 1)
-    abs_5 = abs_res[:, 0].reshape(1, 1, -1)       # (1, 1, N)
-    abs_3 = abs_res[:, 1].reshape(1, 1, -1)       # (1, 1, N)
+    tol_5 = tolerance_ticks.reshape(-1, 1, 1)  # (T, 1, 1)
+    tol_3 = tolerance_ticks.reshape(1, -1, 1)  # (1, T, 1)
+    abs_5 = abs_res[:, 0].reshape(1, 1, -1)  # (1, 1, N)
+    abs_3 = abs_res[:, 1].reshape(1, 1, -1)  # (1, 1, N)
 
     reliability_values = np.sum((abs_5 <= tol_5) & (abs_3 <= tol_3), axis=2).astype(float)
     if total_gt_count > 0:

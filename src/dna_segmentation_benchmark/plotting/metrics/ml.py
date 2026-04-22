@@ -11,11 +11,12 @@ from ..utils import _save_figure, _add_pictogram_panel
 
 logger = logging.getLogger(__name__)
 
+
 def plot_ml_metrics_bar(
-        df_ml_metrics: pd.DataFrame,
-        class_name: str,
-        save_path_prefix: Optional[Path] = None,
-        metadata_map: dict[str, PlotMetadata] | None = None,
+    df_ml_metrics: pd.DataFrame,
+    class_name: str,
+    save_path_prefix: Optional[Path] = None,
+    metadata_map: dict[str, PlotMetadata] | None = None,
 ) -> list[plt.Figure]:
     """Grouped bar chart of ML metrics (precision / recall) per level.
 
@@ -46,8 +47,7 @@ def plot_ml_metrics_bar(
         return []
 
     ml_scores = (
-        df_ml_metrics
-        .groupby(["method_name", "metric_key"])["value"]
+        df_ml_metrics.groupby(["method_name", "metric_key"])["value"]
         .apply(lambda x: x.iloc[0] if not x.empty else 0)
         .unstack(fill_value=0)
     )
@@ -55,11 +55,7 @@ def plot_ml_metrics_bar(
     if ml_scores.empty:
         return []
 
-    melted = (
-        ml_scores
-        .reset_index()
-        .melt(id_vars=["method_name", "metric_key"], var_name="metric", value_name="Score")
-    )
+    melted = ml_scores.reset_index().melt(id_vars=["method_name", "metric_key"], var_name="metric", value_name="Score")
 
     if metadata_map is None:
         metadata_map = {}
@@ -82,12 +78,10 @@ def plot_ml_metrics_bar(
         ax.legend(title="Method Name", loc="upper right", fontsize=9)
         fig.tight_layout()
 
-        _add_pictogram_panel(fig, metadata_map.get(level),logger=logger)
+        _add_pictogram_panel(fig, metadata_map.get(level), logger=logger)
 
         if save_path_prefix is not None:
-            _save_figure(fig, save_path_prefix.with_name(
-                f"{save_path_prefix.stem}_{level}.png"
-            ),logger=logger)
+            _save_figure(fig, save_path_prefix.with_name(f"{save_path_prefix.stem}_{level}.png"), logger=logger)
 
         figures.append(fig)
 

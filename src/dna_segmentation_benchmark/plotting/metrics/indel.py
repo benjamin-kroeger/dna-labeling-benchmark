@@ -13,10 +13,11 @@ from ..utils import _add_icon_to_ax, _save_figure, _add_pictogram_panel
 
 logger = logging.getLogger(__name__)
 
+
 def plot_individual_error_lengths_histograms(
-        df_indel_lengths: pd.DataFrame,
-        class_name: str,
-        save_path: Optional[Path] = None,
+    df_indel_lengths: pd.DataFrame,
+    class_name: str,
+    save_path: Optional[Path] = None,
 ) -> Optional[plt.Figure]:
     """Histograms of INDEL error lengths (log-scaled), one subplot per type.
 
@@ -40,15 +41,8 @@ def plot_individual_error_lengths_histograms(
         return None
 
     method_error_lengths = (
-        df_indel_lengths
-        .groupby(["method_name", "metric_key"])["value"]
-        .apply(
-            lambda x: (
-                [len(y) for y in x.iloc[0]]
-                if not x.empty and isinstance(x.iloc[0], list)
-                else []
-            )
-        )
+        df_indel_lengths.groupby(["method_name", "metric_key"])["value"]
+        .apply(lambda x: ([len(y) for y in x.iloc[0]] if not x.empty and isinstance(x.iloc[0], list) else []))
         .unstack(fill_value=None)
     )
 
@@ -71,8 +65,12 @@ def plot_individual_error_lengths_histograms(
         ncols=n_cols,
         figsize=(DEFAULT_MULTI_PLOT_FIG_SIZE[0], n_rows * 5),
         gridspec_kw={
-            "hspace": 0.9, "wspace": 0.3,
-            "bottom": 0.12, "top": 0.8, "left": 0.05, "right": 0.95,
+            "hspace": 0.9,
+            "wspace": 0.3,
+            "bottom": 0.12,
+            "top": 0.8,
+            "left": 0.05,
+            "right": 0.95,
         },
     )
     axes = axes.flatten()
@@ -87,16 +85,24 @@ def plot_individual_error_lengths_histograms(
                 positive = [length for length in lengths if length > 0]
                 if positive:
                     sns.histplot(
-                        np.log10(positive), bins=30, kde=True, ax=ax,
-                        color=method_colors[method_name], label=method_name,
+                        np.log10(positive),
+                        bins=30,
+                        kde=True,
+                        ax=ax,
+                        color=method_colors[method_name],
+                        label=method_name,
                         alpha=0.7,
                     )
                     has_data = True
 
         if not has_data:
             ax.text(
-                0.5, 0.5, "No data",
-                ha="center", va="center", transform=ax.transAxes,
+                0.5,
+                0.5,
+                "No data",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
             )
 
         ax.set_title(error_type.replace("_", " ").title(), fontsize=12)
@@ -104,13 +110,11 @@ def plot_individual_error_lengths_histograms(
 
         log_ticks = ax.get_xticks()
         ax.set_xticks(log_ticks)
-        ax.set_xticklabels(
-            [f"{10 ** x:.0f}" if np.isfinite(x) else "" for x in log_ticks]
-        )
+        ax.set_xticklabels([f"{10**x:.0f}" if np.isfinite(x) else "" for x in log_ticks])
         ax.set_xlabel("Length (log scaled)")
 
         if error_type in ICON_MAP:
-            _add_icon_to_ax(ax, ICON_MAP[error_type], zoom=0.18, y_rel_pos=1.35,logger=logger)
+            _add_icon_to_ax(ax, ICON_MAP[error_type], zoom=0.18, y_rel_pos=1.35, logger=logger)
 
     for j in range(i + 1, len(axes)):
         fig.delaxes(axes[j])
@@ -127,20 +131,24 @@ def plot_individual_error_lengths_histograms(
                 labels.append(label)
     if handles:
         fig.legend(
-            handles, labels, loc="lower center",
-            ncol=len(unique_methods), fontsize=12, bbox_to_anchor=(0.5, 0.01),
+            handles,
+            labels,
+            loc="lower center",
+            ncol=len(unique_methods),
+            fontsize=12,
+            bbox_to_anchor=(0.5, 0.01),
         )
 
     if save_path is not None:
-        _save_figure(fig, save_path,logger=logger)
+        _save_figure(fig, save_path, logger=logger)
     return fig
 
 
 def plot_stacked_indel_counts_bar(
-        df_indel_counts: pd.DataFrame,
-        class_name: str,
-        save_path: Optional[Path] = None,
-        metadata: PlotMetadata | None = None,
+    df_indel_counts: pd.DataFrame,
+    class_name: str,
+    save_path: Optional[Path] = None,
+    metadata: PlotMetadata | None = None,
 ) -> Optional[plt.Figure]:
     """Stacked horizontal bar chart of INDEL counts per method.
 
@@ -153,13 +161,8 @@ def plot_stacked_indel_counts_bar(
         return None
 
     counts = (
-        df_indel_counts
-        .groupby(["method_name", "metric_key"])["value"]
-        .apply(
-            lambda x: (
-                len(x.iloc[0]) if not x.empty and isinstance(x.iloc[0], list) else 0
-            )
-        )
+        df_indel_counts.groupby(["method_name", "metric_key"])["value"]
+        .apply(lambda x: (len(x.iloc[0]) if not x.empty and isinstance(x.iloc[0], list) else 0))
         .unstack(fill_value=0)
     )
 
@@ -175,8 +178,12 @@ def plot_stacked_indel_counts_bar(
     max_val = totals.max()
     for i, (idx, total) in enumerate(totals.sort_values(ascending=True).items()):
         ax.text(
-            total + 0.01 * max(max_val, 1), i, str(total),
-            va="center", ha="left", fontweight="bold",
+            total + 0.01 * max(max_val, 1),
+            i,
+            str(total),
+            va="center",
+            ha="left",
+            fontweight="bold",
         )
 
     ax.set_xlim(0, max(max_val * 1.15, 1))
@@ -186,8 +193,8 @@ def plot_stacked_indel_counts_bar(
     ax.legend(title="INDEL Type", loc="lower right", fontsize=9)
 
     fig.tight_layout()
-    _add_pictogram_panel(fig, metadata,logger=logger)
+    _add_pictogram_panel(fig, metadata, logger=logger)
 
     if save_path is not None:
-        _save_figure(fig, save_path,logger=logger)
+        _save_figure(fig, save_path, logger=logger)
     return fig

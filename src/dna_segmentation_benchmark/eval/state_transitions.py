@@ -43,8 +43,8 @@ class TransitionAnalysis:
 
 
 def _compute_state_change_errors(
-        gt_pred_arr: np.ndarray,
-        label_config: LabelConfig,
+    gt_pred_arr: np.ndarray,
+    label_config: LabelConfig,
 ) -> TransitionAnalysis:
     """Compute GT transition confusion matrices and false transition targets.
 
@@ -69,7 +69,8 @@ def _compute_state_change_errors(
     # Sliding window: shape (N-1, 2, 2)
     # Each window[i] = [[gt[i], gt[i+1]], [pred[i], pred[i+1]]]
     nuc_transitions = np.lib.stride_tricks.sliding_window_view(
-        gt_pred_arr, (2, 2),
+        gt_pred_arr,
+        (2, 2),
     )[0]
 
     # get all gt source, gt target etc labels
@@ -90,7 +91,8 @@ def _compute_state_change_errors(
     # ---- 1. GT transition confusion matrices ----------------------------
     # build a n dim confusion tensor
     transition_counts = np.zeros(
-        (num_labels, num_labels, num_labels), dtype=np.int64,
+        (num_labels, num_labels, num_labels),
+        dtype=np.int64,
     )
     # given the nuc labels aligned by label ids filling out the confusion matrix is just incrementing count
     # at the right postitions
@@ -106,8 +108,7 @@ def _compute_state_change_errors(
         )
 
     gt_transition_matrices: dict[int, np.ndarray] = {
-        int(label_id): transition_counts[idx]
-        for idx, label_id in enumerate(label_ids)
+        int(label_id): transition_counts[idx] for idx, label_id in enumerate(label_ids)
     }
 
     # ---- 2. False transition target matrices ----------------------------
@@ -122,7 +123,6 @@ def _compute_state_change_errors(
         minlength=num_labels,
     ).astype(np.int64)
 
-
     false_transition_counts = np.zeros((num_labels, num_labels), dtype=np.int64)
     if np.any(false_transition_mask):
         np.add.at(
@@ -135,12 +135,10 @@ def _compute_state_change_errors(
         )
 
     false_transition_matrices: dict[int, np.ndarray] = {
-        int(label_id): false_transition_counts[idx]
-        for idx, label_id in enumerate(label_ids)
+        int(label_id): false_transition_counts[idx] for idx, label_id in enumerate(label_ids)
     }
     stable_position_counts: dict[int, int] = {
-        int(label_id): int(stable_counts_array[idx])
-        for idx, label_id in enumerate(label_ids)
+        int(label_id): int(stable_counts_array[idx]) for idx, label_id in enumerate(label_ids)
     }
 
     return TransitionAnalysis(
