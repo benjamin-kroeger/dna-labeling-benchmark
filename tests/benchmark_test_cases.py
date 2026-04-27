@@ -45,6 +45,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
             "BOUNDARY_EXACTNESS": {
                 "first_sec_correct_3_prime_boundary": 0,
                 "last_sec_correct_5_prime_boundary": 0,
+                "iou_scores": [0.25,0.57]
             },
             "NUCLEOTIDE_CLASSIFICATION": {
                 "nucleotide": {"tn": 4, "fp": 9, "fn": 6, "tp": 6},
@@ -62,7 +63,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-
             "INDEL": {
                 "5_prime_extensions": [],
                 "3_prime_extensions": [],
@@ -82,6 +82,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
             "BOUNDARY_EXACTNESS": {
                 "first_sec_correct_3_prime_boundary": 1,
                 "last_sec_correct_5_prime_boundary": 1,
+                "iou_scores": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 1]
             },
             "NUCLEOTIDE_CLASSIFICATION": {
                 "nucleotide": {"tn": 11, "fp": 2, "fn": 4, "tp": 8},
@@ -358,7 +359,6 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CUSTOM_CONFIG,
         [EvalMetrics.INDEL],
         {
-
             "INDEL": {
                 "5_prime_extensions": [np.array([0, 1, 2])],
                 "3_prime_extensions": [np.array([17, 18])],
