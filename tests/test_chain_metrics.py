@@ -6,16 +6,14 @@ import math
 import numpy as np
 import pytest
 
+from dna_segmentation_benchmark.eval.chain_comparison import _compute_per_transcript_exon_soft_metrics
 from dna_segmentation_benchmark.eval.evaluate_predictors import (
     EvalMetrics,
     benchmark_gt_vs_pred_single,
 )
 import dna_segmentation_benchmark.eval.evaluate_predictors as evaluate_predictors
-from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
-from dna_segmentation_benchmark.eval.chain_comparison import (
-    _compute_per_transcript_exon_soft_metrics,
-)
 from dna_segmentation_benchmark.eval.structure import extract_structure
+from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
 
 
 # ---------------------------------------------------------------------------

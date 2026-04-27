@@ -313,7 +313,9 @@ def benchmark_gt_vs_pred_single(
     transition_analysis = _compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
     metric_results["transition_failures"] = transition_analysis.gt_transition_matrices
     metric_results["false_transitions"] = {
-        "matrices": transition_analysis.false_transition_matrices,
+        "late_catchup": transition_analysis.late_catchup_matrices,
+        "premature": transition_analysis.premature_matrices,
+        "spurious": transition_analysis.spurious_matrices,
         "stable_position_counts": transition_analysis.stable_position_counts,
     }
 

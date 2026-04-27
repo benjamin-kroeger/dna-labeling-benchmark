@@ -15,6 +15,7 @@ The orchestrator :func:`compare_multiple_predictions` returns a
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -38,8 +39,14 @@ from .metrics.structural import (
     plot_per_transcript_soft_exon_metrics,
 )
 from .metrics.transitions import plot_transition_matrices, plot_false_transitions
+from .utils import _save_figure
 
 logger = logging.getLogger(__name__)
+
+
+def _slugify_plot_token(value: str) -> str:
+    """Convert a method name into a filesystem-safe token."""
+    return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
 
 # ---------------------------------------------------------------------------
 # Orchestrator
@@ -156,10 +163,18 @@ def compare_multiple_predictions(
         fuzzy_metrics_figs = plot_boundary_precision_landscapes(
             df_fuzzy,
             class_name=class_name,
-            metadata=PLOT_METADATA.get("fuzzy_metrics"),
+            metadata=PLOT_METADATA.get("boundary_landscape"),
         )
-        for i, fig in enumerate(fuzzy_metrics_figs):
-            figures[f"fuzzy_metrics_{i}"] = fig
+        for method_name, fig in zip(df_fuzzy["method_name"].unique().tolist(), fuzzy_metrics_figs):
+            key = "boundary_landscape" if single_method_mode else f"{method_name}_boundary_landscape"
+            if output_dir is not None:
+                filename = (
+                    "boundary_landscape.png"
+                    if single_method_mode
+                    else f"boundary_landscape_{_slugify_plot_token(method_name)}.png"
+                )
+                _save_figure(fig, output_dir / filename, logger=logger)
+            figures[key] = fig
 
     # ---- IoU plots (from BOUNDARY_EXACTNESS) -------------------------
     if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
@@ -230,9 +245,8 @@ def compare_multiple_predictions(
 
         # Combined precision / recall overview — one figure per measure,
         # reusing plot_ml_metrics_bar (x = metric, hue = method).
-        _PR_KEYS = ("intron_chain", "transcript_exact", "pred_is_superset", "pred_is_subset")
+        _PR_KEYS = ("transcript_exact", "pred_is_superset", "pred_is_subset")
         _PR_DISPLAY = {
-            "intron_chain": "Intron Chain",
             "transcript_exact": "Exact",
             "pred_is_superset": "Superset",
             "pred_is_subset": "Subset",

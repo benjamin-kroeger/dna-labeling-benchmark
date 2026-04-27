@@ -3,14 +3,13 @@
 Provides two plot types:
 
 1. **GT Transition Confusion Matrices** – one heatmap per source label showing
-   where GT transitioned vs what the predictor did.
+   where GT transitioned vs what the predictor did at that exact site.
 2. **False Transition Faceted Bar Charts** – one subplot per GT label showing
    grouped bars of transition types coloured by method.
 """
 
-import math
-
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
@@ -18,16 +17,17 @@ from ...label_definition import LabelConfig
 
 
 def plot_transition_matrices(
-    transition_failures: dict,
-    label_config: LabelConfig,
-    method_name: str,
+        transition_matrices: dict,
+        label_config: LabelConfig,
+        method_name: str,
 ) -> plt.Figure | None:
-    """Plot a grid of GT-transition confusion matrices.
+    """Plot GT-transition confusion matrices, one heatmap per source label.
 
     Parameters
     ----------
-    transition_failures : dict[int, np.ndarray]
-        Per source-label confusion matrix (rows = GT target, cols = pred target).
+    transition_matrices : dict[int, np.ndarray]
+        Per GT source label, a ``(L, L)`` matrix: rows = GT target,
+        cols = predicted target; only source-matched transitions counted.
     label_config : LabelConfig
         Resolves label IDs to human-readable names.
     method_name : str
@@ -36,57 +36,57 @@ def plot_transition_matrices(
     Returns
     -------
     Figure or None
-        Returns ``None`` when *transition_failures* is empty.
+        Returns ``None`` when all matrices are empty.
     """
-    num_matrices = len(transition_failures)
-    if num_matrices == 0:
+
+    if not transition_matrices or not any(np.any(m) for m in transition_matrices.values()):
         return None
 
-    cols = min(3, num_matrices)
-    rows = math.ceil(num_matrices / cols)
+    label_ids = sorted(label_config.labels.keys())
+    ordered_labels = [label_config.labels[lid] for lid in label_ids]
+    num_labels = len(label_ids)
 
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4))
-
-    if num_matrices == 1:
+    fig, axes = plt.subplots(1, num_labels, figsize=(5 * num_labels, 4))
+    if num_labels == 1:
         axes = [axes]
-    else:
-        axes = axes.flatten()
 
-    ordered_labels = [label_config.labels[x] for x in sorted(label_config.labels)]
-
-    for i, (key, matrix) in enumerate(transition_failures.items()):
-        ax = axes[i]
+    for ax_idx, src_id in enumerate(label_ids):
+        src_name = label_config.labels[src_id]
+        matrix = transition_matrices.get(src_id, np.zeros((num_labels, num_labels), dtype=np.int64))
+        ax = axes[ax_idx]
         matrix_df = pd.DataFrame(matrix, columns=ordered_labels, index=ordered_labels)
-
         sns.heatmap(matrix_df, annot=True, cmap="Blues", fmt="d", ax=ax, cbar=True)
+        ax.set_xlabel("Predicted target")
+        ax.set_ylabel("GT target")
+        ax.set_title(f"Source: {src_name}", fontsize=12)
 
-        ax.set_title(f"From {label_config.labels[key]}")
-        ax.set_xlabel("Predicted label")
-        ax.set_ylabel("Ground truth label")
-
-    for j in range(num_matrices, len(axes)):
-        fig.delaxes(axes[j])
-
-    fig.suptitle(f"{method_name} – GT Transition Confusion", fontsize=14)
+    fig.suptitle(f"{method_name} – GT Transition Confusion (source-matched)", fontsize=14)
     plt.tight_layout()
     return fig
 
 
 def plot_false_transitions(
-    per_method_data: dict[str, dict],
-    label_config: LabelConfig,
+        per_method_data: dict[str, dict],
+        label_config: LabelConfig,
 ) -> plt.Figure | None:
     """Multi-method false transition comparison using faceted subplots.
 
-    One subplot per GT label, each showing grouped horizontal bars of
-    transition-type counts coloured by method.  Clean and scannable at
-    first glance.
+    One subplot per GT-stable label, each showing grouped horizontal bars of
+    transition-type counts coloured by method.  Categories are ground-truth
+    context-aware:
+
+    * **Late catch-up** – pred was in the *previous* GT state and transitions
+      to the current one (``pred_src == prev_GT``, ``pred_tgt == curr_GT``).
+    * **Premature → X** – pred leaves the current GT state for the *next* GT
+      state X too early (``pred_src == curr_GT``, ``pred_tgt == next_GT``).
+    * **Spurious → X** – all other false pred transitions.
 
     Parameters
     ----------
     per_method_data : dict[str, dict]
-        Outer key = method name, inner dict must contain ``"matrices"``
-        and ``"stable_position_counts"`` as produced by the evaluation pipeline.
+        Outer key = method name, inner dict must contain ``"late_catchup"``,
+        ``"premature"``, ``"spurious"``, and ``"stable_position_counts"`` as
+        produced by the evaluation pipeline.
     label_config : LabelConfig
         Resolves label IDs to human-readable names.
 
@@ -98,11 +98,10 @@ def plot_false_transitions(
     if not per_method_data:
         return None
 
-    # Resolve labels
     first_method = next(iter(per_method_data.values()))
-    if "matrices" not in first_method:
-        return None  # No false transition data available
-    label_ids = sorted(first_method["matrices"].keys())
+    if "late_catchup" not in first_method:
+        return None
+    label_ids = sorted(first_method["late_catchup"].keys())
     ordered_labels = [label_config.labels[lid] for lid in label_ids]
     method_names = list(per_method_data.keys())
 
@@ -111,49 +110,39 @@ def plot_false_transitions(
     any_false = False
 
     for method_name, method_data in per_method_data.items():
-        matrices = method_data["matrices"]
+        late_catchup = method_data["late_catchup"]
+        premature    = method_data["premature"]
+        spurious     = method_data["spurious"]
 
-        for row_idx, label_id in enumerate(label_ids):
-            target_vec = matrices[label_id]
+        for label_id in label_ids:
             gt_label = label_config.labels[label_id]
 
-            # Late catch-up (diagonal)
-            catch_up = int(target_vec[row_idx])
-            if catch_up > 0:
+            lc_count = int(late_catchup[label_id].sum())
+            if lc_count > 0:
                 any_false = True
-            rows.append(
-                {
-                    "GT label": gt_label,
-                    "Type": "Late catch-up",
-                    "Count": catch_up,
-                    "Method": method_name,
-                }
-            )
+            rows.append({"GT label": gt_label, "Type": "Late catch-up", "Count": lc_count, "Method": method_name})
 
-            # Spurious (off-diagonal)
             for col_idx, col_lid in enumerate(label_ids):
-                if col_idx != row_idx:
-                    count = int(target_vec[col_idx])
-                    if count > 0:
-                        any_false = True
-                    target_name = label_config.labels[col_lid]
-                    rows.append(
-                        {
-                            "GT label": gt_label,
-                            "Type": f"Spurious → {target_name}",
-                            "Count": count,
-                            "Method": method_name,
-                        }
-                    )
+                target_name = label_config.labels[col_lid]
+
+                pm_count = int(premature[label_id][:, col_idx].sum())
+                if pm_count > 0:
+                    any_false = True
+                rows.append({"GT label": gt_label, "Type": f"Premature → {target_name}", "Count": pm_count, "Method": method_name})
+
+                sp_count = int(spurious[label_id][:, col_idx].sum())
+                if sp_count > 0:
+                    any_false = True
+                rows.append({"GT label": gt_label, "Type": f"Spurious → {target_name}", "Count": sp_count, "Method": method_name})
 
     if not any_false:
         return None
 
     df = pd.DataFrame(rows)
 
-    # Order types: "Late catch-up" first, then spurious targets
-    type_order = ["Late catch-up"] + [f"Spurious → {label_config.labels[lid]}" for lid in label_ids]
-    # Keep only types present in data
+    type_order = ["Late catch-up"]
+    type_order.extend([f"Premature → {label_config.labels[lid]}" for lid in label_ids])
+    type_order.extend([f"Spurious → {label_config.labels[lid]}" for lid in label_ids])
     type_order = [t for t in type_order if t in df["Type"].values]
 
     num_labels = len(ordered_labels)
