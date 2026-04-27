@@ -88,6 +88,7 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 _MEDIA_FIGURE_KEYS = {
+    "boundary_landscape": "boundary_landscape",
     "position_bias": "position_bias",
     "transition_matrices": "transition_matrices",
     "false_transitions": "false_transitions",
@@ -329,6 +330,7 @@ def log_benchmark_media(
     The helper accepts one aggregated benchmark result dict and logs a
     focused set of high-value diagnostic plots:
 
+    * boundary bias and cumulative reliability landscape
     * error location bias
     * GT transition confusion matrices
     * false transitions at GT-stable positions
