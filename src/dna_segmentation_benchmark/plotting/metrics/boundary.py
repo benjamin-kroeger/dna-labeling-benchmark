@@ -36,7 +36,7 @@ def plot_boundary_precision_landscapes(
             "value"
         ].iloc[0]
 
-        fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+        fig, axes = plt.subplots(1, 2, figsize=(20, 7))
 
         # --- Plot 1: The Bias Matrix (The "Exon Fingerprint") ---
         sns.heatmap(

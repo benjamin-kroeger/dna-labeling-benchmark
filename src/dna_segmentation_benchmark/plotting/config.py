@@ -133,6 +133,14 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         icon_path=ICON_PATH / "iou.png",
         description="Distribution of per-section IoU scores across all overlapping pairs.",
     ),
+    "boundary_landscape": PlotMetadata(
+        display_name="Boundary Bias and Reliability",
+        description="Joint view of systematic boundary offsets and how recall recovers as 5' and 3' tolerance increases.",
+        bullet_points=(
+            "Left: signed 5'/3' residual heatmap showing systematic over- and under-shifts",
+            "Right: cumulative recall surface across tolerance budgets on both boundaries",
+        ),
+    ),
     # Frameshift
     "frameshift": PlotMetadata(
         display_name="Frameshift Distribution",
@@ -154,9 +162,8 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     ),
     "ts_level_precision": PlotMetadata(
         display_name="Transcript-Level Precision metrics",
-        description="Precision across various metrics. All metrics use double penalties, so for intron chain precision = recall",
+        description="Precision across transcript-level structural match tiers.",
         bullet_points=(
-            "Intron Chain: All predicted introns match the gt introns",
             "Exact transcript: All predicted exons match",
             "Superset: All predicted exons match, or are novel exons",
             "Subset: All predicted exons are part of the gt transcript",
@@ -164,9 +171,8 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     ),
     "ts_level_recall": PlotMetadata(
         display_name="Transcript-Level Recall metrics",
-        description="Recall across various metrics. All metrics use double penalties, so for intron chain precision = recall",
+        description="Recall across transcript-level structural match tiers.",
         bullet_points=(
-            "Intron Chain: All predicted introns match the gt introns",
             "Exact transcript: All predicted exons match",
             "Superset: All predicted exons match, or are novel exons",
             "Subset: All predicted exons are part of the gt transcript",
