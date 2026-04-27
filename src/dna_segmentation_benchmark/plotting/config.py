@@ -134,11 +134,11 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         description="Distribution of per-section IoU scores across all overlapping pairs.",
     ),
     "boundary_landscape": PlotMetadata(
-        display_name="Boundary Bias and Reliability",
+        display_name="Boundary Bias and cumulative Recall",
         description="Joint view of systematic boundary offsets and how recall recovers as 5' and 3' tolerance increases.",
         bullet_points=(
             "Left: signed 5'/3' residual heatmap showing systematic over- and under-shifts",
-            "Right: cumulative recall surface across tolerance budgets on both boundaries",
+            "Right: cumulative recall surface across increasing total tolerance budgets on both boundaries",
         ),
     ),
     # Frameshift

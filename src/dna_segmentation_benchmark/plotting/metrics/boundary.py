@@ -70,7 +70,7 @@ def plot_boundary_precision_landscapes(
             cbar_kws={"label": f"Recall (Fraction of {class_name} Sections Found)"},
         )
         axes[1].set_title(
-            f"Cumulative Reliability (0 to {max_range}bp Tolerance)",
+            f"Cumulative Recall (0 to {max_range}bp Tolerance)",
             fontsize=14,
             pad=15,
         )
