@@ -49,24 +49,6 @@ figures = compare_multiple_predictions(
 )
 ```
 
-## Returned Figure Keys
-
-The exact keys depend on the metric families you pass in.
-
-Typical keys include:
-
-- `transition_matrices` for a single method, or `<method>_transition_matrices`
-  for multi-method comparisons
-- `false_transitions`
-- `iou_average`
-- `iou_distribution`
-- `region_discovery_0` ... `region_discovery_3`
-- `nucleotide_classification_0`
-- `indel_counts`
-- `indel_lengths`
-- `frameshift`
-- `structural_coherence_pr`
-- `transcript_match`
 
 ## Result Inputs
 

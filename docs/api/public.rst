@@ -15,5 +15,7 @@ Public Package API
    benchmark_from_gff
    compare_multiple_predictions
    log_benchmark_scalars
-   log_benchmark_full
+   log_benchmark_media
+   log_benchmark_media_videos
+   clear_benchmark_media_video_buffer
    init_wandb_with_presets

@@ -6,6 +6,5 @@
 
 getting_started/index
 metrics/index
-design_rationale
 api/index
 ```
