@@ -33,6 +33,7 @@ from .metrics.iou import plot_iou_metrics
 from .metrics.boundary import plot_boundary_precision_landscapes
 from .metrics.diagnostic import plot_position_bias
 from .metrics.structural import (
+    plot_transcript_match_distribution,
     plot_segment_count_delta,
     plot_boundary_shift_distribution,
     plot_per_transcript_soft_exon_metrics,
@@ -280,6 +281,16 @@ def compare_multiple_predictions(
                     plot_ml_metrics_bar(_df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA)
             ):
                 figures[f"transcript_pr_overview_{_idx}"] = _fig
+
+        # Transcript match class distribution with count annotations
+        fig = plot_transcript_match_distribution(
+            df_sc,
+            class_name,
+            save_path=(output_dir / "transcript_match.png") if output_dir else None,
+            metadata=PLOT_METADATA.get("transcript_match"),
+        )
+        if fig is not None:
+            figures["transcript_match"] = fig
 
         # Segment count delta per model
         fig = plot_segment_count_delta(

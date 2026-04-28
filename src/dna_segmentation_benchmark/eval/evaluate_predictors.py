@@ -40,6 +40,7 @@ from .intersection_over_union import _compute_intersection_over_union_score
 from .state_transitions import _compute_state_change_errors
 from .structure import extract_structure
 from .structural_summary import _compute_structural_summary
+from .transcript_classification import _classify_transcript_match
 from .utils import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
 
@@ -432,6 +433,10 @@ def benchmark_gt_vs_pred_single(
             sc_result.update(_compute_boundary_shift_metrics(gt_struct, pred_struct, label_config.coding_label))
             sc_result["segment_count_delta"] = len(pred_coding) - len(gt_coding)
 
+            match_cls = _classify_transcript_match(gt_struct, pred_struct, label_config.coding_label)
+            if match_cls is not None:
+                sc_result["transcript_match_class"] = match_cls.value
+
         metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
 
     # ---- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
@@ -585,6 +590,14 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
             for key in ("segment_count_gt", "segment_count_pred", "intron_count_gt", "intron_count_pred"):
                 if key in sc and isinstance(sc[key], list):
                     sc[key] = sum(sc[key])
+
+            if "transcript_match_class" in sc and isinstance(sc["transcript_match_class"], list):
+                from collections import Counter
+
+                counts = Counter(sc["transcript_match_class"])
+                total = sum(counts.values())
+                sc["transcript_match_distribution"] = dict(counts)
+                sc["exact_match_rate"] = counts.get("exact", 0) / total if total > 0 else 0.0
 
             for tier_key in ("exon_chain", "exon_chain_subset", "exon_chain_superset"):
                 if tier_key in sc:
