@@ -255,8 +255,6 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     ),
     "position_bias": PlotMetadata(
         display_name="Position Bias",
-        description="Boundary prediction error for position in coding span, if a predicted exon does not perfectly"
-        "match the gt, all the bins with in the coding span of set exon are incremented by 1",
-        caveat="Greedy matching for maximum overlap is used to match 2 exons ",
+        description="Per position nucleotide prediction errors, relative to the position in the coding span",
     ),
 }

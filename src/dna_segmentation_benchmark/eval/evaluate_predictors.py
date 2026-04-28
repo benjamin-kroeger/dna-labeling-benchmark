@@ -413,8 +413,8 @@ def benchmark_gt_vs_pred_single(
             coding_value=label_config.coding_label,
         )
 
-    # ---- Extract structures once (shared by STRUCTURAL_COHERENCE & DIAGNOSTIC_DEPTH)
-    if EvalMetrics.STRUCTURAL_COHERENCE in metrics or EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
+    # ---- Extract structures (STRUCTURAL_COHERENCE only)
+    if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
         gt_struct = extract_structure(gt_labels, label_config)
         pred_struct = extract_structure(pred_labels, label_config)
 
@@ -441,11 +441,7 @@ def benchmark_gt_vs_pred_single(
 
     # ---- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
-        summary = _compute_structural_summary(
-            gt_struct,
-            pred_struct,
-            label_config.coding_label,
-        )
+        summary = _compute_structural_summary(grouped_gt_sections, grouped_pred_sections)
         metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = summary
 
     return metric_results

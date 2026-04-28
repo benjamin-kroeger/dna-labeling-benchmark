@@ -39,42 +39,44 @@ available; otherwise a quantile-interpolation fallback is applied. Both return
 
 ## Error Location Bias (Position Bias Histogram)
 
-`position_bias_histogram` answers: *where in a transcript do errors
-concentrate?*
+`position_bias_histogram` answers: *where in a transcript do nucleotide-level
+errors concentrate?*
 
 A 100-bin histogram is built over the normalised coding span (bin 0 = start of
-the first GT coding segment, bin 99 = end of the last). Every unmatched
-segment contributes to the histogram:
+the first GT coding segment, bin 99 = end of the last). Every nucleotide
+position that differs between GT and prediction contributes exactly one count
+to its bin:
 
-- Each **false-negative** GT segment (present in GT, absent in prediction)
-  increments every bin it overlaps.
-- Each **false-positive** predicted segment (present in prediction, no GT
-  counterpart, within the coding span) increments every bin it overlaps.
+- A GT nucleotide **not covered** by the prediction (false negative) increments
+  the bin at its relative position in the coding span.
+- A predicted nucleotide **within the coding span but not present in GT** (false
+  positive) increments the bin at its relative position.
 
-Predicted segments outside the GT coding span are ignored, keeping the
+Predicted nucleotides outside the GT coding span are ignored, keeping the
 histogram bounded to the gene locus.
 
-Greedy maximum-overlap matching is used to pair GT and predicted segments
-before identifying unmatched ones.
+Unlike the previous segment-matching approach, this counts every boundary
+error and every missing or spurious base — including systematic shifts and
+extensions that would be invisible when segments are matched by overlap.
 
 ### Reading the plot
 
 ![Error Location Bias](../images/position_bias.png)
 
 The x-axis is position in the coding span as a percentage (0 % = transcript
-start, 100 % = transcript end). The y-axis is the cumulative error count
-across all evaluated sequences.
+start, 100 % = transcript end). The y-axis is the cumulative count of mismatch
+nucleotides across all evaluated sequences.
 
 Common patterns and their interpretations:
 
 | Shape | Interpretation |
 |---|---|
-| Flat / uniform | Errors are evenly distributed; no positional preference. |
+| Flat / near-zero | Predictions closely match GT at the nucleotide level across the whole span. |
 | Elevated at 0 % and/or 100 % | Terminal boundary errors — the predictor struggles with gene-locus start or end. Common in models that lack UTR context. |
 | Elevated in the middle | Internal exon errors — splice-site accuracy degrades for exons far from the transcript termini. |
-| Single sharp spike | A systematic offset at a fixed relative position; suggests a positional bias in the model's context window. |
+| Uniform low-level signal | Systematic boundary wobble (e.g. a consistent 1-nt shift) affecting all segments equally. |
+| Single sharp spike | A positional bias concentrated at one relative location; suggests a systematic offset tied to the model's context window. |
 
-A method with low overall error counts will show a low, flat curve. A method
-with high terminal bias will show elevated tails. Comparing curves across
-methods quickly reveals whether one method degrades more at transcript
-boundaries than another.
+A method with accurate boundaries will show a low, flat curve. Comparing
+curves across methods quickly reveals whether one method degrades more at
+transcript boundaries or in internal exons than another.

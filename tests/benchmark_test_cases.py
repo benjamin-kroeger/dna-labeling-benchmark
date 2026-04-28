@@ -653,7 +653,7 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
     ),
     # -- Missing middle exon: middle GT coding segment is absent from pred
     # GT exons: (1,2), (5,6), (9,10) — pred exons: (1,2), (9,10)
-    # The unmatched middle GT segment fills the middle position-bias bins.
+    # GT positions 5,6 are missing from pred → bins 40 and 50.
     pytest.param(
         np.array([
             [8, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 8],
@@ -668,7 +668,10 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [2, 2, 2],
                 "pred_segment_lengths": [2, 2],
                 "length_emd": 0.0,
-                "position_bias_histogram": [0] * 40 + [1] * 21 + [0] * 39,
+                "position_bias_histogram": [
+                    1 if i in {40, 50} else 0
+                    for i in range(100)
+                ],
             },
 
         },
@@ -676,7 +679,7 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
     ),
     # -- Predicted split: pred splits one GT exon into two shorter segments
     # GT exon: (1,9) — pred exons: (1,3) and (6,9)
-    # One pred segment is unmatched and contributes to early position-bias bins.
+    # GT positions 4,5 are missing from pred → bins 33 and 44.
     pytest.param(
         np.array([
             [8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8],
@@ -691,7 +694,10 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [9],
                 "pred_segment_lengths": [3, 4],
                 "length_emd": 5.5,
-                "position_bias_histogram": [1] * 34 + [0] * 66,
+                "position_bias_histogram": [
+                    1 if i in {33, 44} else 0
+                    for i in range(100)
+                ],
             },
 
         },
@@ -700,7 +706,7 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
     # -- Uniform boundary shift: 4 exons all shifted right by 1 position
     # GT exons: (1,3),(6,8),(11,13),(16,18)
     # Pred exons: (2,4),(7,9),(12,14),(17,19)
-    # Segment lengths are unchanged, and all pred segments still match a GT segment.
+    # Segment lengths unchanged. Boundary mismatches at bins 0,16,27,44,55,72,83.
     pytest.param(
         np.array([
             [8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8, 8],
@@ -715,7 +721,10 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [3, 3, 3, 3],
                 "pred_segment_lengths": [3, 3, 3, 3],
                 "length_emd": 0.0,
-                "position_bias_histogram": [0] * 100,
+                "position_bias_histogram": [
+                    1 if i in {0, 16, 27, 44, 55, 72, 83} else 0
+                    for i in range(100)
+                ],
             },
 
         },
@@ -723,7 +732,7 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
     ),
     # -- Balanced extensions: both predicted exons are one base longer
     # GT exons: (1,3),(7,9) — pred exons: (1,4),(6,9)
-    # Both segments still match, but the predicted length distribution shifts by +1.
+    # Pred FP positions 4 and 6 fall within coding span → bins 33 and 55.
     pytest.param(
         np.array([
             [8, 0, 0, 0, 2, 2, 2, 0, 0, 0, 8],
@@ -738,7 +747,10 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [3, 3],
                 "pred_segment_lengths": [4, 4],
                 "length_emd": 1.0,
-                "position_bias_histogram": [0] * 100,
+                "position_bias_histogram": [
+                    1 if i in {33, 55} else 0
+                    for i in range(100)
+                ],
             },
 
         },

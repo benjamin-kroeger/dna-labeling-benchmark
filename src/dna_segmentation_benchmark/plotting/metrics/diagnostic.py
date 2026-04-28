@@ -1,7 +1,7 @@
 """Plotting functions for DIAGNOSTIC_DEPTH metrics.
 
 Provides visualisations for segment length distributions and the
-100-bin position bias histogram.
+100-bin per-nucleotide mismatch histogram.
 """
 
 from __future__ import annotations
@@ -31,12 +31,14 @@ def plot_position_bias(
     save_path: Optional[Path] = None,
     metadata: Optional[PlotMetadata] = None,
 ) -> Optional[plt.Figure]:
-    """Line chart of error density across the coding span (100 bins).
+    """Line chart of per-nucleotide mismatch density across the coding span.
 
     Each bin represents a 1-percentile slice of the coding region
-    (bin 0 = start of first coding segment, bin 99 = end of last).
-    The y-axis shows the cumulative count of error/unmatched regions
-    that overlap each bin, summed across all evaluated sequences.
+    (bin 0 = start of first GT coding segment, bin 99 = end of last).
+    The y-axis shows the cumulative count of mismatch nucleotides —
+    GT positions absent from the prediction (FN) and predicted positions
+    absent from GT within the coding span (FP) — summed across all
+    evaluated sequences.
 
     Parameters
     ----------
@@ -69,9 +71,9 @@ def plot_position_bias(
     for entry in rows:
         ax.plot(x, entry["histogram"], label=entry["method_name"], linewidth=1.5)
 
-    ax.set_title(f"{class_name} — Error Location Bias (coding span)")
+    ax.set_title(f"{class_name} — Nucleotide Mismatch Location (coding span)")
     ax.set_xlabel("Position in coding span (%)")
-    ax.set_ylabel("Error count (cumulative across sequences)")
+    ax.set_ylabel("Mismatch nucleotides (cumulative across sequences)")
     ax.set_xlim(0, 99)
     ax.legend(title="Method", loc="upper right", fontsize=9)
     fig.tight_layout()
