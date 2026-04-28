@@ -3,7 +3,6 @@
 Boundary Exactness measures how far predicted coding sections deviate from GT
 boundaries once there is some overlap.
 
-![IoU distribution example](../images/EXON_iou_distribution.png)
 
 ## What Is Computed
 

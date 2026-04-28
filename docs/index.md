@@ -4,7 +4,8 @@
 :maxdepth: 2
 :caption: Project Docs
 
-metrics
+getting_started/index
+metrics/index
 design_rationale
 api/index
 ```
