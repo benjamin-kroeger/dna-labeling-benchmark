@@ -33,7 +33,6 @@ from .metrics.iou import plot_iou_metrics
 from .metrics.boundary import plot_boundary_precision_landscapes
 from .metrics.diagnostic import plot_position_bias
 from .metrics.structural import (
-    plot_transcript_match_distribution,
     plot_segment_count_delta,
     plot_boundary_shift_distribution,
     plot_per_transcript_soft_exon_metrics,
@@ -48,16 +47,17 @@ def _slugify_plot_token(value: str) -> str:
     """Convert a method name into a filesystem-safe token."""
     return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
 
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
 
 def compare_multiple_predictions(
-    per_method_benchmark_res: dict[str, dict],
-    label_config: LabelConfig,
-    metrics_to_eval: list[EvalMetrics],
-    output_dir: Optional[Path] = None,
+        per_method_benchmark_res: dict[str, dict],
+        label_config: LabelConfig,
+        metrics_to_eval: list[EvalMetrics],
+        output_dir: Optional[Path] = None,
 ) -> dict[str, plt.Figure]:
     """Generate all summary plots and return them as a dict.
 
@@ -156,7 +156,7 @@ def compare_multiple_predictions(
     if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
         df_fuzzy = df[
             (df["metric_group"] == EvalMetrics.BOUNDARY_EXACTNESS.name) & (df["metric_key"] == "fuzzy_metrics")
-        ].copy()
+            ].copy()
 
         df = df[df["metric_key"] != "fuzzy_metrics"]
 
@@ -180,7 +180,7 @@ def compare_multiple_predictions(
     if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
         df_iou = df[
             (df["metric_group"] == EvalMetrics.BOUNDARY_EXACTNESS.name) & (df["metric_key"] == "iou_scores")
-        ].copy()
+            ].copy()
 
         if not df_iou.empty:
             prefix = (output_dir / "iou") if output_dir else None
@@ -245,11 +245,14 @@ def compare_multiple_predictions(
 
         # Combined precision / recall overview — one figure per measure,
         # reusing plot_ml_metrics_bar (x = metric, hue = method).
-        _PR_KEYS = ("transcript_exact", "pred_is_superset", "pred_is_subset")
+        _PR_KEYS = ("intron_chain", "intron_chain_subset", "intron_chain_superset", "exon_chain", "exon_chain_superset", "exon_chain_subset")
         _PR_DISPLAY = {
-            "transcript_exact": "Exact",
-            "pred_is_superset": "Superset",
-            "pred_is_subset": "Subset",
+            "intron_chain": "Exact intron chain",
+            "intron_chain_subset": "Intron Subset",
+            "intron_chain_superset": "Intron Superset",
+            "exon_chain": "Exact exon chain",
+            "exon_chain_superset": "Exon Superset",
+            "exon_chain_subset": "Exon Subset",
         }
         _method_scores: dict[str, dict] = {}
         for _, _row in df_sc.iterrows():
@@ -274,19 +277,9 @@ def compare_multiple_predictions(
             _df_pr = pd.DataFrame(_pr_rows)
             _prefix = (output_dir / "transcript_pr_overview") if output_dir else None
             for _idx, _fig in enumerate(
-                plot_ml_metrics_bar(_df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA)
+                    plot_ml_metrics_bar(_df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA)
             ):
                 figures[f"transcript_pr_overview_{_idx}"] = _fig
-
-        # Transcript match class distribution with count annotations
-        fig = plot_transcript_match_distribution(
-            df_sc,
-            class_name,
-            save_path=(output_dir / "transcript_match.png") if output_dir else None,
-            metadata=PLOT_METADATA.get("transcript_match"),
-        )
-        if fig is not None:
-            figures["transcript_match"] = fig
 
         # Segment count delta per model
         fig = plot_segment_count_delta(

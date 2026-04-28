@@ -411,28 +411,19 @@ SINGLE_SEQUENCE_TEST_CASES = [
 
 STRUCTURAL_COHERENCE_TEST_CASES = [
     # -----------------------------------------------------------------------
-    # Transcript match classification + tier P/R test cases
+    # Exon / intron chain + boundary shift test cases
     #
-    # Each case verifies four structural-coherence sub-metrics for a single
-    # transcript pair:
-    #   intron_chain   — binary intron-set equality (tp/fp/fn)
-    #   transcript_exact    — TP only when chains are identical
-    #   pred_is_superset    — TP for EXACT | BOUNDARY_SHIFT | EXTRA_SEGMENTS
-    #   pred_is_subset      — TP for EXACT | BOUNDARY_SHIFT | MISSING_SEGMENTS
-    #
-    # NOTE on superset/subset having identical P/R in production data:
-    #   precision_superset == precision_subset iff
-    #   count(EXTRA_SEGMENTS) == count(MISSING_SEGMENTS) across all sequences.
-    #   This is a dataset property, not a bug.  The single-pair tests below
-    #   confirm that exact=1.0 for a perfect match and 0.0 otherwise, which
-    #   is correct — the low "exact" value in production simply reflects that
-    #   very few predicted transcripts have identical splice-site boundaries.
+    # Intron chain uses set comparison of intron segment boundaries.
+    # Exon chain uses the same set semantics on coding segments:
+    #   exon_chain         — exact set match
+    #   exon_chain_superset — pred ⊇ GT (all GT exons found, extras ok)
+    #   exon_chain_subset   — pred ⊆ GT (all pred exons valid, may miss GT)
+    # Boundary shifts are only measured when GT and pred have equal segment counts.
     # -----------------------------------------------------------------------
 
-    # -- Case 1: EXACT — identical 3-exon chains
-    # GT/pred exons: [2,5), [7,10), [12,14)  introns: [5,7), [10,12)
-    # intron chain link: (7, 10) — same on both sides → tp=1
-    # All tiers: TP
+    # -- Case 1: identical 3-exon chains
+    # GT/pred exons: (2,4),(7,9),(12,13)  introns: (5,6),(10,11)
+    # All exon chain tiers: TP. Boundary shifts: none.
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
@@ -441,29 +432,23 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 1, "fp": 0, "fn": 0},
-                "transcript_match_class": "exact",
                 "segment_count_delta": 0,
-                "transcript_exact": {"tp": 1, "fn": 0, "fp": 0},
-                "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain":          {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_subset":   {"tp": 1, "fn": 0, "fp": 0},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
-
         },
         id="sc_exact_match",
     ),
-    # -- Case 2: BOUNDARY_SHIFT — same exon count, boundaries off by 1 bp each
-    # GT  exons: [2,5), [7,10), [12,14)   pred exons: [1,5), [7,9), [12,15)
-    # GT  intron chain link: (7,10)        pred: (7,9) → mismatch → tp=0
-    # segment_count_delta = 0 (n=3 both)
-    # All boundaries counted: seg0.start(2≠1), seg1.end(10≠9), seg2.end(14≠15) → count=3, total=3
-    # BOUNDARY_SHIFT is FP for superset AND subset: a shifted boundary means
-    # that GT segment is absent from pred and pred segment is absent from GT,
-    # so neither strict containment holds.
+    # -- Case 2: same exon count, all boundaries shifted by 1 bp
+    # GT  exons: (2,4),(7,9),(12,13)  pred exons: (1,4),(7,8),(12,14)
+    # GT introns: (5,6),(10,11); pred introns: (5,6),(9,11) → mismatch → intron_chain tp=0
+    # All exon chain tiers FP (shifted boundary ≠ exact set element; neither subset nor superset)
+    # boundary_shift_count=3 (starts/ends of 3 segments differ), total=3
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
@@ -472,26 +457,22 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "transcript_match_class": "boundary_shift",
                 "segment_count_delta": 0,
-                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 3,
                 "boundary_shift_total": 3,
             },
-
         },
         id="sc_boundary_shift",
     ),
-    # -- Case 3: MISSING_SEGMENTS — pred skips the middle GT exon
-    # GT  exons: [2,5), [7,10), [12,14)   pred exons: [2,5), [12,14)
-    # GT has intron chain link (7,10); pred has single intron [5,12) → no chain
-    # LCS=2=n_pred < n_gt=3 → MISSING_SEGMENTS
-    # superset: FP (GT not fully in pred)   subset: TP (all pred segs in GT)
+    # -- Case 3: pred skips the middle GT exon
+    # GT  exons: (2,4),(7,9),(12,13)  pred exons: (2,4),(12,13)
+    # GT introns: (5,6),(10,11); pred intron: (5,11) → intron_chain mismatch
+    # exon_chain_subset TP (pred ⊆ GT), exon_chain_superset FP (GT not in pred)
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
@@ -500,26 +481,22 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "transcript_match_class": "missing_segments",
                 "segment_count_delta": -1,
-                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset":   {"tp": 1, "fn": 0, "fp": 0},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
-
         },
         id="sc_missing_segments",
     ),
-    # -- Case 4: EXTRA_SEGMENTS — pred inserts a middle exon not in GT
-    # GT  exons: [2,5), [12,14)   pred exons: [2,5), [7,10), [12,14)
-    # GT has single intron [5,12) → no intron chain → tp=fp=fn=0 (vacuous)
-    # LCS=2=n_gt < n_pred=3 → EXTRA_SEGMENTS
-    # superset: TP (GT fully in pred)   subset: FP (pred has extra)
+    # -- Case 4: pred inserts a middle exon not in GT
+    # GT  exons: (2,4),(12,13)  pred exons: (2,4),(7,9),(12,13)
+    # GT intron: (5,11) one intron; pred introns: (5,6),(10,11) two introns → mismatch
+    # exon_chain_superset TP (GT ⊆ pred), exon_chain_subset FP (pred has extra)
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8],
@@ -528,25 +505,21 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 0, "fn": 0},  # GT has single intron → no chain
-                "transcript_match_class": "extra_segments",
+                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                 "segment_count_delta": 1,
-                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
-
         },
         id="sc_extra_segments",
     ),
-    # -- Structurally different: completely rearranged predictions
-    # GT exons: (1,3), (6,8), (11,12)  → bounds: [(1,3),(6,8),(11,12)]
-    # Pred exons: (4,7), (10,13)        → bounds: [(4,7),(10,13)]
-    # No boundary pairs match → LCS=0, not subset/superset
+    # -- Case 5: completely rearranged predictions
+    # GT exons: (1,3),(6,8),(11,12)  pred exons: (4,7),(10,13)
+    # No exon boundary pairs match — all chain metrics FP.
     pytest.param(
         np.array([
             [8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
@@ -555,24 +528,20 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "transcript_match_class": "structurally_different",
                 "segment_count_delta": -1,
-                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
-
         },
         id="sc_structurally_different",
     ),
-    # -- Missed: GT has 2 exons, pred is all noncoding
-    # Single intron in GT → no intron chain → tp=fp=fn=0 (vacuous)
-    # fp=0 on all tiers because has_pred=False (MISSED class)
+    # -- Case 6: GT has 2 exons, pred is all noncoding
+    # Pred empty → no exon chain TP; fp=1 (consistent with intron chain semantics).
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
@@ -581,23 +550,20 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 0, "fn": 0},  # single intron, no chain
-                "transcript_match_class": "missed",
+                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                 "segment_count_delta": -2,
-                "transcript_exact": {"tp": 0, "fn": 1, "fp": 0},
-                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 0},
-                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 0},
+                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
-
         },
         id="sc_missed",
     ),
-    # -- No GT segments: all noncoding GT, pred has a spurious exon
-    # match_cls=None → transcript_match_class and tiers are absent from output
+    # -- Case 7: all noncoding GT, pred has a spurious exon
+    # GT has no coding segments → exon chain metrics absent from output.
     pytest.param(
         np.array([
             [8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
@@ -606,68 +572,55 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
             },
-
         },
         id="sc_no_gt_segments",
     ),
-    # -- Mixed errors: 6 GT exons, pred missing 2nd, first/last boundaries shifted
-    # GT exons: (1,2),(5,6),(9,10),(13,14),(17,18),(21,22) → 5 gaps
-    # Pred exons: (0,2),(9,10),(13,14),(17,18),(21,23)     → 4 gaps
-    # Boundary LCS: (9,10),(13,14),(17,18) = 3 ≠ n_pred(5) ≠ n_gt(6) → structurally_different
-    # Gap LCS: (10,13),(14,17),(18,21) = 3 of max(5,4)=5 → ratio 0.6
+    # -- Case 8: 6 GT exons vs 5 pred exons with boundary errors
+    # GT exons: (1,2),(5,6),(9,10),(13,14),(17,18),(21,22)
+    # Pred exons: (0,2),(9,10),(13,14),(17,18),(21,22)
+    # pred_set is not a subset of gt_set ((0,2) not in gt) → all FP.
     pytest.param(
         np.array([
             [8, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 8, 8],
             [0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 8],
         ]),
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
-                # GT intron chain: (5,7),(9,11),(13,15),(17,19) — pred misses (5,7)
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "transcript_match_class": "structurally_different",
                 "segment_count_delta": -1,
-                "transcript_exact": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "pred_is_subset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
-
         },
         id="sc_six_exon_mixed_errors",
     ),
-    # -- Single segment (no gaps): both have exactly 1 exon, identical
-    # Empty gap chains → match=True, lcs_ratio=1.0
+    # -- Case 9: single exon, identical on both sides
+    # No introns → intron_chain vacuous. Exon chain: exact TP.
     pytest.param(
         np.array([
             [8, 8, 0, 0, 0, 0, 8, 8],
             [8, 8, 0, 0, 0, 0, 8, 8],
         ]),
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-
             "STRUCTURAL_COHERENCE": {
-                # Single exon on both sides → no introns → no chain (vacuous tp=fp=fn=0)
                 "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
-                "transcript_match_class": "exact",
                 "segment_count_delta": 0,
-                "transcript_exact": {"tp": 1, "fn": 0, "fp": 0},
-                "pred_is_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "pred_is_subset": {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain":          {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_subset":   {"tp": 1, "fn": 0, "fp": 0},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
-
         },
         id="sc_single_segment",
     )

@@ -1,22 +1,19 @@
-"""Intron-chain comparison metrics.
+"""Segment-chain comparison metrics.
 
-Compares the set of intron boundaries between consecutive exon segments of a
-class between ground-truth and predicted label arrays.  For exon segments the
-gaps between segments correspond to introns, making this the label-array
-equivalent of an intron chain comparison.
+Compares the set of intron or exon boundaries between consecutive coding
+segments of a class between ground-truth and predicted label arrays.
 
 Metrics
 -------
-* **Intron chain (strict)** — binary TP/FN/FP: 1 iff the full GT and pred
-  intron sets are identical.
-* **Per-transcript exon recall** — fraction of GT exons exactly recovered
-  by the prediction (``shared / n_gt_exons``).  Per-sequence continuous
-  score in [0, 1]; aggregated as a distribution across transcripts so
-  cases like "9 of 10 exons right" are visible in the tail.
-* **Per-transcript hallucinated exon count** — number of predicted exons
-  whose ``(start, end)`` does **not** exactly match any GT exon.  A
-  precision-side companion to the recall metric that captures spurious
-  extra predictions without conflating them with boundary errors.
+* **Intron chain (strict / subset / superset)** — binary TP/FN/FP comparing
+  the full intron-segment boundary sets.
+* **Exon chain (strict / subset / superset)** — same set semantics applied to
+  coding segments.  Simpler than the old LCS-based tier classification and
+  directly comparable to intron chain.
+* **Boundary shift** — per-transcript count and total bp offset of shifted
+  segment boundaries (only for equal-count pairs).
+* **Per-transcript exon recall** — fraction of GT exons exactly recovered.
+* **Per-transcript hallucinated exon count** — predicted exons absent from GT.
 """
 
 from __future__ import annotations
@@ -26,91 +23,132 @@ from .. import LabelConfig
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Generic chain comparison (shared by intron and exon metrics)
 # ---------------------------------------------------------------------------
 
 
-def _compute_intron_chain_metrics(
-    gt_structure: ExtractedStructure,
-    pred_structure: ExtractedStructure,
-    label_config: LabelConfig,
+def _compute_chain_metrics(
+        gt_structure: ExtractedStructure,
+        pred_structure: ExtractedStructure,
+        label: int,
+        metric_prefix: str,
 ) -> dict:
-    """Compare explicit intron-label chains for one transcript pair.
+    """Compare segment boundary sets for one label class.
 
-    The metric expects introns to be present as segments with
-    ``label_config.intron_label``.  Each intron-chain element is the boundary
-    pair ``(end_i, start_{i+1})`` between consecutive intron-label segments.
-    The resulting chain is compared as a set and scored as an all-or-nothing
-    transcript-level TP/FP/FN.
-
-    If the structure contains multiple coding segments but no intron-label
-    segments, the metric raises ``ValueError`` instead of silently returning a
-    vacuous result.  In that situation the input likely came from exon/CDS-only
-    arrays.  Call ``benchmark_gt_vs_pred_single(..., infer_introns=True)`` or
-    provide explicit intron labels before requesting
-    :class:`~dna_segmentation_benchmark.label_definition.EvalMetrics.STRUCTURAL_COHERENCE`.
-
-    Single-exon edge case: if GT has no intron-chain elements, the result is
-    ``{"tp": 0, "fp": 0, "fn": 0}``, because there is no intron chain to
-    evaluate.
-
-    Notes
-    -----
-    The public benchmark functions can infer intron-label segments from
-    background gaps between adjacent coding segments before this metric runs.
-    That inference happens at the raw-array level, so all metrics see the same
-    transformed arrays when ``infer_introns=True``.
+    Filters both structures to segments matching *label*, converts each to a
+    ``frozenset`` of ``(start, end)`` pairs, and scores three binary metrics
+    via set comparison.
 
     Parameters
     ----------
     gt_structure, pred_structure : ExtractedStructure
-        Structures extracted from the GT and predicted label arrays.
-    label_config : LabelConfig
-        Supplies ``coding_label`` and ``intron_label``.
+        Structures extracted from the GT and predicted arrays.
+    label : int
+        Which label class to evaluate.
+    metric_prefix : str
+        Prefix for the three output keys.  For introns use ``"intron_chain"``,
+        for exons use ``"exon_chain"``.
 
     Returns
     -------
     dict
-        Strict transcript-level counts: ``tp``, ``fp``, and ``fn``.
+        Three sibling dicts, each with ``tp``, ``fp``, ``fn`` counts:
+
+        * ``{metric_prefix}`` — all-or-nothing exact match.
+        * ``{metric_prefix}_subset`` — 1 iff pred ⊆ GT (all predicted segments
+          are real; may miss some GT segments).
+        * ``{metric_prefix}_superset`` — 1 iff pred ⊇ GT (every GT segment was
+          found; may contain extra spurious ones).
+    """
+    gt_segs: set[tuple[int, int]] = {(s.start, s.end) for s in gt_structure.filter_by_label(label)}
+    pred_segs: set[tuple[int, int]] = {(s.start, s.end) for s in pred_structure.filter_by_label(label)}
+
+    if len(gt_segs) == 0:
+        return {
+            metric_prefix: {"tp": 0, "fp": 0, "fn": 0},
+            f"{metric_prefix}_subset": {"tp": 0, "fp": 0, "fn": 0},
+            f"{metric_prefix}_superset": {"tp": 0, "fp": 0, "fn": 0},
+        }
+
+    exact = gt_segs == pred_segs
+    subset = bool(pred_segs) and pred_segs <= gt_segs
+    superset = bool(pred_segs) and pred_segs >= gt_segs
+
+    return {
+        metric_prefix: {"tp": 1, "fp": 0, "fn": 0} if exact else {"tp": 0, "fp": 1, "fn": 1},
+        f"{metric_prefix}_subset": {"tp": 1, "fp": 0, "fn": 0} if subset else {"tp": 0, "fp": 1, "fn": 1},
+        f"{metric_prefix}_superset": {"tp": 1, "fp": 0, "fn": 0} if superset else {"tp": 0, "fp": 1, "fn": 1},
+    }
+
+
+# ---------------------------------------------------------------------------
+# Intron chain
+# ---------------------------------------------------------------------------
+
+
+def _compute_intron_chain_metrics(
+        gt_structure: ExtractedStructure,
+        pred_structure: ExtractedStructure,
+        label_config: LabelConfig,
+) -> dict:
+    """Compare explicit intron-label chains for one transcript pair.
+
+    Applies sanity checks specific to intron segments (raises if multiple
+    coding segments exist but no intron segments), then delegates to
+    :func:`_compute_chain_metrics`.
+
+    Returns
+    -------
+    dict
+        Three sibling dicts with ``tp``, ``fp``, ``fn`` counts:
+        ``intron_chain``, ``intron_chain_subset``, ``intron_chain_superset``.
     """
     if label_config.intron_label is None:
         raise ValueError("Intron-chain comparison requires an intron label.")
 
-    gt_segs = gt_structure.filter_by_label(label_config.intron_label)
-    pred_segs = pred_structure.filter_by_label(label_config.intron_label)
     _raise_if_introns_missing_but_inferable(gt_structure, label_config, "GT")
     _raise_if_introns_missing_but_inferable(pred_structure, label_config, "prediction")
 
-    gt_introns: set[tuple[int, int]] = set(_intron_chain(gt_segs))
-    pred_introns: set[tuple[int, int]] = set(_intron_chain(pred_segs))
+    return _compute_chain_metrics(gt_structure, pred_structure, label_config.intron_label, "intron_chain")
 
-    if len(gt_introns) == 0:
-        return {
-            "tp": 0,
-            "fp": 0,
-            "fn": 0,
-        }
 
-    return {
-        "tp": 1 if gt_introns == pred_introns else 0,
-        "fp": 1 if gt_introns != pred_introns else 0,
-        "fn": 1 if gt_introns != pred_introns else 0,
-    }
+# ---------------------------------------------------------------------------
+# Boundary shift (per-transcript, separate from chain PR)
+# ---------------------------------------------------------------------------
+
+
+def _compute_boundary_shift_metrics(
+        gt_structure: ExtractedStructure,
+        pred_structure: ExtractedStructure,
+        label: int,
+) -> dict:
+    """Count shifted boundary positions for equal-count segment pairs.
+
+    Only meaningful when GT and pred have the same number of segments.  If the
+    counts differ, both values are 0.  Used as a per-transcript diagnostic
+    complement to the chain set-comparison metrics.
+
+    Returns
+    -------
+    dict
+        ``{"boundary_shift_count": int, "boundary_shift_total": int}``
+    """
+    gt_segs = gt_structure.filter_by_label(label)
+    pred_segs = pred_structure.filter_by_label(label)
+
+    if len(gt_segs) == 0 or len(gt_segs) != len(pred_segs):
+        return {"boundary_shift_count": 0, "boundary_shift_total": 0}
+
+    count, total = _measure_shifted_boundaries(gt_segs, pred_segs)
+    return {"boundary_shift_count": count, "boundary_shift_total": total}
 
 
 def _raise_if_introns_missing_but_inferable(
-    structure: ExtractedStructure,
-    label_config: LabelConfig,
-    side_name: str,
+        structure: ExtractedStructure,
+        label_config: LabelConfig,
+        side_name: str,
 ) -> None:
-    """Reject exon/CDS-only structures before intron-chain scoring.
-
-    Multiple coding segments with no intron-label segment indicate that the
-    array has exon-like runs separated by background.  Scoring such an array as
-    an explicit intron chain would incorrectly treat the transcript as having
-    no introns.  The caller must either enable ``infer_introns`` in the public
-    benchmark entry point or provide arrays where introns are already labelled.
-    """
+    """Reject exon/CDS-only structures before intron-chain scoring."""
     coding = label_config.coding_label
     intron = label_config.intron_label
     if coding is None or intron is None:
@@ -134,36 +172,24 @@ def _raise_if_introns_missing_but_inferable(
 
 
 def _compute_per_transcript_exon_soft_metrics(
-    gt_structure: ExtractedStructure,
-    pred_structure: ExtractedStructure,
-    label_config: LabelConfig,
+        gt_structure: ExtractedStructure,
+        pred_structure: ExtractedStructure,
+        label_config: LabelConfig,
 ) -> dict:
     """Per-transcript continuous exon-recovery metrics.
 
-    Complements the strict ``intron_chain`` (all-or-nothing) and the
-    corpus-level ``perfect_boundary_hit`` (sums TP/FN across all
-    sequences) by yielding *per-transcript* values whose distribution
-    across transcripts can be plotted as a histogram.  This surfaces
-    graduated agreement — "9 of 10 exons right" is visible in the tail
-    of the distribution instead of collapsing to 0 or 1.
-
-    Values:
-
-    * ``exon_recall_per_transcript`` — fraction of GT exons whose exact
-      ``(start, end)`` tuple appears in the prediction, i.e.
-      ``shared / n_gt_exons``.  In [0, 1].  Absent when GT has no exons.
-    * ``hallucinated_exon_count_per_transcript`` — number of predicted
-      exons whose ``(start, end)`` does **not** match any GT exon exactly.
-      Precision-side companion to the recall metric.  Integer ≥ 0.
-      Absent when GT has no exons (the transcript is not applicable).
-
-    Operates on the coding label so it also works for predictors that
-    do not emit explicit intron tokens.
+    Returns
+    -------
+    dict
+        ``exon_recall_per_transcript`` — fraction of GT exons whose exact
+        ``(start, end)`` tuple appears in the prediction.  In [0, 1].
+        ``hallucinated_exon_count_per_transcript`` — number of predicted exons
+        whose ``(start, end)`` does not match any GT exon.  Integer ≥ 0.
+        Empty dict when GT has no exons.
     """
-    coding = label_config.coding_label
 
-    gt_exons: set[tuple[int, int]] = {(s.start, s.end) for s in gt_structure.filter_by_label(coding)}
-    pred_exons: set[tuple[int, int]] = {(s.start, s.end) for s in pred_structure.filter_by_label(coding)}
+    gt_exons: set[tuple[int, int]] = {(s.start, s.end) for s in gt_structure.filter_by_label(label_config.coding_label)}
+    pred_exons: set[tuple[int, int]] = {(s.start, s.end) for s in pred_structure.filter_by_label(label_config.coding_label)}
 
     if not gt_exons:
         return {}
@@ -180,11 +206,39 @@ def _compute_per_transcript_exon_soft_metrics(
 # ---------------------------------------------------------------------------
 
 
-def _intron_chain(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
-    """Return ordered intron boundaries between consecutive segments.
+def _measure_shifted_boundaries(
+        gt_segs: tuple[Segment, ...],
+        pred_segs: tuple[Segment, ...],
+) -> tuple[int, int]:
+    """Count and sum all shifted boundary positions across every segment pair.
 
-    Each intron is ``(end_of_segment_i, start_of_segment_{i+1})``.
+    Parameters
+    ----------
+    gt_segs, pred_segs : tuple[Segment, ...]
+        Segment chains of equal length.
+
+    Returns
+    -------
+    (count, total) : tuple[int, int]
+        *count* — number of boundary positions that differ.
+        *total* — sum of absolute position offsets across those boundaries (bp).
     """
+    if not gt_segs:
+        return 0, 0
+    count = 0
+    total = 0
+    for g, p in zip(gt_segs, pred_segs):
+        if g.start != p.start:
+            count += 1
+            total += abs(g.start - p.start)
+        if g.end != p.end:
+            count += 1
+            total += abs(g.end - p.end)
+    return count, total
+
+
+def _intron_chain(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
+    """Return ordered intron boundaries between consecutive segments."""
     return [(segments[i].end, segments[i + 1].start) for i in range(len(segments) - 1)]
 
 
@@ -194,8 +248,8 @@ def _boundaries(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
 
 
 def _lcs_length(
-    seq_a: list[tuple[int, int]],
-    seq_b: list[tuple[int, int]],
+        seq_a: list[tuple[int, int]],
+        seq_b: list[tuple[int, int]],
 ) -> int:
     """Length of the longest common subsequence of boundary pairs."""
     n = len(seq_a)

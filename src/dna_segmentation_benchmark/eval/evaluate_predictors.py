@@ -31,6 +31,8 @@ from tqdm import tqdm
 from .boundary_precision import _compute_boundary_precision_landscape
 from .chain_comparison import (
     _compute_intron_chain_metrics,
+    _compute_chain_metrics,
+    _compute_boundary_shift_metrics,
     _compute_per_transcript_exon_soft_metrics,
 )
 from .frame_shift import _get_frame_shift_metrics
@@ -38,7 +40,6 @@ from .intersection_over_union import _compute_intersection_over_union_score
 from .state_transitions import _compute_state_change_errors
 from .structure import extract_structure
 from .structural_summary import _compute_structural_summary
-from .transcript_classification import _classify_transcript_match, _compute_transcript_level_pr
 from .utils import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
 
@@ -250,29 +251,22 @@ def benchmark_gt_vs_pred_single(
         ``"false_transitions"``. When ``STRUCTURAL_COHERENCE`` is
         requested, the ``STRUCTURAL_COHERENCE`` entry contains:
 
-        * ``intron_chain`` — strict binary TP/FP/FN (1 iff the entire
-          GT and pred intron sets are identical), aggregated to corpus
-          precision/recall across sequences.
+        * ``intron_chain`` / ``intron_chain_subset`` / ``intron_chain_superset``
+          — binary TP/FP/FN comparing the intron segment boundary sets,
+          aggregated to corpus precision/recall across sequences.
+        * ``exon_chain`` / ``exon_chain_subset`` / ``exon_chain_superset``
+          — same set semantics applied to coding (exon) segments.
+          Subset: pred ⊆ GT (all pred exons are real, may miss some GT).
+          Superset: pred ⊇ GT (every GT exon found, may have extras).
         * ``exon_recall_per_transcript`` — float in [0, 1]: fraction of
-          GT exons whose ``(start, end)`` was recovered exactly.  Kept
-          as a raw per-sequence list so downstream plotting can draw
-          the distribution across transcripts.
+          GT exons whose ``(start, end)`` was recovered exactly.
         * ``hallucinated_exon_count_per_transcript`` — int ≥ 0: number
           of predicted exons whose ``(start, end)`` is absent from GT.
-          Also kept as a raw list for histograms.
-        * ``transcript_match_class`` — holistic class from
-          :class:`TranscriptMatchClass` (``exact``, ``boundary_shift``,
-          ``missing_segments``, ``extra_segments``,
-          ``structurally_different``, ``missed``).
-        * ``transcript_exact`` / ``pred_is_superset`` / ``pred_is_subset``
-          — transcript-level TP/FN/FP tiers aggregated to P/R across
-          sequences.
         * ``segment_count_delta`` — ``pred_count - gt_count``
           (positive = over-segmentation).
         * ``boundary_shift_count`` / ``boundary_shift_total`` — number
-          of shifted internal splice-site boundary positions and their
-          summed absolute offset in bp (non-zero only for
-          ``BOUNDARY_SHIFT`` transcripts).
+          of shifted boundary positions and their summed absolute offset
+          in bp across transcripts where GT and pred segment counts match.
     """
     if infer_introns:
         gt_labels = _infer_introns_from_coding_gaps(gt_labels, label_config)
@@ -423,26 +417,21 @@ def benchmark_gt_vs_pred_single(
         gt_struct = extract_structure(gt_labels, label_config)
         pred_struct = extract_structure(pred_labels, label_config)
 
-    # ---- STRUCTURAL_COHERENCE: intron chain + transcript classification
+    # ---- STRUCTURAL_COHERENCE: intron chain + exon chain + boundary shifts
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
-        intron_chain = _compute_intron_chain_metrics(gt_struct, pred_struct, label_config)
-        sc_result = {"intron_chain": intron_chain}
 
-        soft = _compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, label_config)
-        sc_result.update(soft)
+        sc_result: dict = {}
+        sc_result.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
+        sc_result.update(_compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, label_config))
 
-        match_cls, boundary_shift_count, boundary_shift_total, n_gt, n_pred = _classify_transcript_match(
-            gt_struct,
-            pred_struct,
-            label_config.coding_label,
-        )
-        if match_cls is not None:
-            sc_result["transcript_match_class"] = match_cls.value
-            sc_result["segment_count_delta"] = n_pred - n_gt
+        gt_coding = gt_struct.filter_by_label(label_config.coding_label)
+        pred_coding = pred_struct.filter_by_label(label_config.coding_label)
 
-        transcript_pr = _compute_transcript_level_pr(match_cls, boundary_shift_count, boundary_shift_total)
-        if transcript_pr is not None:
-            sc_result.update(transcript_pr)
+        if len(gt_coding) > 0:
+            sc_result.update(_compute_chain_metrics(gt_struct, pred_struct, label_config.coding_label, "exon_chain"))
+            sc_result.update(_compute_boundary_shift_metrics(gt_struct, pred_struct, label_config.coding_label))
+            sc_result["segment_count_delta"] = len(pred_coding) - len(gt_coding)
+
         metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
 
     # ---- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
@@ -583,7 +572,9 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
         sc = aggregated.get(EvalMetrics.STRUCTURAL_COHERENCE.name, {})
         if sc:
-            sc["intron_chain"] = _compute_summary_statistics(**sc["intron_chain"])
+            for _key in ("intron_chain", "intron_chain_subset", "intron_chain_superset"):
+                if _key in sc:
+                    sc[_key] = _compute_summary_statistics(**sc[_key])
 
             if "segment_count_delta" in sc and isinstance(sc["segment_count_delta"], list):
                 sc["segment_count_delta"] = _compute_distribution_stats(
@@ -595,15 +586,7 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
                 if key in sc and isinstance(sc[key], list):
                     sc[key] = sum(sc[key])
 
-            if "transcript_match_class" in sc and isinstance(sc["transcript_match_class"], list):
-                from collections import Counter
-
-                counts = Counter(sc["transcript_match_class"])
-                total = sum(counts.values())
-                sc["transcript_match_distribution"] = dict(counts)
-                sc["exact_match_rate"] = counts.get("exact", 0) / total if total > 0 else 0.0
-
-            for tier_key in ("transcript_exact", "pred_is_superset", "pred_is_subset"):
+            for tier_key in ("exon_chain", "exon_chain_subset", "exon_chain_superset"):
                 if tier_key in sc:
                     sc[tier_key] = _compute_summary_statistics(**sc[tier_key])
 

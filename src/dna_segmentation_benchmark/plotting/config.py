@@ -150,15 +150,14 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     # --- Structural Coherence ---
     "boundary_shift_distribution": PlotMetadata(
         display_name="Boundary Shift Distribution",
-        description="Distribution of splice-site boundary errors among BOUNDARY_SHIFT transcripts "
-        "(same segment count, ≥1 position shifted).",
+        description="Distribution of splice-site boundary errors among transcripts where "
+        "GT and pred have the same segment count but ≥1 boundary position differs.",
         bullet_points=(
             "Left: number of shifted boundary positions per transcript",
             "Middle: total absolute bp offset summed across shifted positions",
             "Right: scatter — count vs total bp offset per transcript",
         ),
-        caveat="Only transcripts classified as BOUNDARY_SHIFT are included. "
-        "Transcripts with no boundary shifts (exact, missed, etc.) are excluded.",
+        caveat="Only transcripts with at least one shifted boundary (count > 0) are included.",
     ),
     "ts_level_precision": PlotMetadata(
         display_name="Transcript-Level Precision metrics",
@@ -215,30 +214,30 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         "A near-zero recall mass with a fat right tail of hallucinations "
         "indicates a model that guesses without recovering true structure.",
     ),
-    # --- Transcript-level P/R tiers ---
-    "transcript_exact": PlotMetadata(
-        display_name="Transcript Exact Match",
-        description="Precision and recall at the transcript level requiring identical segment chains.",
+    # --- Exon chain P/R tiers ---
+    "exon_chain": PlotMetadata(
+        display_name="Exon Chain Exact Match",
+        description="Precision and recall requiring identical exon segment boundary sets.",
         show_tp_tn_fp_fn=True,
-        tp_definition="GT transcript exactly reproduced by prediction",
-        fp_definition="Prediction exists but does not exactly match GT",
-        fn_definition="GT transcript not exactly matched by any prediction",
+        tp_definition="GT exon set exactly reproduced by prediction",
+        fp_definition="Prediction exists but exon set does not exactly match GT",
+        fn_definition="GT exon set not exactly matched",
     ),
-    "pred_is_superset": PlotMetadata(
-        display_name="Transcript All GT Found (Superset)",
-        description="Recall-oriented: all GT segments are present in the prediction (pred may have extras).",
+    "exon_chain_superset": PlotMetadata(
+        display_name="Exon Chain Superset",
+        description="Recall-oriented: all GT exons are present in the prediction (pred may have extras).",
         show_tp_tn_fp_fn=True,
-        tp_definition="All GT segments present in prediction (pred is superset or equal)",
-        fp_definition="Prediction exists but misses at least one GT segment",
-        fn_definition="GT transcript not fully recovered",
+        tp_definition="All GT exons present in prediction (pred ⊇ GT)",
+        fp_definition="Prediction exists but misses at least one GT exon",
+        fn_definition="GT exon set not fully recovered",
     ),
-    "pred_is_subset": PlotMetadata(
-        display_name="Transcript All Pred Valid (Subset)",
-        description="Precision-oriented: all predicted segments correspond to GT segments (some GT segments may be missing).",
+    "exon_chain_subset": PlotMetadata(
+        display_name="Exon Chain Subset",
+        description="Precision-oriented: all predicted exons correspond to GT exons (some GT exons may be missing).",
         show_tp_tn_fp_fn=True,
-        tp_definition="All predicted segments are valid GT segments (pred is subset or equal)",
-        fp_definition="Prediction contains segments not in GT",
-        fn_definition="GT transcript not matched at this level",
+        tp_definition="All predicted exons are valid GT exons (pred ⊆ GT)",
+        fp_definition="Prediction contains exons not in GT",
+        fn_definition="GT exon set not matched at this level",
     ),
     # --- Diagnostic Depth ---
     "junction_errors": PlotMetadata(

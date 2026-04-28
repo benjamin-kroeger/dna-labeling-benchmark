@@ -82,8 +82,8 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
     "STRUCTURAL_COHERENCE": {
         "intron_chain/precision": ("intron_chain", "precision"),
         "intron_chain/recall": ("intron_chain", "recall"),
-        "transcript_exact/precision": ("transcript_exact", "precision"),
-        "transcript_exact/recall": ("transcript_exact", "recall"),
+        "exon_chain/precision": ("exon_chain", "precision"),
+        "exon_chain/recall": ("exon_chain", "recall"),
     },
 }
 
