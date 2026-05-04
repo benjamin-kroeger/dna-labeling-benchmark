@@ -53,18 +53,20 @@ def _require_wandb():
 
 _SCALAR_TYPES = (int, float, np.integer, np.floating)
 
-# Human-readable section names for W&B dashboard grouping
+# Snake-case section names used as the W&B metric-path group segment.
+# Keeps full keys URL/glob-friendly, e.g. ``val/struct_coherence/intron_chain/precision``.
 _GROUP_DISPLAY_NAMES = {
-    "REGION_DISCOVERY": "Region Discovery",
-    "BOUNDARY_EXACTNESS": "Boundary Exactness",
-    "NUCLEOTIDE_CLASSIFICATION": "Nucleotide Classification",
-    "INDEL": "INDELs",
-    "FRAMESHIFT": "Frameshift",
-    "STRUCTURAL_COHERENCE": "Structural Coherence",
-    "DIAGNOSTIC_DEPTH": "Diagnostic Depth",
+    "REGION_DISCOVERY": "region_discovery",
+    "BOUNDARY_EXACTNESS": "boundary_exactness",
+    "NUCLEOTIDE_CLASSIFICATION": "nucleotide_classification",
+    "INDEL": "indel",
+    "FRAMESHIFT": "frameshift",
+    "STRUCTURAL_COHERENCE": "struct_coherence",
+    "DIAGNOSTIC_DEPTH": "diagnostic_depth",
 }
 
 # Training-time scalar subset: stable, high-signal metrics only.
+# Path leaves may be scalar dict entries or numeric lists (auto-mean reduced).
 _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
     "BOUNDARY_EXACTNESS": {
         "iou_mean": ("iou_stats", "mean"),
@@ -84,6 +86,13 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "intron_chain/recall": ("intron_chain", "recall"),
         "exon_chain/precision": ("exon_chain", "precision"),
         "exon_chain/recall": ("exon_chain", "recall"),
+        "segment_count_delta/mean": ("segment_count_delta", "mean"),
+        "segment_count_delta/mae": ("segment_count_delta", "mae"),
+        "exon_recall_per_transcript/mean": ("exon_recall_per_transcript",),
+        "hallucinated_exon_count_per_transcript/mean": (
+            "hallucinated_exon_count_per_transcript",
+        ),
+        "exact_match_rate": ("exact_match_rate",),
     },
 }
 
@@ -92,7 +101,12 @@ _MEDIA_FIGURE_KEYS = {
     "position_bias": "position_bias",
     "transition_matrices": "transition_matrices",
     "false_transitions": "false_transitions",
+    "transcript_match": "transcript_match",
 }
+
+# Internal label used as the single-method key when feeding the multi-method
+# plotting orchestrator. Surfaces in plot legends only.
+_INTERNAL_METHOD_LABEL = "model"
 
 _BUFFERED_MEDIA_FRAMES: dict[str, list[np.ndarray]] = {}
 _DEFAULT_VIDEO_FPS = 2
@@ -115,7 +129,12 @@ def _flatten_leaf(
 
 
 def _get_nested_scalar(data: dict, path: tuple[str, ...]) -> float | None:
-    """Return a nested scalar value or ``None`` when the path is unavailable."""
+    """Return a nested scalar value or ``None`` when the path is unavailable.
+
+    If the leaf is a non-empty list of numeric values, its arithmetic mean is
+    returned — this lets the spec format point to per-transcript distributions
+    (e.g. ``exon_recall_per_transcript``) without an extra aggregation step.
+    """
     current: Any = data
     for key in path:
         if not isinstance(current, dict) or key not in current:
@@ -123,6 +142,10 @@ def _get_nested_scalar(data: dict, path: tuple[str, ...]) -> float | None:
         current = current[key]
     if isinstance(current, _SCALAR_TYPES):
         return float(current)
+    if isinstance(current, list) and current and all(
+        isinstance(v, _SCALAR_TYPES) for v in current
+    ):
+        return float(np.mean(current))
     return None
 
 
@@ -153,21 +176,13 @@ def _unwrap_per_transcript_results(results: dict) -> dict:
     return results
 
 
-def _normalize_media_name(name: str) -> str:
-    """Normalize a method/plot name for stable W&B video keys."""
-    return "".join(ch.lower() if ch.isalnum() else "_" for ch in name).strip("_")
-
-
 def _build_buffered_video_key(
     *,
     plot_name: str,
-    method_name: str,
     method_prefix: str | None,
 ) -> str:
     """Build the final W&B key stem used for buffered plot videos."""
-    normalized_method = _normalize_media_name(method_name)
-    plot_stem = plot_name if normalized_method in ("", "model") else f"{normalized_method}_{plot_name}"
-    key = f"plots/{plot_stem}"
+    key = f"plots/{plot_name}"
     if method_prefix:
         key = f"{method_prefix}/{key}"
     return key
@@ -176,8 +191,6 @@ def _build_buffered_video_key(
 def _render_benchmark_media_figures(
     results: dict,
     label_config: LabelConfig,
-    *,
-    method_name: str,
 ) -> dict[str, Any]:
     """Render the benchmark media figures for one aggregated result dict."""
     per_transcript_results = _unwrap_per_transcript_results(results)
@@ -186,7 +199,7 @@ def _render_benchmark_media_figures(
         return {}
 
     return compare_multiple_predictions(
-        per_method_benchmark_res={method_name: per_transcript_results},
+        per_method_benchmark_res={_INTERNAL_METHOD_LABEL: per_transcript_results},
         label_config=label_config,
         metrics_to_eval=metrics_to_eval,
     )
@@ -221,7 +234,6 @@ def _pad_frames_to_common_shape(frames: list[np.ndarray]) -> list[np.ndarray]:
 def _buffer_media_frames(
     figures: dict[str, Any],
     *,
-    method_name: str,
     method_prefix: str | None,
 ) -> None:
     """Append the current media figures to the internal video-frame buffer."""
@@ -231,7 +243,6 @@ def _buffer_media_frames(
             continue
         buffer_key = _build_buffered_video_key(
             plot_name=plot_name,
-            method_name=method_name,
             method_prefix=method_prefix,
         )
         _BUFFERED_MEDIA_FRAMES.setdefault(buffer_key, []).append(_figure_to_rgb_frame(fig))
@@ -323,7 +334,6 @@ def log_benchmark_media(
     label_config: LabelConfig,
     step: Optional[int] = None,
     method_prefix: Optional[str] = None,
-    method_name: str = "model",
 ) -> dict[str, Any]:
     """Log key diagnostic plots to W&B as stepwise media history.
 
@@ -334,6 +344,7 @@ def log_benchmark_media(
     * error location bias
     * GT transition confusion matrices
     * false transitions at GT-stable positions
+    * transcript match classification distribution
 
     Parameters
     ----------
@@ -347,8 +358,6 @@ def log_benchmark_media(
         Training step or epoch number for W&B media history.
     method_prefix : str, optional
         Optional namespace prefix such as ``"val"``.
-    method_name : str
-        Method label used inside the generated plots.
 
     Returns
     -------
@@ -357,11 +366,7 @@ def log_benchmark_media(
     """
     wandb = _require_wandb()
 
-    figures = _render_benchmark_media_figures(
-        results,
-        label_config,
-        method_name=method_name,
-    )
+    figures = _render_benchmark_media_figures(results, label_config)
     try:
         media_payload: dict[str, Any] = {}
         for fig_name, target_name in _MEDIA_FIGURE_KEYS.items():
@@ -373,11 +378,7 @@ def log_benchmark_media(
                 key = f"{method_prefix}/{key}"
             media_payload[key] = wandb.Image(fig)
 
-        _buffer_media_frames(
-            figures,
-            method_name=method_name,
-            method_prefix=method_prefix,
-        )
+        _buffer_media_frames(figures, method_prefix=method_prefix)
 
         if not media_payload:
             logger.info("No W&B media plots were generated from the benchmark results.")
