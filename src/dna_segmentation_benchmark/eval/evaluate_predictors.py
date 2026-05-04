@@ -610,7 +610,6 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
                 )
 
             for hist_key in (
-                "position_bias_histogram",
                 "position_bias_histogram_fn",
                 "position_bias_histogram_fp",
             ):

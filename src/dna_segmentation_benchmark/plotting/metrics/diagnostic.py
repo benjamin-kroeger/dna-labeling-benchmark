@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Optional
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 from ..config import DEFAULT_FIG_SIZE, PlotMetadata
@@ -44,9 +43,6 @@ def plot_position_bias(
       GT coding span that are not in GT).  Spikes here indicate where the
       model paints extra bases.
 
-    If the per-method results only carry the legacy combined histogram
-    (``position_bias_histogram``), a single-panel fallback is rendered.
-
     Parameters
     ----------
     df_dd : pd.DataFrame
@@ -64,7 +60,6 @@ def plot_position_bias(
     """
     fn_rows: list[dict] = []
     fp_rows: list[dict] = []
-    combined_rows: list[dict] = []
 
     for _, row in df_dd.iterrows():
         value = row["value"]
@@ -74,39 +69,24 @@ def plot_position_bias(
             fn_rows.append({"method_name": row["method_name"], "histogram": value})
         elif row["metric_key"] == "position_bias_histogram_fp":
             fp_rows.append({"method_name": row["method_name"], "histogram": value})
-        elif row["metric_key"] == "position_bias_histogram":
-            combined_rows.append({"method_name": row["method_name"], "histogram": value})
 
-    have_split = bool(fn_rows) and bool(fp_rows)
-    if not have_split and not combined_rows:
+    if not fn_rows or not fp_rows:
         return None
 
-    x = np.arange(100)
+    fig, axes = plt.subplots(1, 2, figsize=DEFAULT_FIG_SIZE, sharey=True)
+    for entry in fn_rows:
+        axes[0].plot(entry["histogram"], label=entry["method_name"], linewidth=1.5)
+    for entry in fp_rows:
+        axes[1].plot(entry["histogram"], label=entry["method_name"], linewidth=1.5)
 
-    if have_split:
-        fig, axes = plt.subplots(1, 2, figsize=DEFAULT_FIG_SIZE, sharey=True)
-        for entry in fn_rows:
-            axes[0].plot(entry["histogram"], label=entry["method_name"], linewidth=1.5)
-        for entry in fp_rows:
-            axes[1].plot(entry["histogram"], label=entry["method_name"], linewidth=1.5)
-
-        axes[0].set_title("False negatives (GT coding missed by prediction)")
-        axes[1].set_title("False positives (predicted coding absent from GT)")
-        for ax in axes:
-            ax.set_xlabel("Position in coding span (%)")
-            ax.set_xlim(0, 99)
-        axes[0].set_ylabel("Mismatch nucleotides (cumulative across sequences)")
-        axes[1].legend(title="Method", loc="upper right", fontsize=9)
-        fig.suptitle(f"{class_name} — Nucleotide Mismatch Location (coding span)")
-    else:
-        fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-        for entry in combined_rows:
-            ax.plot(x, entry["histogram"], label=entry["method_name"], linewidth=1.5)
-        ax.set_title(f"{class_name} — Nucleotide Mismatch Location (coding span)")
+    axes[0].set_title("False negatives (GT coding missed by prediction)")
+    axes[1].set_title("False positives (predicted coding absent from GT)")
+    for ax in axes:
         ax.set_xlabel("Position in coding span (%)")
-        ax.set_ylabel("Mismatch nucleotides (cumulative across sequences)")
         ax.set_xlim(0, 99)
-        ax.legend(title="Method", loc="upper right", fontsize=9)
+    axes[0].set_ylabel("Mismatch nucleotides (cumulative across sequences)")
+    axes[1].legend(title="Method", loc="upper right", fontsize=9)
+    fig.suptitle(f"{class_name} — Nucleotide Mismatch Location (coding span)")
 
     fig.tight_layout()
     _add_pictogram_panel(fig, metadata, logger)

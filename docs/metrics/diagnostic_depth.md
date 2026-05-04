@@ -42,7 +42,7 @@ available; otherwise a quantile-interpolation fallback is applied. Both return
 The position-bias diagnostic answers: *where in a transcript do nucleotide-level
 errors concentrate, and are they under-predictions or over-predictions?*
 
-Three histograms are emitted, all with 100 bins normalised to the coding
+Two histograms are emitted, both with 100 bins normalised to the coding
 span (bin 0 = start of the first GT coding segment, bin 99 = end of the
 last):
 
@@ -51,16 +51,12 @@ last):
 - `position_bias_histogram_fp` — counts predicted coding positions that
   fall inside the GT coding span but are not in GT (over-prediction /
   false positives).
-- `position_bias_histogram` — element-wise sum of the two above, retained
-  for backwards compatibility with older logs.
 
 Predicted nucleotides outside the GT coding span are clipped before
-binning, keeping every histogram bounded to the gene locus.
-
-Earlier versions of the benchmark collapsed FN and FP into a single XOR
-count, which made it impossible to tell a model that systematically
+binning, keeping every histogram bounded to the gene locus. Splitting
+FN and FP makes it possible to tell a model that systematically
 *deletes* coding bases apart from one that systematically *inserts*
-them. The split version preserves that distinction.
+them.
 
 ### Reading the plot
 

@@ -646,7 +646,8 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [3, 3],
                 "pred_segment_lengths": [3, 3],
                 "length_emd": 0.0,
-                "position_bias_histogram": [0] * 100,
+                "position_bias_histogram_fn": [0] * 100,
+                "position_bias_histogram_fp": [0] * 100,
             }
         },
         id="dd_no_errors",
@@ -668,10 +669,11 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [2, 2, 2],
                 "pred_segment_lengths": [2, 2],
                 "length_emd": 0.0,
-                "position_bias_histogram": [
+                "position_bias_histogram_fn": [
                     1 if i in {40, 50} else 0
                     for i in range(100)
                 ],
+                "position_bias_histogram_fp": [0] * 100,
             },
 
         },
@@ -694,10 +696,11 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [9],
                 "pred_segment_lengths": [3, 4],
                 "length_emd": 5.5,
-                "position_bias_histogram": [
+                "position_bias_histogram_fn": [
                     1 if i in {33, 44} else 0
                     for i in range(100)
                 ],
+                "position_bias_histogram_fp": [0] * 100,
             },
 
         },
@@ -721,8 +724,12 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [3, 3, 3, 3],
                 "pred_segment_lengths": [3, 3, 3, 3],
                 "length_emd": 0.0,
-                "position_bias_histogram": [
-                    1 if i in {0, 16, 27, 44, 55, 72, 83} else 0
+                "position_bias_histogram_fn": [
+                    1 if i in {0, 27, 55, 83} else 0
+                    for i in range(100)
+                ],
+                "position_bias_histogram_fp": [
+                    1 if i in {16, 44, 72} else 0
                     for i in range(100)
                 ],
             },
@@ -732,7 +739,7 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
     ),
     # -- Balanced extensions: both predicted exons are one base longer
     # GT exons: (1,3),(7,9) — pred exons: (1,4),(6,9)
-    # Pred FP positions 4 and 6 fall within coding span → bins 33 and 55.
+    # Pred FP positions 4 and 6 fall within coding span → bins 33 and 55.ben
     pytest.param(
         np.array([
             [8, 0, 0, 0, 2, 2, 2, 0, 0, 0, 8],
@@ -747,7 +754,8 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
                 "gt_segment_lengths": [3, 3],
                 "pred_segment_lengths": [4, 4],
                 "length_emd": 1.0,
-                "position_bias_histogram": [
+                "position_bias_histogram_fn": [0] * 100,
+                "position_bias_histogram_fp": [
                     1 if i in {33, 55} else 0
                     for i in range(100)
                 ],

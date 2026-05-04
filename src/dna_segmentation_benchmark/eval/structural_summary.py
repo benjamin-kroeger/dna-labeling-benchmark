@@ -6,19 +6,16 @@ the per-section metrics:
 * **Length EMD** — Earth Mover's Distance between GT and predicted
   segment length distributions.  Quantifies whether the model produces
   segments of the right length.
-* **Position bias histogram** — 100-bin per-nucleotide mismatch histogram
-  normalised to the coding span.  Bin 0 corresponds to the start of the
-  first GT coding segment; bin 99 to the end of the last.
-
-  Three companion histograms are emitted so that under-prediction and
-  over-prediction can be told apart visually:
+* **Position bias histograms** — 100-bin per-nucleotide mismatch
+  histograms normalised to the coding span.  Bin 0 corresponds to the
+  start of the first GT coding segment; bin 99 to the end of the last.
+  Two histograms are emitted so that under-prediction and over-prediction
+  can be told apart visually:
 
   * ``position_bias_histogram_fn`` — GT positions not covered by the
     prediction (under-prediction).
   * ``position_bias_histogram_fp`` — predicted positions inside the GT
     coding span that are not in GT (over-prediction).
-  * ``position_bias_histogram`` — element-wise sum of the two above,
-    retained for backwards compatibility.
 """
 
 from __future__ import annotations
@@ -47,7 +44,8 @@ def _compute_structural_summary(
     -------
     dict
         Keys: ``gt_segment_lengths``, ``pred_segment_lengths``,
-        ``length_emd``, ``position_bias_histogram``.
+        ``length_emd``, ``position_bias_histogram_fn``,
+        ``position_bias_histogram_fp``.
     """
     gt_lengths = [len(g) for g in grouped_gt_sections]
     pred_lengths = [len(g) for g in grouped_pred_sections]
@@ -56,13 +54,11 @@ def _compute_structural_summary(
     fn_hist, fp_hist = _compute_position_bias_histograms(
         grouped_gt_sections, grouped_pred_sections
     )
-    combined = [a + b for a, b in zip(fn_hist, fp_hist)]
 
     return {
         "gt_segment_lengths": gt_lengths,
         "pred_segment_lengths": pred_lengths,
         "length_emd": emd,
-        "position_bias_histogram": combined,
         "position_bias_histogram_fn": fn_hist,
         "position_bias_histogram_fp": fp_hist,
     }
@@ -104,9 +100,7 @@ def _compute_position_bias_histograms(
 
     Bin 0 = start of first GT coding segment, bin 99 = end of last.
     Two histograms are returned so that under-prediction (FN) and
-    over-prediction (FP) within the GT coding span can be distinguished;
-    the previous implementation collapsed both via XOR which made the two
-    failure modes indistinguishable in the plot.
+    over-prediction (FP) within the GT coding span can be distinguished.
 
     * **FN bins** — count GT coding positions not covered by the prediction.
     * **FP bins** — count predicted coding positions inside the GT coding
