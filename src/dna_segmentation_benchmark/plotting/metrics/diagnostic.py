@@ -31,14 +31,21 @@ def plot_position_bias(
     save_path: Optional[Path] = None,
     metadata: Optional[PlotMetadata] = None,
 ) -> Optional[plt.Figure]:
-    """Line chart of per-nucleotide mismatch density across the coding span.
+    """Per-nucleotide mismatch density across the coding span, split FN / FP.
 
     Each bin represents a 1-percentile slice of the coding region
     (bin 0 = start of first GT coding segment, bin 99 = end of last).
-    The y-axis shows the cumulative count of mismatch nucleotides —
-    GT positions absent from the prediction (FN) and predicted positions
-    absent from GT within the coding span (FP) — summed across all
-    evaluated sequences.
+    The figure has two subplots so that under-prediction and
+    over-prediction can be told apart:
+
+    * **Left** — false negatives (GT coding positions absent from the
+      prediction).  Spikes here indicate where the model misses GT bases.
+    * **Right** — false positives (predicted coding positions inside the
+      GT coding span that are not in GT).  Spikes here indicate where the
+      model paints extra bases.
+
+    If the per-method results only carry the legacy combined histogram
+    (``position_bias_histogram``), a single-panel fallback is rendered.
 
     Parameters
     ----------
@@ -55,29 +62,53 @@ def plot_position_bias(
     -------
     Figure | None
     """
-    rows = []
-    for _, row in df_dd.iterrows():
-        if row["metric_key"] == "position_bias_histogram" and isinstance(row["value"], list):
-            hist = row["value"]
-            if len(hist) == 100:
-                rows.append({"method_name": row["method_name"], "histogram": hist})
+    fn_rows: list[dict] = []
+    fp_rows: list[dict] = []
+    combined_rows: list[dict] = []
 
-    if not rows:
+    for _, row in df_dd.iterrows():
+        value = row["value"]
+        if not isinstance(value, list) or len(value) != 100:
+            continue
+        if row["metric_key"] == "position_bias_histogram_fn":
+            fn_rows.append({"method_name": row["method_name"], "histogram": value})
+        elif row["metric_key"] == "position_bias_histogram_fp":
+            fp_rows.append({"method_name": row["method_name"], "histogram": value})
+        elif row["metric_key"] == "position_bias_histogram":
+            combined_rows.append({"method_name": row["method_name"], "histogram": value})
+
+    have_split = bool(fn_rows) and bool(fp_rows)
+    if not have_split and not combined_rows:
         return None
 
-    fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
     x = np.arange(100)
 
-    for entry in rows:
-        ax.plot(x, entry["histogram"], label=entry["method_name"], linewidth=1.5)
+    if have_split:
+        fig, axes = plt.subplots(1, 2, figsize=DEFAULT_FIG_SIZE, sharey=True)
+        for entry in fn_rows:
+            axes[0].plot(entry["histogram"], label=entry["method_name"], linewidth=1.5)
+        for entry in fp_rows:
+            axes[1].plot(entry["histogram"], label=entry["method_name"], linewidth=1.5)
 
-    ax.set_title(f"{class_name} — Nucleotide Mismatch Location (coding span)")
-    ax.set_xlabel("Position in coding span (%)")
-    ax.set_ylabel("Mismatch nucleotides (cumulative across sequences)")
-    ax.set_xlim(0, 99)
-    ax.legend(title="Method", loc="upper right", fontsize=9)
+        axes[0].set_title("False negatives (GT coding missed by prediction)")
+        axes[1].set_title("False positives (predicted coding absent from GT)")
+        for ax in axes:
+            ax.set_xlabel("Position in coding span (%)")
+            ax.set_xlim(0, 99)
+        axes[0].set_ylabel("Mismatch nucleotides (cumulative across sequences)")
+        axes[1].legend(title="Method", loc="upper right", fontsize=9)
+        fig.suptitle(f"{class_name} — Nucleotide Mismatch Location (coding span)")
+    else:
+        fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
+        for entry in combined_rows:
+            ax.plot(x, entry["histogram"], label=entry["method_name"], linewidth=1.5)
+        ax.set_title(f"{class_name} — Nucleotide Mismatch Location (coding span)")
+        ax.set_xlabel("Position in coding span (%)")
+        ax.set_ylabel("Mismatch nucleotides (cumulative across sequences)")
+        ax.set_xlim(0, 99)
+        ax.legend(title="Method", loc="upper right", fontsize=9)
+
     fig.tight_layout()
-
     _add_pictogram_panel(fig, metadata, logger)
 
     if save_path:

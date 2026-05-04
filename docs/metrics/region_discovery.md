@@ -82,4 +82,9 @@ and the extra unmatched predicted section.
 - They are not transcript-chain metrics. Two transcripts can have good section
   discovery while still failing strict structural coherence.
 - `perfect_boundary_hit` is stricter and structurally different from the other
-  three tiers because it is not based on the greedy 1:1 assignment.
+  three tiers because it is not based on the greedy 1:1 assignment. Its
+  TP / FP / FN counts come from the sweep, so absolute counts are not
+  directly comparable to the matched tiers.
+- Aggregation is micro-averaged across sequences (see {doc}`conventions`):
+  per-sequence counts are summed before the precision/recall ratio is
+  computed, so long sequences dominate the corpus score.

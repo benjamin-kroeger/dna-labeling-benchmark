@@ -66,8 +66,34 @@ class PlotMetadata:
 # :func:`compare_multiple_predictions`.
 PLOT_METADATA: dict[str, PlotMetadata] = {
     # INDEL summary
-    "indel_counts": PlotMetadata(display_name="INDEL Counts"),
-    "indel_lengths": PlotMetadata(display_name="INDEL Length Distribution"),
+    "indel_counts": PlotMetadata(
+        display_name="INDEL Counts",
+        description="Stacked total of structural mismatches per method, "
+        "broken down by INDEL category. Bars are sorted by total error count.",
+        bullet_points=(
+            "5'/3' extensions: prediction extends past one GT boundary",
+            "5'/3' deletions: prediction stops short of one GT boundary",
+            "joined: predicted span fuses two adjacent GT coding sections",
+            "split: GT coding section fragmented into multiple predictions",
+            "whole_insertions / whole_deletions: predicted/missed sections "
+            "with no overlap to a GT counterpart",
+        ),
+        caveat="Counts are absolute mismatch-group counts across the corpus. "
+        "Methods evaluated on different inputs are not directly comparable.",
+    ),
+    "indel_lengths": PlotMetadata(
+        display_name="INDEL Length Distribution",
+        description="Per-category length distribution of INDEL events on a "
+        "log-scaled x-axis. One subplot per INDEL category; one histogram "
+        "per method overlaid.",
+        bullet_points=(
+            "Long tails on extensions/deletions: occasional but very large boundary slips",
+            "Heavy mass on whole_insertions/deletions: hallucinated or missed exons",
+            "Tick labels are linear bp values even though bins are log-spaced",
+        ),
+        caveat="Only positive lengths are plotted (log scale). Zero-length "
+        "events would not appear and indicate a different failure mode.",
+    ),
     # ML precision / recall (one entry per level)
     "nucleotide": PlotMetadata(
         display_name="Nucleotide-Level Metrics",
@@ -242,19 +268,17 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fn_definition="GT exon set not matched at this level",
     ),
     # --- Diagnostic Depth ---
-    "junction_errors": PlotMetadata(
-        display_name="Junction Error Taxonomy",
-        description="Classifies each structural mismatch into a causal error type.",
-        bullet_points=(
-            "Exon skip: GT segments merged (intervening segment absent)",
-            "Segment retention: GT segment absorbed by neighbours",
-            "Novel insertion: extra segment splits a GT segment",
-            "Cascade shift: boundary error propagates across 3+ segments",
-            "Compensating errors: paired errors that cancel out",
-        ),
-    ),
     "position_bias": PlotMetadata(
         display_name="Position Bias",
-        description="Per position nucleotide prediction errors, relative to the position in the coding span",
+        description="Per-position nucleotide prediction errors over the coding span, "
+        "split into false negatives (GT coding missed by the prediction) and "
+        "false positives (predicted coding inside the GT span absent from GT).",
+        bullet_points=(
+            "Left panel: false negatives — under-prediction density per position",
+            "Right panel: false positives — over-prediction density per position",
+            "Histograms are summed across sequences (longer sequences contribute more mass)",
+        ),
+        caveat="Predicted bases outside the GT coding span are clipped before binning, "
+        "so the FP panel only reflects errors inside the gene locus.",
     ),
 }

@@ -208,8 +208,8 @@ def compare_multiple_predictions(
                 save_path_prefix=prefix,
                 metadata_map=PLOT_METADATA,
             )
-            for idx, fig in enumerate(rd_figs):
-                figures[f"region_discovery_{idx}"] = fig
+            for level, fig in rd_figs.items():
+                figures[f"region_discovery_{level}"] = fig
 
     # ---- Nucleotide-classification bar plots --------------------------
     if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics_to_eval:
@@ -223,8 +223,8 @@ def compare_multiple_predictions(
                 save_path_prefix=prefix,
                 metadata_map=PLOT_METADATA,
             )
-            for idx, fig in enumerate(nc_figs):
-                figures[f"nucleotide_classification_{idx}"] = fig
+            for level, fig in nc_figs.items():
+                figures[f"nucleotide_classification_{level}"] = fig
 
     # ---- Frameshift plots -------------------------------------------
     if EvalMetrics.FRAMESHIFT in metrics_to_eval:
@@ -277,10 +277,16 @@ def compare_multiple_predictions(
                     )
             _df_pr = pd.DataFrame(_pr_rows)
             _prefix = (output_dir / "transcript_pr_overview") if output_dir else None
-            for _idx, _fig in enumerate(
-                    plot_ml_metrics_bar(_df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA)
-            ):
-                figures[f"transcript_pr_overview_{_idx}"] = _fig
+            _pr_figs = plot_ml_metrics_bar(
+                _df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA
+            )
+            _pr_suffix = {
+                "ts_level_precision": "precision",
+                "ts_level_recall": "recall",
+            }
+            for _level, _fig in _pr_figs.items():
+                _suffix = _pr_suffix.get(_level, _level)
+                figures[f"transcript_pr_overview_{_suffix}"] = _fig
 
         # Transcript match class distribution with count annotations
         fig = plot_transcript_match_distribution(

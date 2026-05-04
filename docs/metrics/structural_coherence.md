@@ -27,7 +27,22 @@ For a single (GT, prediction) pair the strict metric is all-or-nothing:
 - `tp = 1` only if the GT set equals the prediction set exactly
 - otherwise `fp = 1` and `fn = 1`
 
-Aggregation converts those raw counts into corpus-level precision and recall.
+Aggregation converts those raw counts into corpus-level precision and
+recall (micro-averaged: counts are summed across sequences before the
+ratio is taken).
+
+### Empty-prediction handling
+
+The subset and superset variants treat the empty prediction case
+explicitly: an empty prediction is **not** vacuously a subset of GT.
+The check requires the predicted set to be non-empty *and* satisfy the
+set relation. So a transcript with no predicted segments scores
+`{tp: 0, fp: 1, fn: 1}` in every chain variant.
+
+If the GT set itself is empty (no segments of this class for the
+sequence), the chain comparison contributes nothing — `{tp: 0, fp: 0,
+fn: 0}` — so transcripts without coding segments do not artificially
+inflate or deflate the corpus precision/recall.
 
 **Important:** if a structure contains multiple coding segments but no explicit
 intron-label segments, intron-chain scoring raises an error rather than
@@ -57,7 +72,12 @@ summarises how the predicted transcript structure relates to the ground truth.
 | `extra_segments` | Every GT segment is found in the prediction (GT ⊂ pred) but the prediction adds novel segments — over-calling. |
 | `partial_overlap` | At least one `(start, end)` pair is shared but the sets are neither equal nor in a subset relationship. Captures collapsed or heavily altered structures. |
 | `no_overlap` | No `(start, end)` pair is shared between GT and prediction. |
-| `missed` | The prediction contains no segments for this transcript. |
+| `missed` | The prediction contains no segments for this transcript (and GT does have segments). |
+
+If GT itself has no segments of this class the transcript is excluded
+from the match-class distribution rather than counted as `missed` —
+otherwise an empty reference would be reported as a prediction
+failure.
 
 The two boundary-shift variants distinguish internal splice-site errors from
 changes that alter the reported gene-locus boundaries — a useful split because

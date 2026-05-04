@@ -43,3 +43,9 @@ structure.
 - For splice-site-heavy label sets, this family hides whether mistakes come
   from exon/intron confusion or splice-label confusion, because everything
   outside the coding label is folded into the negative class.
+- Aggregation is **micro-averaged** across sequences: per-sequence `tp`,
+  `fp`, `fn`, `tn` are summed before the ratio is taken, so longer
+  sequences dominate the corpus score. See {doc}`conventions` for
+  details.
+- If `LabelConfig.coding_label` is `None`, the metric is silently
+  skipped — no key appears in the result dict.

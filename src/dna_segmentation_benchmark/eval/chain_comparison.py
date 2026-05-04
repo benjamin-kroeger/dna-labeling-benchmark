@@ -8,8 +8,7 @@ Metrics
 * **Intron chain (strict / subset / superset)** — binary TP/FN/FP comparing
   the full intron-segment boundary sets.
 * **Exon chain (strict / subset / superset)** — same set semantics applied to
-  coding segments.  Simpler than the old LCS-based tier classification and
-  directly comparable to intron chain.
+  coding segments, directly comparable to intron chain.
 * **Boundary shift** — per-transcript count and total bp offset of shifted
   segment boundaries (only for equal-count pairs).
 * **Per-transcript exon recall** — fraction of GT exons exactly recovered.
@@ -237,30 +236,3 @@ def _measure_shifted_boundaries(
     return count, total
 
 
-def _intron_chain(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
-    """Return ordered intron boundaries between consecutive segments."""
-    return [(segments[i].end, segments[i + 1].start) for i in range(len(segments) - 1)]
-
-
-def _boundaries(segments: tuple[Segment, ...]) -> list[tuple[int, int]]:
-    """Return a list of ``(start, end)`` boundary pairs."""
-    return [(s.start, s.end) for s in segments]
-
-
-def _lcs_length(
-        seq_a: list[tuple[int, int]],
-        seq_b: list[tuple[int, int]],
-) -> int:
-    """Length of the longest common subsequence of boundary pairs."""
-    n = len(seq_a)
-    m = len(seq_b)
-    prev = [0] * (m + 1)
-    curr = [0] * (m + 1)
-    for i in range(1, n + 1):
-        for j in range(1, m + 1):
-            if seq_a[i - 1] == seq_b[j - 1]:
-                curr[j] = prev[j - 1] + 1
-            else:
-                curr[j] = max(prev[j], curr[j - 1])
-        prev, curr = curr, [0] * (m + 1)
-    return max(prev)

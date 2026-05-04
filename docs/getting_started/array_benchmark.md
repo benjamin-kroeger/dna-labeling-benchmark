@@ -123,6 +123,32 @@ Be careful on very large arrays. In that case the benchmark switches to a
 conservative gap-length cutoff and emits a warning, because a chromosome-scale
 coding gap can be an intergenic distance rather than a true intron.
 
+### How the cutoff is chosen
+
+For arrays shorter than `_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH`
+(`1_000_000` bp), every background gap between coding segments is
+relabelled as intron — the assumption is that the array represents a
+single transcript locus.
+
+For arrays at or above that length the benchmark is more conservative
+and chooses a gap-length cutoff before relabelling. The cutoff is
+selected as follows:
+
+1. Sorted distinct gap lengths are scanned for the **largest
+   consecutive jump ratio** (each gap divided by the previous one).
+2. If the largest ratio exceeds
+   `_INFER_INTRONS_BIMODAL_MIN_JUMP_RATIO` (`5.0`), the gaps look
+   bimodal — one cluster of intron-scale gaps and one cluster of
+   intergenic-scale gaps. The cutoff is set to the geometric midpoint
+   between the two cluster boundaries.
+3. Otherwise the distribution is treated as unimodal and the cutoff
+   defaults to `_INFER_INTRONS_LARGE_GAP_RATIO` × the median of the
+   lower half of gap lengths (`20×` by default).
+
+These constants live at the top of `eval/evaluate_predictors.py` and
+are not currently part of the public API. If you need different
+behaviour, edit them in source or filter intron labels in advance.
+
 ## Choosing Metric Families
 
 Common combinations:

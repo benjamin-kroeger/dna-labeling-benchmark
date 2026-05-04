@@ -37,46 +37,66 @@ available; otherwise a quantile-interpolation fallback is applied. Both return
 
 ---
 
-## Error Location Bias (Position Bias Histogram)
+## Error Location Bias (Position Bias Histograms)
 
-`position_bias_histogram` answers: *where in a transcript do nucleotide-level
-errors concentrate?*
+The position-bias diagnostic answers: *where in a transcript do nucleotide-level
+errors concentrate, and are they under-predictions or over-predictions?*
 
-A 100-bin histogram is built over the normalised coding span (bin 0 = start of
-the first GT coding segment, bin 99 = end of the last). Every nucleotide
-position that differs between GT and prediction contributes exactly one count
-to its bin:
+Three histograms are emitted, all with 100 bins normalised to the coding
+span (bin 0 = start of the first GT coding segment, bin 99 = end of the
+last):
 
-- A GT nucleotide **not covered** by the prediction (false negative) increments
-  the bin at its relative position in the coding span.
-- A predicted nucleotide **within the coding span but not present in GT** (false
-  positive) increments the bin at its relative position.
+- `position_bias_histogram_fn` — counts GT coding positions that the
+  prediction did not cover (under-prediction / false negatives).
+- `position_bias_histogram_fp` — counts predicted coding positions that
+  fall inside the GT coding span but are not in GT (over-prediction /
+  false positives).
+- `position_bias_histogram` — element-wise sum of the two above, retained
+  for backwards compatibility with older logs.
 
-Predicted nucleotides outside the GT coding span are ignored, keeping the
-histogram bounded to the gene locus.
+Predicted nucleotides outside the GT coding span are clipped before
+binning, keeping every histogram bounded to the gene locus.
 
-Unlike the previous segment-matching approach, this counts every boundary
-error and every missing or spurious base — including systematic shifts and
-extensions that would be invisible when segments are matched by overlap.
+Earlier versions of the benchmark collapsed FN and FP into a single XOR
+count, which made it impossible to tell a model that systematically
+*deletes* coding bases apart from one that systematically *inserts*
+them. The split version preserves that distinction.
 
 ### Reading the plot
 
 ![Error Location Bias](../images/position_bias.png)
 
-The x-axis is position in the coding span as a percentage (0 % = transcript
-start, 100 % = transcript end). The y-axis is the cumulative count of mismatch
-nucleotides across all evaluated sequences.
+The figure shows two side-by-side panels:
+
+- **Left** — false-negative density. A spike here means the predictor is
+  *missing* GT coding bases at that relative position.
+- **Right** — false-positive density. A spike here means the predictor
+  is *adding* coding bases at that relative position that GT does not
+  agree with.
+
+Both x-axes show position in the coding span as a percentage (0 % =
+transcript start, 100 % = transcript end). The y-axis is the cumulative
+count of mismatch nucleotides across all evaluated sequences.
 
 Common patterns and their interpretations:
 
 | Shape | Interpretation |
 |---|---|
-| Flat / near-zero | Predictions closely match GT at the nucleotide level across the whole span. |
-| Elevated at 0 % and/or 100 % | Terminal boundary errors — the predictor struggles with gene-locus start or end. Common in models that lack UTR context. |
+| Flat / near-zero in both panels | Predictions closely match GT at the nucleotide level across the whole span. |
+| Elevated at 0 % and/or 100 % in both panels | Terminal boundary errors — the predictor struggles with gene-locus start or end. Common in models that lack UTR context. |
 | Elevated in the middle | Internal exon errors — splice-site accuracy degrades for exons far from the transcript termini. |
+| FN-heavy, FP-flat | Predictor consistently truncates / under-calls coding bases. |
+| FP-heavy, FN-flat | Predictor consistently over-extends / hallucinates coding bases. |
 | Uniform low-level signal | Systematic boundary wobble (e.g. a consistent 1-nt shift) affecting all segments equally. |
 | Single sharp spike | A positional bias concentrated at one relative location; suggests a systematic offset tied to the model's context window. |
 
-A method with accurate boundaries will show a low, flat curve. Comparing
-curves across methods quickly reveals whether one method degrades more at
-transcript boundaries or in internal exons than another.
+A method with accurate boundaries will show a low, flat curve in both
+panels. Comparing curves across methods quickly reveals whether a method
+degrades more at transcript boundaries vs. internal exons, and whether
+its dominant failure mode is missing or adding coding bases.
+
+### Caveats
+
+- The histogram is aggregated across the corpus by element-wise sum
+  (long sequences contribute more counts). This is intentional — the
+  metric measures absolute error mass, not per-sequence rates.

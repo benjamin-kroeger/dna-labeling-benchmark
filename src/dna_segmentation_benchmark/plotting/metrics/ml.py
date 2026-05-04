@@ -17,7 +17,7 @@ def plot_ml_metrics_bar(
     class_name: str,
     save_path_prefix: Optional[Path] = None,
     metadata_map: dict[str, PlotMetadata] | None = None,
-) -> list[plt.Figure]:
+) -> dict[str, plt.Figure]:
     """Grouped bar chart of ML metrics (precision / recall) per level.
 
     One figure is created per metric level (nucleotide, section, etc.).
@@ -32,19 +32,21 @@ def plot_ml_metrics_bar(
 
     Returns
     -------
-    list[Figure]
-        One figure per metric level.
+    dict[str, Figure]
+        Mapping of metric-level name (e.g. ``"neighborhood_hit"``,
+        ``"ts_level_precision"``) to its figure. Iteration order matches
+        the order in which levels first appear in ``df_ml_metrics``.
     """
     if df_ml_metrics.empty:
         logger.info("No ML metrics data for class %s.", class_name)
-        return []
+        return {}
 
     # Filter out iou_stats as it has a different schema (mean/std/count) vs precision/recall
     # and is plotted separately in plot_iou_metrics.
     df_ml_metrics = df_ml_metrics[df_ml_metrics["metric_key"] != "iou_stats"].copy()
 
     if df_ml_metrics.empty:
-        return []
+        return {}
 
     ml_scores = (
         df_ml_metrics.groupby(["method_name", "metric_key"])["value"]
@@ -53,14 +55,14 @@ def plot_ml_metrics_bar(
     )
 
     if ml_scores.empty:
-        return []
+        return {}
 
     melted = ml_scores.reset_index().melt(id_vars=["method_name", "metric_key"], var_name="metric", value_name="Score")
 
     if metadata_map is None:
         metadata_map = {}
 
-    figures: list[plt.Figure] = []
+    figures: dict[str, plt.Figure] = {}
 
     for level in melted["metric_key"].unique():
         level_df = melted[melted["metric_key"] == level].copy()
@@ -83,6 +85,6 @@ def plot_ml_metrics_bar(
         if save_path_prefix is not None:
             _save_figure(fig, save_path_prefix.with_name(f"{save_path_prefix.stem}_{level}.png"), logger=logger)
 
-        figures.append(fig)
+        figures[str(level)] = fig
 
     return figures

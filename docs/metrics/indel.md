@@ -52,8 +52,16 @@ That local neighborhood test drives the category:
 
 ## Caveats
 
-- This taxonomy is coding-label specific.
-- It is local. It classifies contiguous mismatch runs, not full transcript
-  structure.
+- This taxonomy is coding-label specific. "Insertion" / "deletion" are
+  defined relative to `LabelConfig.coding_label`; the implementation does
+  not distinguish whether a mismatch falls in intron, splice, or
+  background label.
+- It is local. It classifies contiguous mismatch runs, not full
+  transcript structure.
 - The output is list-based and mainly intended for final inspection and
   plotting, not for lightweight online scalar logging.
+- 5'/3' refer to **array orientation**, not biological strand. See
+  {doc}`conventions`.
+- The length distribution plot uses a `log10` x-axis with tick labels
+  re-projected to linear bp. A peak labelled "100" represents bins
+  *near* 100 bp, not exactly 100.

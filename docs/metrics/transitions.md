@@ -84,3 +84,22 @@ These plots are especially useful when:
 - Large transition counts do not always imply large biological errors; a model
   can make many local label mistakes within one otherwise recognizable
   transcript.
+- The false-transition plot shows **raw counts**, not rates. The benchmark also
+  emits `stable_position_counts` (positions per label where GT was stable),
+  which is the natural denominator for rates, but the plotting layer does not
+  divide by it. This means a method evaluated on a longer corpus, or on a
+  label that simply occurs more often, will look worse even if its
+  per-position error rate is identical. Compare counts only across runs that
+  share the same input set, or normalise by `stable_position_counts` yourself
+  when comparing methods on different inputs.
+- The per-source-label confusion matrices count only on-site transitions
+  where the prediction was already in the GT source state. Off-track
+  predictions (model already left the GT source state when GT changes) are
+  pushed into the `spurious` bucket, not the GT confusion matrix.
+- At array edges (no earlier or later GT transition exists), the lookbehind
+  / lookahead values default to the current GT label as a sentinel that can
+  never match — so edge positions are never classified as `late_catchup` or
+  `premature`.
+- `plot_false_transitions` returns `None` (no figure) when no method has any
+  false transitions, so the figure key is silently absent rather than
+  appearing as an empty plot.

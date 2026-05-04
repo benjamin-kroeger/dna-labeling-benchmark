@@ -609,11 +609,16 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
                     is_abs=False,
                 )
 
-            if "position_bias_histogram" in dd and isinstance(dd["position_bias_histogram"], list):
-                raw = dd["position_bias_histogram"]
-                if len(raw) > 100:
-                    arr = np.array(raw).reshape(-1, 100)
-                    dd["position_bias_histogram"] = arr.sum(axis=0).tolist()
+            for hist_key in (
+                "position_bias_histogram",
+                "position_bias_histogram_fn",
+                "position_bias_histogram_fp",
+            ):
+                if hist_key in dd and isinstance(dd[hist_key], list):
+                    raw = dd[hist_key]
+                    if len(raw) > 100:
+                        arr = np.array(raw).reshape(-1, 100)
+                        dd[hist_key] = arr.sum(axis=0).tolist()
 
     return aggregated
 
@@ -702,6 +707,23 @@ def _analyze_section_overlap_and_boundaries(
     ``perfect_boundary_hit`` uses a per-prediction sweep: any prediction
     that exactly matches *some* GT section counts as a TP regardless of
     matching assignment.
+
+    Two terminal-boundary flags are also collected:
+
+    * ``first_sec_correct_3_prime_boundary`` — set to 1 iff *some*
+      prediction's downstream end (``end`` in array coordinates) matches
+      the **first** GT section's downstream end.  For multi-section
+      transcripts this is the inner splice site of the leading exon, not
+      the outer transcript start.
+    * ``last_sec_correct_5_prime_boundary`` — set to 1 iff *some*
+      prediction's upstream start matches the **last** GT section's
+      upstream start.  For multi-section transcripts this is the inner
+      splice site of the trailing exon, not the outer transcript end.
+
+    Both flags use *array-orientation* semantics ("5'" = lower index,
+    "3'" = higher index).  They do not account for biological strand —
+    on the minus strand the array-5' end corresponds to the biological
+    3' end of the transcript.
     """
     total_gt = len(grouped_gt_section_indices)
     total_pred = len(grouped_pred_section_indices)

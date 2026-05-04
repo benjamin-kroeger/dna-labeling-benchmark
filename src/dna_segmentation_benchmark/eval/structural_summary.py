@@ -8,9 +8,17 @@ the per-section metrics:
   segments of the right length.
 * **Position bias histogram** — 100-bin per-nucleotide mismatch histogram
   normalised to the coding span.  Bin 0 corresponds to the start of the
-  first GT coding segment; bin 99 to the end of the last.  Each nucleotide
-  position that differs between GT and prediction (false negative or false
-  positive within the coding span) increments its corresponding bin.
+  first GT coding segment; bin 99 to the end of the last.
+
+  Three companion histograms are emitted so that under-prediction and
+  over-prediction can be told apart visually:
+
+  * ``position_bias_histogram_fn`` — GT positions not covered by the
+    prediction (under-prediction).
+  * ``position_bias_histogram_fp`` — predicted positions inside the GT
+    coding span that are not in GT (over-prediction).
+  * ``position_bias_histogram`` — element-wise sum of the two above,
+    retained for backwards compatibility.
 """
 
 from __future__ import annotations
@@ -45,13 +53,18 @@ def _compute_structural_summary(
     pred_lengths = [len(g) for g in grouped_pred_sections]
 
     emd = _wasserstein_distance(gt_lengths, pred_lengths)
-    histogram = _compute_position_bias_histogram(grouped_gt_sections, grouped_pred_sections)
+    fn_hist, fp_hist = _compute_position_bias_histograms(
+        grouped_gt_sections, grouped_pred_sections
+    )
+    combined = [a + b for a, b in zip(fn_hist, fp_hist)]
 
     return {
         "gt_segment_lengths": gt_lengths,
         "pred_segment_lengths": pred_lengths,
         "length_emd": emd,
-        "position_bias_histogram": histogram,
+        "position_bias_histogram": combined,
+        "position_bias_histogram_fn": fn_hist,
+        "position_bias_histogram_fp": fp_hist,
     }
 
 
@@ -82,17 +95,23 @@ def _wasserstein_distance(a: list[int], b: list[int]) -> float:
         return float(np.mean(np.abs(qa - qb)))
 
 
-def _compute_position_bias_histogram(
+def _compute_position_bias_histograms(
     grouped_gt_sections: list[np.ndarray],
     grouped_pred_sections: list[np.ndarray],
     n_bins: int = 100,
-) -> list[int]:
-    """100-bin per-nucleotide mismatch histogram over the coding span.
+) -> tuple[list[int], list[int]]:
+    """Per-nucleotide mismatch histograms over the coding span, split FN / FP.
 
     Bin 0 = start of first GT coding segment, bin 99 = end of last.
-    Each nucleotide that differs between GT and prediction — either a GT
-    position not covered by pred (FN) or a pred position not covered by GT
-    within the coding span (FP) — increments its corresponding bin.
+    Two histograms are returned so that under-prediction (FN) and
+    over-prediction (FP) within the GT coding span can be distinguished;
+    the previous implementation collapsed both via XOR which made the two
+    failure modes indistinguishable in the plot.
+
+    * **FN bins** — count GT coding positions not covered by the prediction.
+    * **FP bins** — count predicted coding positions inside the GT coding
+      span that are not in GT.  Predicted positions outside the coding
+      span are clipped out, keeping the histogram bounded to the gene locus.
 
     Parameters
     ----------
@@ -103,12 +122,13 @@ def _compute_position_bias_histogram(
 
     Returns
     -------
-    list[int]
-        Length-``n_bins`` list; each entry is the count of mismatch
-        nucleotides whose position falls in that percentile bin.
+    (fn_hist, fp_hist) : tuple[list[int], list[int]]
+        Both lists have length ``n_bins``.  ``fn_hist[i] + fp_hist[i]`` is
+        the total mismatch count in percentile bin ``i``.
     """
+    zeros = [0] * n_bins
     if not grouped_gt_sections:
-        return [0] * n_bins
+        return zeros, zeros
 
     # build a gt mask array with True for coding positions
     coding_start = int(grouped_gt_sections[0][0])
@@ -119,7 +139,8 @@ def _compute_position_bias_histogram(
     gt_mask = np.zeros(span, dtype=bool)
     gt_mask[gt_pos - coding_start] = True
 
-    # build a pred mask array with True for coding positions and clip it if the predictions are outside of the gt array
+    # build a pred mask array with True for coding positions and clip it
+    # to the GT coding span (predicted bases outside the locus are ignored).
     pred_mask = np.zeros(span, dtype=bool)
     if grouped_pred_sections:
         pred_pos = np.concatenate(grouped_pred_sections)
@@ -127,10 +148,19 @@ def _compute_position_bias_histogram(
         if clipped.size > 0:
             pred_mask[clipped - coding_start] = True
 
-    # XOR to count mismatching positions
-    mismatch_pos = np.where(gt_mask ^ pred_mask)[0]
-    if mismatch_pos.size == 0:
-        return [0] * n_bins
+    fn_pos = np.where(gt_mask & ~pred_mask)[0]
+    fp_pos = np.where(~gt_mask & pred_mask)[0]
 
-    counts, _ = np.histogram(mismatch_pos, bins=n_bins, range=(0, span))
-    return counts.tolist()
+    if fn_pos.size:
+        fn_counts, _ = np.histogram(fn_pos, bins=n_bins, range=(0, span))
+        fn_hist = fn_counts.tolist()
+    else:
+        fn_hist = list(zeros)
+
+    if fp_pos.size:
+        fp_counts, _ = np.histogram(fp_pos, bins=n_bins, range=(0, span))
+        fp_hist = fp_counts.tolist()
+    else:
+        fp_hist = list(zeros)
+
+    return fn_hist, fp_hist

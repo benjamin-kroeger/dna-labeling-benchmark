@@ -7,6 +7,7 @@ evaluation.
 :maxdepth: 2
 
 overview
+conventions
 region_discovery
 boundary_exactness
 nucleotide_classification
