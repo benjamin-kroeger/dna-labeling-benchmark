@@ -103,7 +103,7 @@ def _compute_intron_chain_metrics(
         ``intron_chain``, ``intron_chain_subset``, ``intron_chain_superset``.
     """
     if label_config.intron_label is None:
-        raise ValueError("Intron-chain comparison requires an intron label.")
+        raise ValueError("Intron-chain comparison requires an intron label to be defined in the label configuration.")
 
     _raise_if_introns_missing_but_inferable(gt_structure, label_config, "GT")
     _raise_if_introns_missing_but_inferable(pred_structure, label_config, "prediction")
