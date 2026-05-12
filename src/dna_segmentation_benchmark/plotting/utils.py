@@ -1,10 +1,35 @@
 import textwrap
 from pathlib import Path
 
+import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
 from dna_segmentation_benchmark.plotting.config import DEFAULT_FIG_SIZE, PlotMetadata
+
+SPEZI_COLORS = [
+    "#F47B20", "#F5A623", "#F7C94B", "#F0553A", "#E8006A",
+    "#F0399A", "#F472B6", "#C0145A", "#7B2D8B", "#4B1A8C",
+]
+
+
+def spezi_palette(n: int | None = None) -> list[tuple[float, float, float]]:
+    """Return the spezi palette reordered for max contrast between adjacent colors.
+
+    Picks alternately from the front and back of the gradient so neighbouring
+    colors land on opposite ends of the warm→cool spectrum.
+    """
+    lo, hi = 0, len(SPEZI_COLORS) - 1
+    ordered: list[str] = []
+    while lo <= hi:
+        ordered.append(SPEZI_COLORS[lo])
+        lo += 1
+        if lo <= hi:
+            ordered.append(SPEZI_COLORS[hi])
+            hi -= 1
+    if n is not None:
+        ordered = ordered[:n]
+    return sns.color_palette(ordered)
 
 
 def _save_figure(fig: plt.Figure, save_path: Path, logger) -> None:

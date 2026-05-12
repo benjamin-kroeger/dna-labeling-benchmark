@@ -16,10 +16,16 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+from ...eval.transcript_classification import TranscriptMatchClass
 from ..config import DEFAULT_FIG_SIZE, PlotMetadata
-from ..utils import _save_figure, _add_pictogram_panel
+from ..utils import _save_figure, _add_pictogram_panel, spezi_palette
 
 logger = logging.getLogger(__name__)
+
+_MATCH_CLASS_ORDER = [c.value for c in TranscriptMatchClass]
+MATCH_CLASS_COLORS: dict[str, tuple[float, float, float]] = dict(
+    zip(_MATCH_CLASS_ORDER, spezi_palette(len(_MATCH_CLASS_ORDER)))
+)
 
 # ---------------------------------------------------------------------------
 # Transcript match classification stacked bar
@@ -80,7 +86,8 @@ def plot_transcript_match_distribution(
     norm_pivot = raw_pivot.div(raw_pivot.sum(axis=1), axis=0)
 
     fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-    norm_pivot.plot(kind="bar", stacked=True, ax=ax, colormap="tab10")
+    bar_colors = [MATCH_CLASS_COLORS.get(c, "#888888") for c in norm_pivot.columns]
+    norm_pivot.plot(kind="bar", stacked=True, ax=ax, color=bar_colors)
 
     # Annotate each bar section with its raw count
     for container, col_name in zip(ax.containers, norm_pivot.columns):
