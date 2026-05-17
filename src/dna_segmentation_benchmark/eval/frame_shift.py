@@ -1,5 +1,23 @@
+"""Per-position coding-base phase drift between GT and prediction.
+
+The returned ``gt_frames`` list holds, for each genomic position covered by *both*
+GT and predicted coding masks, the absolute difference between the cumulative
+counts of coding bases (mod 3). This reflects relative coding-base displacement
+between the two annotations; it is **not** the biological reading frame, which
+would require the GFF ``phase`` column and is not consumed here.
+
+When the GT coding-base count is not divisible by three (for example because UTR
+positions have been painted into the coding mask) the metric is skipped for that
+sequence with a warning rather than aborting the run.
+"""
+
+from __future__ import annotations
+
+import logging
+
 import numpy as np
-from numpy.lib.stride_tricks import sliding_window_view
+
+logger = logging.getLogger(__name__)
 
 
 def _get_frame_shift_metrics(
@@ -7,7 +25,7 @@ def _get_frame_shift_metrics(
     pred_labels: np.ndarray,
     coding_value: int,
 ) -> dict:
-    """Compute per-position reading-frame deviation."""
+    """Compute per-position coding-base phase drift."""
     gt_exon_indices = np.where(gt_labels == coding_value)[0]
     pred_exon_indices = np.where(pred_labels == coding_value)[0]
 
@@ -18,16 +36,13 @@ def _get_frame_shift_metrics(
         return {"gt_frames": []}
 
     if len(gt_exon_indices) % 3 != 0:
-        raise ValueError(
-            f"GT exon indices ({len(gt_exon_indices)}) are not divisible by 3 — cannot form complete codons."
+        logger.warning(
+            "GT coding-base count (%d) is not divisible by 3 — skipping FRAMESHIFT for this "
+            "sequence. This usually means non-CDS positions (e.g. UTRs) have been painted into "
+            "the coding mask. Provide a CDS-only mask for a meaningful frameshift signal.",
+            len(gt_exon_indices),
         )
-
-    gt_codons = gt_exon_indices.reshape(-1, 3)
-    possible_pred_codons = sliding_window_view(pred_exon_indices, 3)
-
-    gt_codon_view = gt_codons.view([("", gt_codons.dtype)] * 3).reshape(-1)
-    pred_codon_view = possible_pred_codons.view([("", possible_pred_codons.dtype)] * 3).reshape(-1)
-    _common_codons = np.intersect1d(gt_codon_view, pred_codon_view)
+        return {"gt_frames": []}
 
     valid_mask = np.isin(np.arange(len(gt_labels)), gt_exon_indices) & np.isin(
         np.arange(len(gt_labels)), pred_exon_indices

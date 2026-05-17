@@ -23,6 +23,13 @@ from __future__ import annotations
 import numpy as np
 
 
+#: Number of bins used by the position-bias histograms. Kept as a module-level
+#: constant because the aggregator in ``evaluate_predictors.py`` reshapes the
+#: flattened histogram lists by this width — changing it in only one place would
+#: silently break aggregation.
+POSITION_BIAS_HISTOGRAM_BINS: int = 100
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -94,7 +101,6 @@ def _wasserstein_distance(a: list[int], b: list[int]) -> float:
 def _compute_position_bias_histograms(
     grouped_gt_sections: list[np.ndarray],
     grouped_pred_sections: list[np.ndarray],
-    n_bins: int = 100,
 ) -> tuple[list[int], list[int]]:
     """Per-nucleotide mismatch histograms over the coding span, split FN / FP.
 
@@ -111,15 +117,15 @@ def _compute_position_bias_histograms(
     ----------
     grouped_gt_sections, grouped_pred_sections : list[np.ndarray]
         Contiguous-run index groups for the coding label.
-    n_bins : int
-        Number of histogram bins (default 100).
 
     Returns
     -------
     (fn_hist, fp_hist) : tuple[list[int], list[int]]
-        Both lists have length ``n_bins``.  ``fn_hist[i] + fp_hist[i]`` is
-        the total mismatch count in percentile bin ``i``.
+        Both lists have length :data:`POSITION_BIAS_HISTOGRAM_BINS`.
+        ``fn_hist[i] + fp_hist[i]`` is the total mismatch count in percentile
+        bin ``i``.
     """
+    n_bins = POSITION_BIAS_HISTOGRAM_BINS
     zeros = [0] * n_bins
     if not grouped_gt_sections:
         return zeros, zeros

@@ -93,6 +93,13 @@ def extract_structure(
     if labels.ndim != 1:
         raise ValueError(f"Expected 1-D array, got shape {labels.shape}")
 
+    if exclude_background and label_config is None:
+        raise ValueError(
+            "extract_structure(exclude_background=True) requires a label_config so that the "
+            "background token is known. Either pass a LabelConfig or call with "
+            "exclude_background=False."
+        )
+
     n = len(labels)
     if n == 0:
         return ExtractedStructure(segments=(), length=0)

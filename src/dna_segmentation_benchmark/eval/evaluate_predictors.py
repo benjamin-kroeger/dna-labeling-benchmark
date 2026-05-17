@@ -39,7 +39,7 @@ from .frame_shift import _get_frame_shift_metrics
 from .intersection_over_union import _compute_intersection_over_union_score
 from .state_transitions import _compute_state_change_errors
 from .structure import extract_structure
-from .structural_summary import _compute_structural_summary
+from .structural_summary import _compute_structural_summary, POSITION_BIAS_HISTOGRAM_BINS
 from .transcript_classification import _classify_transcript_match
 from .utils import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
@@ -615,8 +615,17 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
             ):
                 if hist_key in dd and isinstance(dd[hist_key], list):
                     raw = dd[hist_key]
-                    if len(raw) > 100:
-                        arr = np.array(raw).reshape(-1, 100)
+                    n_bins = POSITION_BIAS_HISTOGRAM_BINS
+                    if len(raw) > n_bins:
+                        if len(raw) % n_bins != 0:
+                            raise ValueError(
+                                f"position-bias histogram aggregation expected a flat list whose "
+                                f"length is a multiple of {n_bins} bins, got {len(raw)}. "
+                                "This usually means a per-sequence histogram was emitted with a "
+                                "different bin count; the producer in structural_summary.py and "
+                                "this aggregator must use the same POSITION_BIAS_HISTOGRAM_BINS."
+                            )
+                        arr = np.array(raw).reshape(-1, n_bins)
                         dd[hist_key] = arr.sum(axis=0).tolist()
 
     return aggregated
