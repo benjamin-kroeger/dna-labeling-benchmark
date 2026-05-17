@@ -6,7 +6,12 @@ segments of a class between ground-truth and predicted label arrays.
 Metrics
 -------
 * **Intron chain (strict / subset / superset)** — binary TP/FN/FP comparing
-  the full intron-segment boundary sets.
+  the full intron-segment boundary sets.  When ``splice_donor_label`` and
+  ``splice_acceptor_label`` are defined in the ``LabelConfig``, each logical
+  intron spans from the *start* of its donor segment to the *end* of its
+  acceptor segment (``DONOR.start → ACCEPTOR.end``), matching the splice-
+  junction positions that gffcompare uses.  Without splice-site labels the raw
+  intron-segment boundaries are used instead.
 * **Exon chain (strict / subset / superset)** — same set semantics applied to
   coding segments, directly comparable to intron chain.
 * **Boundary shift** — per-transcript count and total bp offset of shifted
@@ -85,16 +90,63 @@ def _compute_chain_metrics(
 # ---------------------------------------------------------------------------
 
 
+def _extract_logical_intron_spans(
+        structure: ExtractedStructure,
+        label_config: LabelConfig,
+) -> set[tuple[int, int]]:
+    """Return (start, end) spans for each logical intron in *structure*.
+
+    When both ``splice_donor_label`` and ``splice_acceptor_label`` are set,
+    each logical intron is formed by a ``DONOR (INTRON*) ACCEPTOR`` run and
+    spans ``(DONOR.start, ACCEPTOR.end)`` — the actual splice-junction
+    positions.  Malformed runs (donor without a following acceptor) are
+    silently skipped.
+
+    When splice-site labels are not configured, falls back to the raw
+    intron-label segment boundaries.
+    """
+    donor_label = label_config.splice_donor_label
+    acceptor_label = label_config.splice_acceptor_label
+    intron_label = label_config.intron_label
+
+    if donor_label is None or acceptor_label is None:
+        return {(s.start, s.end) for s in structure.filter_by_label(intron_label)}
+
+    # If splice-site labels are configured but absent from this structure
+    # (e.g. a model that only outputs intron labels), fall back to raw intron
+    # segment boundaries so the comparison remains consistent with the pred side.
+    if not any(s.label == donor_label for s in structure.segments):
+        return {(s.start, s.end) for s in structure.filter_by_label(intron_label)}
+
+    spans: set[tuple[int, int]] = set()
+    segments = structure.segments
+    i = 0
+    while i < len(segments):
+        seg = segments[i]
+        if seg.label == donor_label:
+            donor_start = seg.start
+            j = i + 1
+            while j < len(segments) and segments[j].label == intron_label:
+                j += 1
+            if j < len(segments) and segments[j].label == acceptor_label:
+                spans.add((donor_start, segments[j].end))
+                i = j + 1
+                continue
+        i += 1
+    return spans
+
+
 def _compute_intron_chain_metrics(
         gt_structure: ExtractedStructure,
         pred_structure: ExtractedStructure,
         label_config: LabelConfig,
 ) -> dict:
-    """Compare explicit intron-label chains for one transcript pair.
+    """Compare logical intron chains for one transcript pair.
 
-    Applies sanity checks specific to intron segments (raises if multiple
-    coding segments exist but no intron segments), then delegates to
-    :func:`_compute_chain_metrics`.
+    Extracts logical intron spans via :func:`_extract_logical_intron_spans`
+    (which groups ``DONOR + INTRON* + ACCEPTOR`` into a single span when
+    splice-site labels are defined), then performs the same strict / subset /
+    superset set comparison as :func:`_compute_chain_metrics`.
 
     Returns
     -------
@@ -108,7 +160,26 @@ def _compute_intron_chain_metrics(
     _raise_if_introns_missing_but_inferable(gt_structure, label_config, "GT")
     _raise_if_introns_missing_but_inferable(pred_structure, label_config, "prediction")
 
-    return _compute_chain_metrics(gt_structure, pred_structure, label_config.intron_label, "intron_chain")
+    gt_spans = _extract_logical_intron_spans(gt_structure, label_config)
+    pred_spans = _extract_logical_intron_spans(pred_structure, label_config)
+
+    prefix = "intron_chain"
+    if not gt_spans:
+        return {
+            prefix: {"tp": 0, "fp": 0, "fn": 0},
+            f"{prefix}_subset": {"tp": 0, "fp": 0, "fn": 0},
+            f"{prefix}_superset": {"tp": 0, "fp": 0, "fn": 0},
+        }
+
+    exact = gt_spans == pred_spans
+    subset = bool(pred_spans) and pred_spans <= gt_spans
+    superset = bool(pred_spans) and pred_spans >= gt_spans
+
+    return {
+        prefix: {"tp": 1, "fp": 0, "fn": 0} if exact else {"tp": 0, "fp": 1, "fn": 1},
+        f"{prefix}_subset": {"tp": 1, "fp": 0, "fn": 0} if subset else {"tp": 0, "fp": 1, "fn": 1},
+        f"{prefix}_superset": {"tp": 1, "fp": 0, "fn": 0} if superset else {"tp": 0, "fp": 1, "fn": 1},
+    }
 
 
 # ---------------------------------------------------------------------------

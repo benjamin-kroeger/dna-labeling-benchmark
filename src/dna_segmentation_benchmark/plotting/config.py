@@ -189,18 +189,28 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         display_name="Transcript-Level Precision metrics",
         description="Precision across transcript-level structural match tiers.",
         bullet_points=(
-            "Exact transcript: All predicted exons match",
-            "Superset: All predicted exons match, or are novel exons",
-            "Subset: All predicted exons are part of the gt transcript",
+            "Exact intron chain: all intron boundaries match exactly",
+            "Intron Subset: all predicted introns are real (pred ⊆ GT)",
+            "Intron Superset: all GT introns recovered (pred ⊇ GT)",
+            "Exact exon chain: all exon boundaries match exactly",
+            "Exon Subset / Superset: analogous set semantics for exons",
+            "Intron boundaries: DONOR.start → ACCEPTOR.end when splice-site "
+            "labels are configured, matching gffcompare splice-junction semantics. "
+            "Without splice-site labels, raw intron-segment boundaries are used.",
         ),
     ),
     "ts_level_recall": PlotMetadata(
         display_name="Transcript-Level Recall metrics",
         description="Recall across transcript-level structural match tiers.",
         bullet_points=(
-            "Exact transcript: All predicted exons match",
-            "Superset: All predicted exons match, or are novel exons",
-            "Subset: All predicted exons are part of the gt transcript",
+            "Exact intron chain: all intron boundaries match exactly",
+            "Intron Subset: all predicted introns are real (pred ⊆ GT)",
+            "Intron Superset: all GT introns recovered (pred ⊇ GT)",
+            "Exact exon chain: all exon boundaries match exactly",
+            "Exon Subset / Superset: analogous set semantics for exons",
+            "Intron boundaries: DONOR.start → ACCEPTOR.end when splice-site "
+            "labels are configured, matching gffcompare splice-junction semantics. "
+            "Without splice-site labels, raw intron-segment boundaries are used.",
         ),
     ),
     "transcript_match": PlotMetadata(
