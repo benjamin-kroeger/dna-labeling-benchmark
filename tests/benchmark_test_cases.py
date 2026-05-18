@@ -45,7 +45,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
             "BOUNDARY_EXACTNESS": {
                 "first_sec_correct_3_prime_boundary": 0,
                 "last_sec_correct_5_prime_boundary": 0,
-                "iou_scores": [0.25,0.57]
+                "iou_scores": [0.25, 0.57]
             },
             "NUCLEOTIDE_CLASSIFICATION": {
                 "nucleotide": {"tn": 4, "fp": 9, "fn": 6, "tp": 6},
@@ -435,9 +435,9 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 1, "fp": 0, "fn": 0},
                 "segment_count_delta": 0,
-                "exon_chain":          {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain": {"tp": 1, "fn": 0, "fp": 0},
                 "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_subset":   {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_subset": {"tp": 1, "fn": 0, "fp": 0},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
@@ -460,9 +460,9 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                 "segment_count_delta": 0,
-                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
                 "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 3,
                 "boundary_shift_total": 3,
             },
@@ -484,9 +484,9 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                 "segment_count_delta": -1,
-                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
                 "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset":   {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_subset": {"tp": 1, "fn": 0, "fp": 0},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
@@ -508,9 +508,9 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                 "segment_count_delta": 1,
-                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
                 "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
@@ -531,9 +531,9 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                 "segment_count_delta": -1,
-                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
                 "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
@@ -553,9 +553,9 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                 "segment_count_delta": -2,
-                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
                 "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
@@ -593,9 +593,9 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
                 "segment_count_delta": -1,
-                "exon_chain":          {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
                 "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset":   {"tp": 0, "fn": 1, "fp": 1},
+                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
@@ -615,14 +615,34 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
             "STRUCTURAL_COHERENCE": {
                 "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
                 "segment_count_delta": 0,
-                "exon_chain":          {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain": {"tp": 1, "fn": 0, "fp": 0},
                 "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_subset":   {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_subset": {"tp": 1, "fn": 0, "fp": 0},
                 "boundary_shift_count": 0,
                 "boundary_shift_total": 0,
             },
         },
         id="sc_single_segment",
+    ),
+    pytest.param(
+        np.array([
+            [8, 8, 0, 0, 1, 2, 2, 2, 2, 3, 0, 0, 8, 8],
+            [8, 8, 0, 0, 1, 2, 2, 2, 2, 3, 0, 0, 8, 8],
+        ]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {
+                "intron_chain": {"tp": 1, "fp": 0, "fn": 0},
+                "segment_count_delta": 0,
+                "exon_chain": {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
+                "exon_chain_subset": {"tp": 1, "fn": 0, "fp": 0},
+                "boundary_shift_count": 0,
+                "boundary_shift_total": 0,
+            },
+        },
+        id="splice_site_confusion",
     )
 ]
 
@@ -806,5 +826,83 @@ MULTI_SEQUENCE_TEST_CASES = [
 
         },
         id="no_nuc_positives",
+    ),
+]
+
+# ------------------------------------------------------------------
+# SPLICE_SITE test cases
+# Each entry: (gt_pred_array, expected_splice_sites)
+# Using BEND_LABEL_CONFIG: bg=8, exon=0, donor=1, intron=2, acceptor=3
+# ------------------------------------------------------------------
+
+SPLICE_SITE_TEST_CASES = [
+    # -- Case 1: perfect match, 2 introns —————————————————————————————
+    # GT/pred: exon-exon-donor-intron×3-acceptor-exon-exon-donor-intron×2-acceptor-exon-exon
+    # Both pairs: donor hit, acceptor hit → both_correct×2, no FP.
+    pytest.param(
+        np.array([
+            [0, 0, 1, 2, 2, 2, 3, 0, 0, 1, 2, 2, 3, 0, 0],
+            [0, 0, 1, 2, 2, 2, 3, 0, 0, 1, 2, 2, 3, 0, 0],
+        ]),
+        {
+            "both_correct": 2, "donor_only": 0, "acceptor_only": 0, "neither": 0,
+            "donor_tp": 2, "donor_fp": 0, "donor_fn": 0,
+            "acceptor_tp": 2, "acceptor_fp": 0, "acceptor_fn": 0,
+        },
+        id="ss_perfect_two_introns",
+    ),
+    # -- Case 2: pred replaces all donors with intron, keeps acceptors —
+    # GT: exon-exon-donor-intron×3-acceptor-exon-exon-donor-intron×2-acceptor-exon-exon
+    # pred: exon-exon-intron×4-acceptor-exon-exon-intron×3-acceptor-exon-exon
+    # donor positions become intron → pred has no donor segments.
+    # Both acceptors survive exactly → acceptor_only×2.
+    pytest.param(
+        np.array([
+            [0, 0, 1, 2, 2, 2, 3, 0, 0, 1, 2, 2, 3, 0, 0],
+            [0, 0, 2, 2, 2, 2, 3, 0, 0, 2, 2, 2, 3, 0, 0],
+        ]),
+        {
+            "both_correct": 0, "donor_only": 0, "acceptor_only": 2, "neither": 0,
+            "donor_tp": 0, "donor_fp": 0, "donor_fn": 2,
+            "acceptor_tp": 2, "acceptor_fp": 0, "acceptor_fn": 0,
+        },
+        id="ss_all_donors_wrong",
+    ),
+    # -- Case 3: first pair correct, second pair both wrong + spurious donor ——
+    # GT:   exon-exon-donor(2)-intron(3-5)-acceptor(6)-exon-donor(8)-intron(9-10)-acceptor(11)-exon
+    # pred: exon-exon-donor(2)-intron(3-5)-acceptor(6)-donor(7)-intron(8-10)-intron(11)-exon
+    #   • Pair 1: both correct → both_correct=1
+    #   • Pair 2: donor(8) replaced by intron, acceptor(11) replaced by intron → neither=1
+    #   • Spurious donor at pos 7 → donor_fp=1
+    pytest.param(
+        np.array([
+            [0, 0, 1, 2, 2, 2, 3, 0, 1, 2, 2, 3, 0],
+            [0, 0, 1, 2, 2, 2, 3, 1, 2, 2, 2, 2, 0],
+        ]),
+        {
+            "both_correct": 1, "donor_only": 0, "acceptor_only": 0, "neither": 1,
+            "donor_tp": 1, "donor_fp": 1, "donor_fn": 1,
+            "acceptor_tp": 1, "acceptor_fp": 0, "acceptor_fn": 1,
+        },
+        id="ss_mixed_with_spurious_donor",
+    ),
+    # -- Case 4: 3 introns — neither / donor_only / both_correct + spurious acceptor ——
+    # GT:   exon-donor(1)-intron(2-3)-acceptor(4)-exon-donor(6)-intron(7-8)-acceptor(9)-exon-donor(11)-intron(12-13)-acceptor(14)-exon
+    # pred: exon-intron(1-4)-spurious_acc(5)-donor(6)-intron(7-9)-exon-donor(11)-intron(12-13)-acceptor(14)-exon
+    #   • Pair 1 (donor1, acc4): donor→intron, acceptor→intron → neither=1
+    #   • Pair 2 (donor6, acc9): donor correct, acceptor→intron → donor_only=1
+    #   • Pair 3 (donor11, acc14): both correct → both_correct=1
+    #   • Spurious acceptor at pos 5 → acceptor_fp=1
+    pytest.param(
+        np.array([
+            [0, 1, 2, 2, 3, 0, 1, 2, 2, 3, 0, 1, 2, 2, 3, 0],
+            [0, 2, 2, 2, 2, 3, 1, 2, 2, 2, 0, 1, 2, 2, 3, 0],
+        ]),
+        {
+            "both_correct": 1, "donor_only": 1, "acceptor_only": 0, "neither": 1,
+            "donor_tp": 2, "donor_fp": 0, "donor_fn": 1,
+            "acceptor_tp": 1, "acceptor_fp": 1, "acceptor_fn": 2,
+        },
+        id="ss_three_introns_mixed_spurious_acceptor",
     ),
 ]

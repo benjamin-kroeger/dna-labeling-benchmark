@@ -19,6 +19,7 @@ human-readable names and declares semantic roles (background, coding, …).
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import warnings
 from copy import deepcopy
@@ -42,6 +43,7 @@ from .structure import extract_structure
 from .structural_summary import _compute_structural_summary, POSITION_BIAS_HISTOGRAM_BINS
 from .transcript_classification import _classify_transcript_match
 from .utils import get_contiguous_groups, recursive_merge, _compute_summary_statistics, _compute_distribution_stats
+from .splice_sites import eval_splice_site_junctions
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
 
 # ---------------------------------------------------------------------------
@@ -413,13 +415,11 @@ def benchmark_gt_vs_pred_single(
             coding_value=label_config.coding_label,
         )
 
-    # ---- Extract structures (STRUCTURAL_COHERENCE only)
-    if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
-        gt_struct = extract_structure(gt_labels, label_config)
-        pred_struct = extract_structure(pred_labels, label_config)
-
     # ---- STRUCTURAL_COHERENCE: intron chain + exon chain + boundary shifts
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
+
+        gt_struct = extract_structure(gt_labels, label_config)
+        pred_struct = extract_structure(pred_labels, label_config)
 
         sc_result: dict = {}
         sc_result.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
@@ -438,6 +438,14 @@ def benchmark_gt_vs_pred_single(
                 sc_result["transcript_match_class"] = match_cls.value
 
         metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
+
+        if (
+            label_config.intron_label is not None
+            and label_config.splice_donor_label is not None
+            and label_config.splice_acceptor_label is not None
+        ):
+            splice_confusion = eval_splice_site_junctions(gt_struct, pred_struct, label_config)
+            metric_results["splice_sites"] = dataclasses.asdict(splice_confusion)
 
     # ---- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
@@ -598,6 +606,21 @@ def _aggregate_summary_metrics(aggregated: dict, metrics: list[EvalMetrics]) -> 
             for tier_key in ("exon_chain", "exon_chain_subset", "exon_chain_superset"):
                 if tier_key in sc:
                     sc[tier_key] = _compute_summary_statistics(**sc[tier_key])
+
+    # -- SPLICE_SITES: sum raw counts, compute precision/recall ----------------
+    if "splice_sites" in aggregated:
+        ss = aggregated["splice_sites"]
+        for key in ("both_correct", "donor_only", "acceptor_only", "neither",
+                    "donor_tp", "donor_fp", "donor_fn",
+                    "acceptor_tp", "acceptor_fp", "acceptor_fn"):
+            if isinstance(ss.get(key), list):
+                ss[key] = sum(ss[key])
+        d_tp, d_fp, d_fn = ss["donor_tp"], ss["donor_fp"], ss["donor_fn"]
+        a_tp, a_fp, a_fn = ss["acceptor_tp"], ss["acceptor_fp"], ss["acceptor_fn"]
+        ss["donor_precision"] = d_tp / (d_tp + d_fp) if (d_tp + d_fp) > 0 else 0.0
+        ss["donor_recall"] = d_tp / (d_tp + d_fn) if (d_tp + d_fn) > 0 else 0.0
+        ss["acceptor_precision"] = a_tp / (a_tp + a_fp) if (a_tp + a_fp) > 0 else 0.0
+        ss["acceptor_recall"] = a_tp / (a_tp + a_fn) if (a_tp + a_fn) > 0 else 0.0
 
     # -- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:

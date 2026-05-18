@@ -21,7 +21,9 @@ from benchmark_test_cases import (
     MULTI_SEQUENCE_TEST_CASES,
     STRUCTURAL_COHERENCE_TEST_CASES,
     DIAGNOSTIC_DEPTH_TEST_CASES,
+    SPLICE_SITE_TEST_CASES,
 )
+from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
 
 
 @pytest.mark.parametrize(
@@ -67,6 +69,23 @@ def test_structural_coherence(gt_pred_array, label_config, metrics, expected_err
         _METRIC_EVAL_DISPATCH[metric](
             expected_errors[metric.name],
             benchmark_results[metric.name],
+        )
+
+
+@pytest.mark.parametrize("gt_pred_array, expected_splice", SPLICE_SITE_TEST_CASES)
+def test_splice_site_evaluation(gt_pred_array, expected_splice):
+    """Test splice-site confusion matrix counts and derived FP tracking."""
+    result = benchmark_gt_vs_pred_single(
+        gt_labels=gt_pred_array[0],
+        pred_labels=gt_pred_array[1],
+        label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.STRUCTURAL_COHERENCE],
+    )
+    assert "splice_sites" in result, "Expected 'splice_sites' key in benchmark results"
+    ss = result["splice_sites"]
+    for key, expected_val in expected_splice.items():
+        assert ss[key] == expected_val, (
+            f"splice_sites[{key!r}]: expected {expected_val}, got {ss[key]}"
         )
 
 

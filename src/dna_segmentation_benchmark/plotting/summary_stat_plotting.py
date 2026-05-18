@@ -39,6 +39,7 @@ from .metrics.structural import (
     plot_per_transcript_soft_exon_metrics,
 )
 from .metrics.transitions import plot_transition_matrices, plot_false_transitions
+from .metrics.splice_sites import plot_splice_site_confusion_matrices, plot_splice_site_pr_bar
 from .utils import _save_figure
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ def compare_multiple_predictions(
 
     # Collect false transition data across all methods for combined plotting
     all_false_transition_data: dict[str, dict] = {}
+    all_splice_site_data: dict[str, dict] = {}
     single_method_mode = len(per_method_benchmark_res) == 1
 
     for method_name, benchmark_results in per_method_benchmark_res.items():
@@ -102,6 +104,8 @@ def compare_multiple_predictions(
             figures[key] = fig_transitions
 
         all_false_transition_data[method_name] = benchmark_results.pop("false_transitions", {})
+        if "splice_sites" in benchmark_results:
+            all_splice_site_data[method_name] = benchmark_results.pop("splice_sites")
 
         for metric_group, metric_data in benchmark_results.items():
             metric_group_str = metric_group if isinstance(metric_group, str) else metric_group.name
@@ -119,6 +123,22 @@ def compare_multiple_predictions(
     fig_false = plot_false_transitions(all_false_transition_data, label_config)
     if fig_false is not None:
         figures["false_transitions"] = fig_false
+
+    # ---- Splice-site plots (all methods) --------------------------------
+    if all_splice_site_data:
+        fig_ss_cm = plot_splice_site_confusion_matrices(
+            all_splice_site_data,
+            save_path=(output_dir / "splice_site_confusion.png") if output_dir else None,
+        )
+        if fig_ss_cm is not None:
+            figures["splice_site_confusion"] = fig_ss_cm
+
+        fig_ss_pr = plot_splice_site_pr_bar(
+            all_splice_site_data,
+            save_path=(output_dir / "splice_site_pr.png") if output_dir else None,
+        )
+        if fig_ss_pr is not None:
+            figures["splice_site_pr"] = fig_ss_pr
 
     if not rows:
         logger.warning("No benchmark data collected — nothing to plot.")
