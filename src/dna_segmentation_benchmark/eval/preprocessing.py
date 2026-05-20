@@ -1,0 +1,185 @@
+"""Input preprocessing performed before any metric is computed.
+
+Two concerns:
+
+* **Intron inference** — relabel background gaps between adjacent coding runs
+  as introns (:func:`_infer_introns_from_coding_gaps`).
+* **Mask splitting** — turn a boolean exclusion mask into the kept spans that
+  are evaluated independently (:func:`_iter_unmasked_spans`).
+"""
+
+from __future__ import annotations
+
+import warnings
+from collections.abc import Iterator
+
+import numpy as np
+
+from .utils import get_contiguous_groups
+from ..label_definition import LabelConfig
+
+# Arrays at or above this length are treated as possible chromosome-scale input.
+# On such arrays, a coding-to-coding gap can be either a true intron or an
+# intergenic region between unrelated transcripts, so inference becomes
+# conservative and warning-backed.
+_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH = 1_000_000
+
+# Fallback cutoff for large arrays when the gap-length distribution has no
+# clear split: infer gaps up to this multiple of a typical short gap.
+_INFER_INTRONS_LARGE_GAP_RATIO = 20
+
+# Minimum multiplicative jump between consecutive sorted gap lengths required
+# to treat the distribution as two-mode: short intron-like gaps followed by
+# long intergenic-like gaps.
+_INFER_INTRONS_BIMODAL_MIN_JUMP_RATIO = 5.0
+
+
+def _infer_introns_from_coding_gaps(
+    labels: np.ndarray,
+    label_config: LabelConfig,
+) -> np.ndarray:
+    """Return labels with inferred introns between adjacent coding segments.
+
+    The function only rewrites positions that currently equal
+    ``label_config.background_label``.  Existing coding, intron, splice-site,
+    or other non-background labels are preserved.
+
+    For transcript-sized arrays, every background gap between adjacent coding
+    runs is interpreted as an intron.  This matches the usual representation
+    produced by GFF/GTF exon or CDS painting, where exons are coding-label runs
+    and introns are the unlabeled gaps between them.
+
+    For large arrays, defined by
+    :data:`_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH`, the function emits a
+    warning and applies a conservative gap-length cutoff.  Chromosome-sized
+    arrays can contain both true introns and intergenic distances between
+    separate transcripts; blindly filling every gap would turn intergenic
+    regions into introns.  The cutoff is estimated from the coding-gap length
+    distribution by :func:`_large_array_inferable_gap_cutoff`.
+
+    Parameters
+    ----------
+    labels
+        One-dimensional label array to transform.
+    label_config
+        Provides ``coding_label``, ``intron_label``, and
+        ``background_label``.
+
+    Returns
+    -------
+    np.ndarray
+        A copy of *labels* with selected background gaps relabelled as introns.
+    """
+    is_large_input = len(labels) >= _INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH
+    if is_large_input:
+        warnings.warn(
+            "infer_introns=True was requested for a large input array. "
+            "Intron inference will estimate a gap-length cutoff from the "
+            "coding-gap distribution: it first looks for a bimodal split "
+            "between short intron-like gaps and long intergenic-like gaps, "
+            "then falls back to a conservative typical-gap multiplier if no "
+            "clear split is found. Prefer transcript/window-level arrays or "
+            "explicit intron labels when possible.",
+            stacklevel=2,
+        )
+
+    coding = label_config.coding_label
+    intron = label_config.intron_label
+    background = label_config.background_label
+
+    if coding is None or intron is None:
+        warnings.warn(
+            "infer_introns=True requires both coding_label and intron_label; leaving labels unchanged.",
+            stacklevel=2,
+        )
+        return labels.copy()
+
+    inferred = labels.copy()
+    coding_groups = get_contiguous_groups(np.where(inferred == coding)[0])
+    gap_lengths = [
+        int(right[0]) - int(left[-1]) - 1
+        for left, right in zip(coding_groups, coding_groups[1:])
+        if int(right[0]) > int(left[-1]) + 1
+    ]
+    large_gap_cutoff = _large_array_inferable_gap_cutoff(gap_lengths) if is_large_input else None
+
+    for left, right in zip(coding_groups, coding_groups[1:]):
+        gap_start = int(left[-1]) + 1
+        gap_end = int(right[0])
+        if gap_start >= gap_end:
+            continue
+        if large_gap_cutoff is not None and (gap_end - gap_start) > large_gap_cutoff:
+            continue
+        gap = inferred[gap_start:gap_end]
+        gap[gap == background] = intron
+
+    return inferred
+
+
+def _large_array_inferable_gap_cutoff(gap_lengths: list[int]) -> int | None:
+    """Estimate the largest gap length that should be inferred as intronic.
+
+    This helper is used only for large input arrays, where coding gaps may be a
+    mixture of:
+
+    * short, intron-like gaps between exons of the same transcript
+    * long, intergenic-like gaps between different transcripts
+
+    The preferred path assumes this mixture is approximately bimodal.  It sorts
+    all coding-to-coding gap lengths and finds the largest multiplicative jump
+    between adjacent values.  If the jump is at least
+    :data:`_INFER_INTRONS_BIMODAL_MIN_JUMP_RATIO`, the split is treated as the
+    valley before the second mode.  The cutoff is set to the geometric midpoint
+    between the last short gap and first long gap, i.e. a value between the two
+    modes rather than inside either mode.
+
+    If no clear jump is found, the function falls back to a conservative rule:
+    infer only gaps up to
+    ``median(lower_half_of_gap_lengths) * _INFER_INTRONS_LARGE_GAP_RATIO``.
+    This preserves the old ``20x typical short gap`` behavior for unimodal or
+    noisy distributions.
+
+    Parameters
+    ----------
+    gap_lengths
+        Positive lengths of background gaps between adjacent coding runs.
+
+    Returns
+    -------
+    int | None
+        Maximum gap length to fill as intron.  ``None`` means no cutoff could
+        be estimated, so all gaps remain eligible.
+    """
+    if len(gap_lengths) < 2:
+        return None
+
+    sorted_gaps = np.array(sorted(gap_lengths), dtype=float)
+    adjacent_ratios = sorted_gaps[1:] / np.maximum(sorted_gaps[:-1], 1.0)
+    largest_jump_idx = int(np.argmax(adjacent_ratios))
+    largest_jump = float(adjacent_ratios[largest_jump_idx])
+    if largest_jump >= _INFER_INTRONS_BIMODAL_MIN_JUMP_RATIO:
+        first_long_gap = sorted_gaps[largest_jump_idx + 1]
+        last_short_gap = sorted_gaps[largest_jump_idx]
+        return int(np.floor(np.sqrt(last_short_gap * first_long_gap)))
+
+    lower_half = sorted_gaps[: max(1, len(sorted_gaps) // 2)]
+    typical_gap = float(np.median(lower_half))
+    if typical_gap <= 0:
+        return None
+
+    return int(typical_gap * _INFER_INTRONS_LARGE_GAP_RATIO)
+
+
+def _iter_unmasked_spans(mask_labels: np.ndarray) -> Iterator[tuple[int, int]]:
+    """Yield ``(start, end)`` half-open spans of kept (unmasked) positions.
+
+    ``mask_labels`` is True where a position must be excluded.  Each yielded
+    span is a maximal run of kept positions and is evaluated independently.
+    """
+    is_valid = ~mask_labels.astype(bool)
+    padded = np.pad(is_valid, (1, 1), mode="constant", constant_values=False)
+    starts = np.where(~padded[:-1] & padded[1:])[0]
+    ends = np.where(padded[:-1] & ~padded[1:])[0]
+    for s, e in zip(starts, ends):
+        if e > s:
+            yield int(s), int(e)

@@ -11,7 +11,7 @@ from dna_segmentation_benchmark.eval.evaluate_predictors import (
     EvalMetrics,
     benchmark_gt_vs_pred_single,
 )
-import dna_segmentation_benchmark.eval.evaluate_predictors as evaluate_predictors
+from dna_segmentation_benchmark.eval import preprocessing
 from dna_segmentation_benchmark.eval.structure import extract_structure
 from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
 
@@ -134,7 +134,7 @@ def test_infer_introns_fills_gaps_before_structural_metrics():
 
 def test_infer_introns_warns_on_large_arrays(monkeypatch):
     monkeypatch.setattr(
-        evaluate_predictors,
+        preprocessing,
         "_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH",
         10,
     )
@@ -152,7 +152,7 @@ def test_infer_introns_warns_on_large_arrays(monkeypatch):
 
 def test_large_array_intron_inference_skips_comparatively_large_gaps(monkeypatch):
     monkeypatch.setattr(
-        evaluate_predictors,
+        preprocessing,
         "_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH",
         10,
     )
@@ -162,7 +162,7 @@ def test_large_array_intron_inference_skips_comparatively_large_gaps(monkeypatch
     labels[100:102] = BEND_LABEL_CONFIG.exon_label
 
     with pytest.warns(UserWarning, match="large input array"):
-        inferred = evaluate_predictors._infer_introns_from_coding_gaps(
+        inferred = preprocessing._infer_introns_from_coding_gaps(
             labels,
             BEND_LABEL_CONFIG,
         )
@@ -172,7 +172,7 @@ def test_large_array_intron_inference_skips_comparatively_large_gaps(monkeypatch
 
 
 def test_large_array_gap_cutoff_uses_bimodal_jump_before_second_mode():
-    cutoff = evaluate_predictors._large_array_inferable_gap_cutoff(
+    cutoff = preprocessing._large_array_inferable_gap_cutoff(
         [8, 10, 12, 14, 2_000, 2_300, 2_700],
     )
 
@@ -180,7 +180,7 @@ def test_large_array_gap_cutoff_uses_bimodal_jump_before_second_mode():
 
 
 def test_large_array_gap_cutoff_falls_back_without_clear_mode_split():
-    cutoff = evaluate_predictors._large_array_inferable_gap_cutoff(
+    cutoff = preprocessing._large_array_inferable_gap_cutoff(
         [8, 10, 12, 14, 16, 18, 20],
     )
 

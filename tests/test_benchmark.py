@@ -9,8 +9,8 @@ from dna_segmentation_benchmark.eval.evaluate_predictors import (
     benchmark_gt_vs_pred_multiple,
     EvalMetrics,
 )
-import dna_segmentation_benchmark.eval.evaluate_predictors as evaluate_predictors
-from dna_segmentation_benchmark.eval.utils import recursive_merge
+from dna_segmentation_benchmark.eval import aggregation
+from dna_segmentation_benchmark.eval.aggregation import recursive_merge
 from dna_segmentation_benchmark.pipeline import (
     _coerce_feature_types,
     _normalise_pred_exon_feature_types,
@@ -168,7 +168,7 @@ def test_benchmark_multiple_streaming_aggregation_matches_merged_individual_resu
     merged = {}
     for result in individual:
         recursive_merge(merged, result)
-    merged = evaluate_predictors._aggregate_summary_metrics(merged, metrics)
+    merged = aggregation._aggregate_summary_metrics(merged, metrics)
 
     _assert_metric_value_equal(merged, aggregated, "aggregated")
 
