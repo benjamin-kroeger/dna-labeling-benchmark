@@ -27,6 +27,13 @@ Four metric groups are computed, each answering a distinct question:
   Transcripts are clustered into loci by coordinate overlap (same algorithm
   as map_transcripts).  A locus is matched if any of its transcripts was
   assigned a counterpart on the other side.
+
+* ``locus_isoform``  — *"How completely are multi-isoform loci recovered?"*
+  For each GT locus, counts the fraction of its isoforms that received a
+  prediction match.  Unlike the gene metric (which only checks for ANY match),
+  this distinguishes a locus where 1 of 5 isoforms was found from one where
+  all 5 were found.  Most meaningful with ``FULL_DISCOVERY`` matching, where
+  every GT isoform participates in Hungarian assignment.
 """
 
 from __future__ import annotations
@@ -79,11 +86,14 @@ def compute_global_metrics(
     Returns
     -------
     dict
-        Five keys: ``"nucleotide"``, ``"exon"``, ``"exon_lenient"``,
-        ``"transcript"``, ``"gene"``.
+        Six keys: ``"nucleotide"``, ``"exon"``, ``"exon_lenient"``,
+        ``"transcript"``, ``"gene"``, ``"locus_isoform"``.
         Each value is a flat dict of counts and derived P/R/F1 scores.
         ``"exon"`` uses exact boundary matching; ``"exon_lenient"`` relaxes the
         outer boundary of terminal exons (gffcompare style).
+        ``"locus_isoform"`` reports per-locus isoform recall — the fraction of
+        GT isoforms per locus that received a match, addressing multi-isoform
+        caller fairness.  Most meaningful with ``FULL_DISCOVERY`` matching.
     """
     return {
         "nucleotide": _compute_global_nucleotide_metrics(
@@ -116,6 +126,10 @@ def compute_global_metrics(
             mappings,
             predictor_name,
             transcript_types,
+        ),
+        "locus_isoform": _compute_locus_isoform_metrics(
+            mappings,
+            predictor_name,
         ),
     }
 
@@ -464,6 +478,74 @@ def _compute_gene_level_metrics(
         "sensitivity": sensitivity,
         "precision": precision,
         "f1": _f1(sensitivity, precision),
+    }
+
+
+def _compute_locus_isoform_metrics(
+    mappings: list[TranscriptMapping],
+    predictor_name: str,
+) -> dict:
+    """Per-locus isoform recall for one predictor.
+
+    For each locus (cluster of overlapping GT transcripts on the same
+    seqid+strand), counts how many GT isoforms received a non-zero prediction
+    match from ``predictor_name``.  Most meaningful when called after
+    ``FULL_DISCOVERY`` matching, where every GT isoform participates in the
+    Hungarian assignment and unmatched isoforms produce empty
+    ``matched_predictions`` lists.
+
+    Returns
+    -------
+    dict with keys:
+        locus_count          – number of GT loci evaluated
+        ref_isoform_count    – total GT isoforms across all loci
+        ref_isoform_matched  – GT isoforms with at least one match
+        recall               – ref_isoform_matched / ref_isoform_count (micro-avg)
+        missed_per_locus     – list[int], missed isoform count per locus
+    """
+    gt_mappings = [m for m in mappings if not m.is_unmatched_prediction]
+    if not gt_mappings:
+        return {
+            "locus_count": 0,
+            "ref_isoform_count": 0,
+            "ref_isoform_matched": 0,
+            "recall": 0.0,
+            "missed_per_locus": [],
+        }
+
+    matched_gt_ids = {
+        m.gt_id
+        for m in gt_mappings
+        if any(pm.predictor_name == predictor_name for pm in m.matched_predictions)
+    }
+
+    from collections import defaultdict
+    groups: dict[tuple, list] = defaultdict(list)
+    for m in gt_mappings:
+        groups[(m.seqid, m.strand)].append(m)
+
+    locus_count = 0
+    total_gt = 0
+    total_matched = 0
+    missed_per_locus: list[int] = []
+
+    for group_mappings in groups.values():
+        spans = [(m.gt_start, m.gt_end, m.gt_id) for m in group_mappings]
+        for locus_ids in _cluster_into_loci(spans):
+            n_total = len(locus_ids)
+            n_matched = sum(1 for gid in locus_ids if gid in matched_gt_ids)
+            locus_count += 1
+            total_gt += n_total
+            total_matched += n_matched
+            missed_per_locus.append(n_total - n_matched)
+
+    recall = total_matched / total_gt if total_gt > 0 else 0.0
+    return {
+        "locus_count": locus_count,
+        "ref_isoform_count": total_gt,
+        "ref_isoform_matched": total_matched,
+        "recall": recall,
+        "missed_per_locus": missed_per_locus,
     }
 
 
