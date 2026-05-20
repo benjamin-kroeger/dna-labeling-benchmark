@@ -287,6 +287,14 @@ def compare_multiple_predictions(
                     _combined = {
                         _PR_DISPLAY[k]: v.get(_measure, 0.0) for k, v in _scores.items() if isinstance(v, dict)
                     }
+                    # Propagate bootstrap stderrs alongside scores using the same
+                    # display-name key with a "_stderr" suffix so plot_ml_metrics_bar
+                    # can separate them and render error bars.
+                    for k, v in _scores.items():
+                        if isinstance(v, dict):
+                            se = v.get(f"{_measure}_stderr")
+                            if se is not None:
+                                _combined[f"{_PR_DISPLAY[k]}_stderr"] = se
                     _pr_rows.append(
                         {
                             "method_name": _method,

@@ -3,11 +3,12 @@ from typing import Optional
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
 from ..config import PlotMetadata, DEFAULT_FIG_SIZE
-from ..utils import _save_figure, _add_pictogram_panel
+from ..utils import _save_figure, _add_pictogram_panel, _annotate_bar_with_errorbar
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +53,23 @@ def plot_iou_metrics(
     figures = []
 
     # --- Plot 1: Average IoU Score per Method (Bar Plot) ---
-    avg_scores = exploded.groupby("method_name")["IoU"].mean().reset_index()
+    agg = (
+        exploded.groupby("method_name")["IoU"]
+        .agg(["mean", "std", "count"])
+        .reset_index()
+        .rename(columns={"mean": "IoU"})
+    )
+    agg["sem"] = agg["std"] / np.sqrt(agg["count"])
 
     fig1, ax1 = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-    sns.barplot(data=avg_scores, x="method_name", y="IoU", hue="method_name", ax=ax1, palette="viridis", legend=False)
+    sns.barplot(
+        data=agg, x="method_name", y="IoU", hue="method_name",
+        ax=ax1, palette="viridis", legend=False, errorbar=None,
+    )
 
-    for container in ax1.containers:
-        ax1.bar_label(container, fmt="%.3f", padding=3)
+    bar_containers = list(ax1.containers)
+    for container, (_, row) in zip(bar_containers, agg.iterrows()):
+        _annotate_bar_with_errorbar(ax1, container.patches[0], row["IoU"], row["sem"])
 
     ax1.set_title(f"Average IoU Score per Method — {class_name}", fontsize=16)
     ax1.set_ylabel("Average Intersection over Union", fontsize=12)

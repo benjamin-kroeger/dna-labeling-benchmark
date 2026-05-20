@@ -3,11 +3,12 @@ from typing import Optional
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
 from ..config import PlotMetadata, DEFAULT_FIG_SIZE
-from ..utils import _save_figure, _add_pictogram_panel
+from ..utils import _save_figure, _add_pictogram_panel, _annotate_bar_with_errorbar
 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +66,41 @@ def plot_ml_metrics_bar(
     figures: dict[str, plt.Figure] = {}
 
     for level in melted["metric_key"].unique():
-        level_df = melted[melted["metric_key"] == level].copy()
+        full_level_df = melted[melted["metric_key"] == level].copy()
+
+        # Separate bootstrap stderr entries from the bar-plot metrics
+        is_stderr = full_level_df["metric"].str.endswith("_stderr")
+        stderr_df = full_level_df[is_stderr]
+        level_df = full_level_df[~is_stderr].copy()
+
+        # Build lookup: (method_name, base_metric) -> stderr value
+        stderr_lookup: dict[tuple, float] = {}
+        for _, row in stderr_df.iterrows():
+            base = row["metric"].replace("_stderr", "")
+            v = row["Score"]
+            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                stderr_lookup[(row["method_name"], base)] = float(v)
+
+        method_order = list(level_df["method_name"].unique())
+        metric_order = list(level_df["metric"].unique())
 
         fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-        sns.barplot(data=level_df, y="Score", x="metric", hue="method_name", ax=ax)
+        sns.barplot(
+            data=level_df,
+            y="Score",
+            x="metric",
+            hue="method_name",
+            order=metric_order,
+            hue_order=method_order,
+            errorbar=None,
+            ax=ax,
+        )
 
-        for container in ax.containers:
-            ax.bar_label(container, label_type="edge", padding=3, fmt="%.3f")
+        bar_containers = list(ax.containers)
+        for container, method in zip(bar_containers, method_order):
+            for patch, metric_name in zip(container.patches, metric_order):
+                se = stderr_lookup.get((method, metric_name))
+                _annotate_bar_with_errorbar(ax, patch, patch.get_height(), se)
 
         ax.set_title(f"{level} — {class_name}", fontsize=16)
         ax.set_xlabel("Metric", fontsize=12)

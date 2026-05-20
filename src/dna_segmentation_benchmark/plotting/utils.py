@@ -1,6 +1,7 @@
 import textwrap
 from pathlib import Path
 
+import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
@@ -30,6 +31,48 @@ def spezi_palette(n: int | None = None) -> list[tuple[float, float, float]]:
     if n is not None:
         ordered = ordered[:n]
     return sns.color_palette(ordered)
+
+
+def _annotate_bar_with_errorbar(
+    ax: plt.Axes,
+    patch,
+    height: float,
+    se: float | None,
+    fmt: str = "%.3f",
+    text_fontsize: float = 9.0,
+) -> None:
+    """Draw an error bar and smart-positioned value label for one bar patch.
+
+    Label placement rule (in rendered pixels):
+      - error bar height < 2 text lines → label above the error bar cap
+      - error bar height >= 2 text lines → label inside the bar, slightly left,
+        rotated 90° so it doesn't overlap the error bar
+    When se is None the label is placed above the bar with standard padding.
+    """
+    bar_x = patch.get_x() + patch.get_width() / 2
+    label_text = fmt % height
+
+    if se is not None and height > 0:
+        ax.errorbar(bar_x, height, yerr=se, fmt="none", color="black", capsize=3, linewidth=1, zorder=5)
+
+        _, pix_bar = ax.transData.transform((bar_x, height))
+        _, pix_top = ax.transData.transform((bar_x, height + se))
+        errbar_px = pix_top - pix_bar
+        two_lines_px = 2.0 * text_fontsize * ax.figure.dpi / 72.0
+
+        if errbar_px < two_lines_px:
+            ax.text(bar_x, height + se, label_text, ha="center", va="bottom", fontsize=text_fontsize)
+        else:
+            ax.text(
+                bar_x - patch.get_width() * 0.15,
+                height * 0.5,
+                label_text,
+                ha="center", va="center",
+                fontsize=text_fontsize,
+                rotation=90,
+            )
+    else:
+        ax.text(bar_x, height, label_text, ha="center", va="bottom", fontsize=text_fontsize)
 
 
 def _save_figure(fig: plt.Figure, save_path: Path, logger) -> None:
