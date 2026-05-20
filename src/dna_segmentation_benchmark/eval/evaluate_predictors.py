@@ -26,7 +26,6 @@ from copy import deepcopy
 from typing import Optional
 
 import numpy as np
-from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 
 from .boundary_precision import _compute_boundary_precision_landscape
@@ -299,6 +298,8 @@ def benchmark_gt_vs_pred_single(
 
     if metrics is None:
         metrics = _DEFAULT_METRICS
+    metrics = frozenset(metrics)
+    needs_sections = _needs_section_analysis(metrics)
 
     background_value = label_config.background_label
 
@@ -333,7 +334,7 @@ def benchmark_gt_vs_pred_single(
     grouped_pred_sections = get_contiguous_groups(pred_section_indices)
 
     # ---- INDEL metrics ------------------------------------------------
-    if EvalMetrics.INDEL in metrics or _needs_section_analysis(metrics):
+    if EvalMetrics.INDEL in metrics:
         # _classify_mismatches looks one position before/after each group,
         # so pad with one background sentinel on each side for safe access.
         padded_gt = np.concatenate(([background_value], gt_labels, [background_value]))
@@ -355,7 +356,7 @@ def benchmark_gt_vs_pred_single(
             class_value=label_config.coding_label,
         )
 
-        indel_results = {
+        metric_results[EvalMetrics.INDEL.name] = {
             "5_prime_extensions": ext5,
             "3_prime_extensions": ext3,
             "whole_insertions": whole_ins,
@@ -365,11 +366,9 @@ def benchmark_gt_vs_pred_single(
             "whole_deletions": whole_del,
             "split": split,
         }
-        if EvalMetrics.INDEL in metrics:
-            metric_results[EvalMetrics.INDEL.name] = indel_results
 
     # ---- Section-overlap analysis (shared by REGION_DISCOVERY & BOUNDARY_EXACTNESS)
-    if _needs_section_analysis(metrics):
+    if needs_sections:
         section_data = _analyze_section_overlap_and_boundaries(
             grouped_gt_section_indices=grouped_gt_sections,
             grouped_pred_section_indices=grouped_pred_sections,
@@ -477,8 +476,6 @@ def benchmark_gt_vs_pred_multiple(
         Equally-sized lists of 1-D integer token arrays.
     label_config : LabelConfig
         Token-to-name mapping and semantic roles.
-    classes : list[int]
-        Token values for which to compute metrics.
     metrics : list[EvalMetrics] | None
         Metric groups to compute.
     return_individual_results : bool
@@ -708,14 +705,15 @@ def _compute_nucleotide_level_confusion(
     gt_labels: np.ndarray, pred_labels: np.ndarray, class_value: int
 ) -> dict[str, int]:
     """Calculate granular base accuracy as a dict of confusion metrics."""
-    binary_gt = np.where(gt_labels == class_value, 1, 0)
-    binary_pred = np.where(pred_labels == class_value, 1, 0)
+    gt_pos = gt_labels == class_value
+    pred_pos = pred_labels == class_value
 
-    # labels=[0, 1] ensures a 2x2 matrix
-    cm = confusion_matrix(binary_gt, binary_pred, labels=[0, 1])
-    nuc_tn, nuc_fp, nuc_fn, nuc_tp = map(int, cm.ravel())
-
-    return {"tn": nuc_tn, "fp": nuc_fp, "fn": nuc_fn, "tp": nuc_tp}
+    return {
+        "tn": int(np.count_nonzero(~gt_pos & ~pred_pos)),
+        "fp": int(np.count_nonzero(~gt_pos & pred_pos)),
+        "fn": int(np.count_nonzero(gt_pos & ~pred_pos)),
+        "tp": int(np.count_nonzero(gt_pos & pred_pos)),
+    }
 
 
 def _analyze_section_overlap_and_boundaries(
