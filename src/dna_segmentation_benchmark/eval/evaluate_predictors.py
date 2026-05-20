@@ -22,6 +22,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import warnings
+from collections.abc import Iterator
 from copy import deepcopy
 from typing import Optional
 
@@ -270,188 +271,232 @@ def benchmark_gt_vs_pred_single(
           of shifted boundary positions and their summed absolute offset
           in bp across transcripts where GT and pred segment counts match.
     """
+    if metrics is None:
+        metrics = _DEFAULT_METRICS
+    metrics = frozenset(metrics)
+
     if infer_introns:
         gt_labels = _infer_introns_from_coding_gaps(gt_labels, label_config)
         pred_labels = _infer_introns_from_coding_gaps(pred_labels, label_config)
 
-    if mask_labels is not None:
-        is_valid = ~mask_labels.astype(bool)
-        padded = np.pad(is_valid, (1, 1), mode="constant", constant_values=False)
-        starts = np.where(~padded[:-1] & padded[1:])[0]
-        ends = np.where(padded[:-1] & ~padded[1:])[0]
+    if mask_labels is None:
+        return _benchmark_chunk(gt_labels, pred_labels, label_config, metrics)
 
-        chunk_results = []
-        for s, e in zip(starts, ends):
-            if e > s:
-                # Remove mask_labels to avoid infinite recursion
-                chunk_res = benchmark_gt_vs_pred_single(
-                    gt_labels=gt_labels[s:e],
-                    pred_labels=pred_labels[s:e],
-                    label_config=label_config,
-                    metrics=metrics,
-                    mask_labels=None,
-                    infer_introns=False,
-                )
-                chunk_results.append(chunk_res)
+    chunk_results = [
+        _benchmark_chunk(gt_labels[s:e], pred_labels[s:e], label_config, metrics)
+        for s, e in _iter_unmasked_spans(mask_labels)
+    ]
+    return functools.reduce(recursive_merge, chunk_results, {}) if chunk_results else {}
 
-        return functools.reduce(recursive_merge, chunk_results, {}) if chunk_results else {}
 
-    if metrics is None:
-        metrics = _DEFAULT_METRICS
-    metrics = frozenset(metrics)
-    needs_sections = _needs_section_analysis(metrics)
+def _iter_unmasked_spans(mask_labels: np.ndarray) -> Iterator[tuple[int, int]]:
+    """Yield ``(start, end)`` half-open spans of kept (unmasked) positions.
 
-    background_value = label_config.background_label
+    ``mask_labels`` is True where a position must be excluded.  Each yielded
+    span is a maximal run of kept positions and is evaluated independently.
+    """
+    is_valid = ~mask_labels.astype(bool)
+    padded = np.pad(is_valid, (1, 1), mode="constant", constant_values=False)
+    starts = np.where(~padded[:-1] & padded[1:])[0]
+    ends = np.where(padded[:-1] & ~padded[1:])[0]
+    for s, e in zip(starts, ends):
+        if e > s:
+            yield int(s), int(e)
+
+
+def _benchmark_chunk(
+    gt_labels: np.ndarray,
+    pred_labels: np.ndarray,
+    label_config: LabelConfig,
+    metrics: frozenset[EvalMetrics],
+) -> dict[str, dict]:
+    """Evaluate one fully-unmasked GT/pred span.
+
+    ``metrics`` must already be normalised to a frozenset; intron inference
+    and mask splitting are handled by :func:`benchmark_gt_vs_pred_single`.
+    """
+    coding = label_config.coding_label
 
     # Row 0 = GT, Row 1 = prediction  (NO sentinel padding here)
     arr = np.stack((gt_labels, pred_labels), axis=0)
 
     metric_results: dict[str, dict] = {}
+    metric_results.update(_eval_transitions(arr, label_config))
 
-    transition_analysis = _compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
-    metric_results["transition_failures"] = transition_analysis.gt_transition_matrices
-    metric_results["false_transitions"] = {
-        "late_catchup": transition_analysis.late_catchup_matrices,
-        "premature": transition_analysis.premature_matrices,
-        "spurious": transition_analysis.spurious_matrices,
-        "stable_position_counts": transition_analysis.stable_position_counts,
-    }
+    grouped_insertions = get_contiguous_groups(np.where((arr[0] != coding) & (arr[1] == coding))[0])
+    grouped_deletions = get_contiguous_groups(np.where((arr[0] == coding) & (arr[1] != coding))[0])
+    grouped_gt_sections = get_contiguous_groups(np.where(arr[0] == coding)[0])
+    grouped_pred_sections = get_contiguous_groups(np.where(arr[1] == coding)[0])
 
-    # Boolean masks for insertions / deletions coding label
-    insertion_mask = (arr[0, :] != label_config.coding_label) & (arr[1, :] == label_config.coding_label)
-    insertion_indices = np.where(insertion_mask)[0]
-
-    deletion_mask = (arr[0, :] == label_config.coding_label) & (arr[1, :] != label_config.coding_label)
-    deletion_indices = np.where(deletion_mask)[0]
-
-    # Contiguous sections in GT and prediction
-    gt_section_indices = np.where(arr[0, :] == label_config.coding_label)[0]
-    pred_section_indices = np.where(arr[1, :] == label_config.coding_label)[0]
-
-    grouped_insertions = get_contiguous_groups(insertion_indices)
-    grouped_deletions = get_contiguous_groups(deletion_indices)
-    grouped_gt_sections = get_contiguous_groups(gt_section_indices)
-    grouped_pred_sections = get_contiguous_groups(pred_section_indices)
-
-    # ---- INDEL metrics ------------------------------------------------
     if EvalMetrics.INDEL in metrics:
-        # _classify_mismatches looks one position before/after each group,
-        # so pad with one background sentinel on each side for safe access.
-        padded_gt = np.concatenate(([background_value], gt_labels, [background_value]))
-        padded_pred = np.concatenate(([background_value], pred_labels, [background_value]))
-        padded_arr = np.stack((padded_gt, padded_pred), axis=0)
-
-        # Shift indices by +1 to match the padded array layout
-        padded_insertions = [g + 1 for g in grouped_insertions]
-        padded_deletions = [g + 1 for g in grouped_deletions]
-
-        ext5, ext3, joined, whole_ins = _classify_mismatches(
-            grouped_indices=padded_insertions,
-            gt_pred_arr=padded_arr,
-            class_value=label_config.coding_label,
-        )
-        del5, del3, split, whole_del = _classify_mismatches(
-            grouped_indices=padded_deletions,
-            gt_pred_arr=padded_arr,
-            class_value=label_config.coding_label,
+        metric_results[EvalMetrics.INDEL.name] = _eval_indel(
+            grouped_insertions, grouped_deletions, gt_labels, pred_labels, label_config
         )
 
-        metric_results[EvalMetrics.INDEL.name] = {
-            "5_prime_extensions": ext5,
-            "3_prime_extensions": ext3,
-            "whole_insertions": whole_ins,
-            "joined": joined,
-            "5_prime_deletions": del5,
-            "3_prime_deletions": del3,
-            "whole_deletions": whole_del,
-            "split": split,
-        }
+    if _needs_section_analysis(metrics):
+        metric_results.update(_eval_sections(grouped_gt_sections, grouped_pred_sections, metrics))
 
-    # ---- Section-overlap analysis (shared by REGION_DISCOVERY & BOUNDARY_EXACTNESS)
-    if needs_sections:
-        section_data = _analyze_section_overlap_and_boundaries(
-            grouped_gt_section_indices=grouped_gt_sections,
-            grouped_pred_section_indices=grouped_pred_sections,
-        )
-
-        # -- REGION_DISCOVERY: precision & recall at four strictness levels
-        if EvalMetrics.REGION_DISCOVERY in metrics:
-            metric_results[EvalMetrics.REGION_DISCOVERY.name] = {
-                "neighborhood_hit": section_data["neighborhood_hit"],
-                "internal_hit": section_data["internal_hit"],
-                "full_coverage_hit": section_data["full_coverage_hit"],
-                "perfect_boundary_hit": section_data["perfect_boundary_hit"],
-            }
-
-        # -- BOUNDARY_EXACTNESS: IoU, boundary residuals, section-boundary flags
-        if EvalMetrics.BOUNDARY_EXACTNESS in metrics:
-            metric_results[EvalMetrics.BOUNDARY_EXACTNESS.name] = {
-                "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
-                "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
-                "iou_scores": section_data["iou_scores"],
-                "fuzzy_metrics": section_data["fuzzy_metrics"],
-            }
-
-    # ---- NUCLEOTIDE_CLASSIFICATION: per-base precision, recall, F1 ----
     if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
-        nuc_confusion = _compute_nucleotide_level_confusion(gt_labels, pred_labels, label_config.coding_label)
         metric_results[EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
-            "nucleotide": nuc_confusion,
+            "nucleotide": _compute_nucleotide_level_confusion(gt_labels, pred_labels, coding),
         }
 
-    # ---- Frameshift metrics -------------------------------------------
     if EvalMetrics.FRAMESHIFT in metrics:
-        if label_config.coding_label is None:
-            raise ValueError(
-                "FRAMESHIFT metric requested but LabelConfig.coding_label "
-                "is not set.  Provide a coding_label when constructing "
-                "your LabelConfig."
-            )
+        metric_results[EvalMetrics.FRAMESHIFT.name] = _eval_frameshift(gt_labels, pred_labels, label_config)
 
-        metric_results[EvalMetrics.FRAMESHIFT.name] = _get_frame_shift_metrics(
-            gt_labels=gt_labels,
-            pred_labels=pred_labels,
-            coding_value=label_config.coding_label,
-        )
-
-    # ---- STRUCTURAL_COHERENCE: intron chain + exon chain + boundary shifts
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
+        metric_results.update(_eval_structural(gt_labels, pred_labels, label_config))
 
-        gt_struct = extract_structure(gt_labels, label_config)
-        pred_struct = extract_structure(pred_labels, label_config)
-
-        sc_result: dict = {}
-        sc_result.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
-        sc_result.update(_compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, label_config))
-
-        gt_coding = gt_struct.filter_by_label(label_config.coding_label)
-        pred_coding = pred_struct.filter_by_label(label_config.coding_label)
-
-        if len(gt_coding) > 0:
-            sc_result.update(_compute_chain_metrics(gt_struct, pred_struct, label_config.coding_label, "exon_chain"))
-            sc_result.update(_compute_boundary_shift_metrics(gt_struct, pred_struct, label_config.coding_label))
-            sc_result["segment_count_delta"] = len(pred_coding) - len(gt_coding)
-
-            match_cls = _classify_transcript_match(gt_struct, pred_struct, label_config.coding_label)
-            if match_cls is not None:
-                sc_result["transcript_match_class"] = match_cls.value
-
-        metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = sc_result
-
-        if (
-            label_config.intron_label is not None
-            and label_config.splice_donor_label is not None
-            and label_config.splice_acceptor_label is not None
-        ):
-            splice_confusion = eval_splice_site_junctions(gt_struct, pred_struct, label_config)
-            metric_results["splice_sites"] = dataclasses.asdict(splice_confusion)
-
-    # ---- DIAGNOSTIC_DEPTH: segment length distribution + position bias histogram
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
-        summary = _compute_structural_summary(grouped_gt_sections, grouped_pred_sections)
-        metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = summary
+        metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = _compute_structural_summary(
+            grouped_gt_sections, grouped_pred_sections
+        )
 
     return metric_results
+
+
+def _eval_transitions(arr: np.ndarray, label_config: LabelConfig) -> dict:
+    """Return the always-on state-transition diagnostic fragments."""
+    transition_analysis = _compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
+    return {
+        "transition_failures": transition_analysis.gt_transition_matrices,
+        "false_transitions": {
+            "late_catchup": transition_analysis.late_catchup_matrices,
+            "premature": transition_analysis.premature_matrices,
+            "spurious": transition_analysis.spurious_matrices,
+            "stable_position_counts": transition_analysis.stable_position_counts,
+        },
+    }
+
+
+def _eval_indel(
+    grouped_insertions: list[np.ndarray],
+    grouped_deletions: list[np.ndarray],
+    gt_labels: np.ndarray,
+    pred_labels: np.ndarray,
+    label_config: LabelConfig,
+) -> dict:
+    """Sort insertion/deletion runs into 5'/3'/whole/join-split buckets."""
+    background_value = label_config.background_label
+
+    # _classify_mismatches looks one position before/after each group, so pad
+    # with one background sentinel on each side for safe access.
+    padded_gt = np.concatenate(([background_value], gt_labels, [background_value]))
+    padded_pred = np.concatenate(([background_value], pred_labels, [background_value]))
+    padded_arr = np.stack((padded_gt, padded_pred), axis=0)
+
+    # Shift indices by +1 to match the padded array layout
+    padded_insertions = [g + 1 for g in grouped_insertions]
+    padded_deletions = [g + 1 for g in grouped_deletions]
+
+    ext5, ext3, joined, whole_ins = _classify_mismatches(
+        grouped_indices=padded_insertions,
+        gt_pred_arr=padded_arr,
+        class_value=label_config.coding_label,
+    )
+    del5, del3, split, whole_del = _classify_mismatches(
+        grouped_indices=padded_deletions,
+        gt_pred_arr=padded_arr,
+        class_value=label_config.coding_label,
+    )
+
+    return {
+        "5_prime_extensions": ext5,
+        "3_prime_extensions": ext3,
+        "whole_insertions": whole_ins,
+        "joined": joined,
+        "5_prime_deletions": del5,
+        "3_prime_deletions": del3,
+        "whole_deletions": whole_del,
+        "split": split,
+    }
+
+
+def _eval_sections(
+    grouped_gt_sections: list[np.ndarray],
+    grouped_pred_sections: list[np.ndarray],
+    metrics: frozenset[EvalMetrics],
+) -> dict:
+    """Build REGION_DISCOVERY and/or BOUNDARY_EXACTNESS fragments.
+
+    Only the section-overlap data required by the requested metrics is
+    computed: region discovery needs the greedy 1:1 matching, boundary
+    exactness needs the IoU/residual sweep.
+    """
+    need_region_discovery = EvalMetrics.REGION_DISCOVERY in metrics
+    need_boundary_stats = EvalMetrics.BOUNDARY_EXACTNESS in metrics
+
+    section_data = _analyze_section_overlap_and_boundaries(
+        grouped_gt_section_indices=grouped_gt_sections,
+        grouped_pred_section_indices=grouped_pred_sections,
+        need_region_discovery=need_region_discovery,
+        need_boundary_stats=need_boundary_stats,
+    )
+
+    out: dict = {}
+    if need_region_discovery:
+        out[EvalMetrics.REGION_DISCOVERY.name] = {
+            "neighborhood_hit": section_data["neighborhood_hit"],
+            "internal_hit": section_data["internal_hit"],
+            "full_coverage_hit": section_data["full_coverage_hit"],
+            "perfect_boundary_hit": section_data["perfect_boundary_hit"],
+        }
+    if need_boundary_stats:
+        out[EvalMetrics.BOUNDARY_EXACTNESS.name] = {
+            "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
+            "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
+            "iou_scores": section_data["iou_scores"],
+            "fuzzy_metrics": section_data["fuzzy_metrics"],
+        }
+    return out
+
+
+def _eval_frameshift(gt_labels: np.ndarray, pred_labels: np.ndarray, label_config: LabelConfig) -> dict:
+    """Per-position reading-frame deviation between GT and predicted exons."""
+    if label_config.coding_label is None:
+        raise ValueError(
+            "FRAMESHIFT metric requested but LabelConfig.coding_label is not "
+            "set.  Provide a coding_label when constructing your LabelConfig."
+        )
+    return _get_frame_shift_metrics(
+        gt_labels=gt_labels,
+        pred_labels=pred_labels,
+        coding_value=label_config.coding_label,
+    )
+
+
+def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_config: LabelConfig) -> dict:
+    """Build STRUCTURAL_COHERENCE (and, when configured, splice_sites)."""
+    gt_struct = extract_structure(gt_labels, label_config)
+    pred_struct = extract_structure(pred_labels, label_config)
+
+    sc_result: dict = {}
+    sc_result.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
+    sc_result.update(_compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, label_config))
+
+    gt_coding = gt_struct.filter_by_label(label_config.coding_label)
+    pred_coding = pred_struct.filter_by_label(label_config.coding_label)
+
+    if len(gt_coding) > 0:
+        sc_result.update(_compute_chain_metrics(gt_struct, pred_struct, label_config.coding_label, "exon_chain"))
+        sc_result.update(_compute_boundary_shift_metrics(gt_struct, pred_struct, label_config.coding_label))
+        sc_result["segment_count_delta"] = len(pred_coding) - len(gt_coding)
+
+        match_cls = _classify_transcript_match(gt_struct, pred_struct, label_config.coding_label)
+        if match_cls is not None:
+            sc_result["transcript_match_class"] = match_cls.value
+
+    out: dict = {EvalMetrics.STRUCTURAL_COHERENCE.name: sc_result}
+
+    if (
+        label_config.intron_label is not None
+        and label_config.splice_donor_label is not None
+        and label_config.splice_acceptor_label is not None
+    ):
+        splice_confusion = eval_splice_site_junctions(gt_struct, pred_struct, label_config)
+        out["splice_sites"] = dataclasses.asdict(splice_confusion)
+
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -719,8 +764,16 @@ def _compute_nucleotide_level_confusion(
 def _analyze_section_overlap_and_boundaries(
     grouped_gt_section_indices: list[np.ndarray],
     grouped_pred_section_indices: list[np.ndarray],
+    need_region_discovery: bool = True,
+    need_boundary_stats: bool = True,
 ) -> dict:
     """Analyze overlap and boundary precision between section groups.
+
+    ``need_region_discovery`` controls the greedy 1:1 matching and the
+    strict-match sweep (the ``*_hit`` keys); ``need_boundary_stats`` controls
+    the IoU/residual collection and terminal-boundary flags.  The returned
+    dict only contains the keys for the branches that were requested.  Both
+    default to ``True`` so direct callers get the full result.
 
     Uses ``np.searchsorted`` on sorted section endpoints to restrict the
     inner comparison to only the predicted sections that *can* overlap each
@@ -795,53 +848,83 @@ def _analyze_section_overlap_and_boundaries(
 
                 # --- A. Overlap (Any contact) ---
                 if not (p_max < gt_min or p_min > gt_max):
-                    # Boundary residuals (computed for every overlapping pair)
-                    res_5p = p_min - gt_min
-                    res_3p = p_max - gt_max
-                    boundary_residuals.append((res_5p, res_3p))
-
-                    # IoU (computed for every overlapping pair)
-                    iou_scores.append(
-                        _compute_intersection_over_union_score(
-                            gt_start=gt_min,
-                            gt_end=gt_max,
-                            pred_start=p_min,
-                            pred_end=p_max,
+                    if need_boundary_stats:
+                        # Boundary residuals + IoU for every overlapping pair
+                        boundary_residuals.append((p_min - gt_min, p_max - gt_max))
+                        iou_scores.append(
+                            _compute_intersection_over_union_score(
+                                gt_start=gt_min,
+                                gt_end=gt_max,
+                                pred_start=p_min,
+                                pred_end=p_max,
+                            )
                         )
-                    )
 
-                    # Collect candidate for 1:1 matching
-                    overlap_start = max(gt_min, p_min)
-                    overlap_end = min(gt_max, p_max)
-                    overlap_len = overlap_end - overlap_start + 1
-                    # add discovered overlap to list of candidates
-                    # store the indices of the gt and pred exon
-                    candidates.append((overlap_len, g_idx, p_idx))
+                    if need_region_discovery:
+                        # Collect candidate (overlap length + indices) for 1:1 matching
+                        overlap_len = min(gt_max, p_max) - max(gt_min, p_min) + 1
+                        candidates.append((overlap_len, g_idx, p_idx))
 
                 # --- B. Strict Match (sweep-based, for perfect_boundary_hit) ---
-                if p_min == gt_min and p_max == gt_max:
+                if need_region_discovery and p_min == gt_min and p_max == gt_max:
                     gt_hit_strict[g_idx] = True
                     pred_hit_strict[p_idx] = True
 
-                if g_idx == 0 and p_max == gt_max:
-                    first_sec_correct_3_prime = 1
+                if need_boundary_stats:
+                    if g_idx == 0 and p_max == gt_max:
+                        first_sec_correct_3_prime = 1
+                    # For the last exon, the left boundary (min) is the 5' end.
+                    if g_idx == total_gt - 1 and p_min == gt_min:
+                        last_sec_correct_5_prime = 1
 
-                # For the last exon, the left boundary (min) is the 5' end.
-                if g_idx == total_gt - 1 and p_min == gt_min:
-                    last_sec_correct_5_prime = 1
+    result: dict = {}
 
-    # ---- 2. Greedy 1:1 matching (largest overlap first) -------------------
-    # handle internal_hit neighborhood hit and full coverage hit
+    if need_region_discovery:
+        result.update(
+            _summarise_region_discovery(
+                candidates=candidates,
+                grouped_gt_section_indices=grouped_gt_section_indices,
+                grouped_pred_section_indices=grouped_pred_section_indices,
+                total_gt=total_gt,
+                total_pred=total_pred,
+                gt_hit_strict=gt_hit_strict,
+                pred_hit_strict=pred_hit_strict,
+            )
+        )
+
+    if need_boundary_stats:
+        result["first_sec_correct_3_prime_boundary"] = first_sec_correct_3_prime
+        result["last_sec_correct_5_prime_boundary"] = last_sec_correct_5_prime
+        result["iou_scores"] = iou_scores
+        result["fuzzy_metrics"] = {"boundary_residuals": boundary_residuals, "total_gt": total_gt}
+
+    return result
+
+
+def _summarise_region_discovery(
+    candidates: list[tuple[int, int, int]],
+    grouped_gt_section_indices: list[np.ndarray],
+    grouped_pred_section_indices: list[np.ndarray],
+    total_gt: int,
+    total_pred: int,
+    gt_hit_strict: np.ndarray,
+    pred_hit_strict: np.ndarray,
+) -> dict:
+    """Greedy 1:1 match the overlap candidates and classify discovery tiers.
+
+    Candidates are claimed largest-overlap-first so each GT/pred section is
+    paired with its best fit; unmatched predictions become false positives.
+    ``perfect_boundary_hit`` is taken from the strict-match sweep instead and
+    does not depend on the 1:1 assignment.
+    """
     candidates.sort(key=lambda x: x[0], reverse=True)
 
     claimed_gt: set[int] = set()
     claimed_pred: set[int] = set()
     matches: list[tuple[int, int]] = []  # (g_idx, p_idx)
 
-    # iterate over all candidates
     for _overlap_len, g_idx, p_idx in candidates:
-        # since its ordered best fits come first
-        # claim set gt section and mark pred as assigend
+        # Best fits come first, so claim the GT/pred pair greedily.
         if g_idx not in claimed_gt and p_idx not in claimed_pred:
             claimed_gt.add(g_idx)
             claimed_pred.add(p_idx)
@@ -849,7 +932,6 @@ def _analyze_section_overlap_and_boundaries(
 
     num_unmatched_pred = total_pred - len(matches)
 
-    # ---- 3. Classify matched pairs for discovery tiers --------------------
     matched_neighborhood = 0  # All matches have overlap by definition
     matched_internal = 0  # Pred entirely inside GT
     matched_full_coverage = 0  # Pred fully covers GT
@@ -898,8 +980,4 @@ def _analyze_section_overlap_and_boundaries(
             "fn": int(total_gt - np.sum(gt_hit_strict)),
             "fp": int(total_pred - np.sum(pred_hit_strict)),
         },
-        "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
-        "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
-        "iou_scores": iou_scores,
-        "fuzzy_metrics": {"boundary_residuals": boundary_residuals, "total_gt": total_gt},
     }
