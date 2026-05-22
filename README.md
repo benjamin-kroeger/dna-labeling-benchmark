@@ -1,8 +1,10 @@
 # DNA Segmentation Benchmark
 
+[![Documentation](https://readthedocs.org/projects/dna-labeling-benchmark/badge/?version=latest)](https://dna-labeling-benchmark.readthedocs.io/en/latest/)
+
 Diagnostic evaluation toolkit for nucleotide-level DNA segmentation models (gene finders like Augustus, Helixer, Tiberius, SegmentNT) against reference annotations (e.g., GENCODE).
 
-Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **strict intron chain plus per-transcript soft exon distributions**, **transcript match classification**, **junction error diagnosis**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
+Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **strict intron chain plus per-transcript soft exon distributions**, **transcript match classification**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
 
 ```
 pip install dna-segmentation-benchmark
@@ -18,16 +20,15 @@ from dna_segmentation_benchmark import (
 )
 
 label_config = LabelConfig(
-    labels={0: "CDS", 2: "INTRON", 8: "NONCODING"},
     background_label=8,
-    coding_label=0,
+    exon_label=0,
+    intron_label=2,
 )
 
 results = benchmark_from_gff(
     gt_path="ground_truth.gtf",
     pred_paths={"augustus": "predictions.gff"},
     label_config=label_config,
-    classes=[0],
     metrics=[EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
     exclude_features=["gene"],
 )
@@ -35,7 +36,6 @@ results = benchmark_from_gff(
 figures = compare_multiple_predictions(
     per_method_benchmark_res=results,
     label_config=label_config,
-    classes=[0],
     metrics_to_eval=[EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
 )
 ```
@@ -49,16 +49,15 @@ from dna_segmentation_benchmark import (
 )
 
 label_config = LabelConfig(
-    labels={0: "EXON", 2: "INTRON", 8: "NONCODING"},
     background_label=8,
-    coding_label=0,
+    exon_label=0,
+    intron_label=2,
 )
 
 results = benchmark_gt_vs_pred_multiple(
     gt_labels=gt_arrays,       # list[np.ndarray]
     pred_labels=pred_arrays,   # list[np.ndarray]
     label_config=label_config,
-    classes=[0],
     metrics=[
         EvalMetrics.INDEL,
         EvalMetrics.REGION_DISCOVERY,
@@ -77,10 +76,11 @@ dna-benchmark run \
     --gt ground_truth.gtf \
     --pred augustus:predictions.gff \
     --config label_config.yaml \
-    --classes 0 \
     --exclude-features gene \
     --output results.json
 ```
+
+Generate a starter `label_config.yaml` with `dna-benchmark init-config`.
 
 ---
 
@@ -94,7 +94,7 @@ Seven metric groups, each answering a distinct question about prediction quality
 | `REGION_DISCOVERY` | Did we find the right regions? |
 | `BOUNDARY_EXACTNESS` | How precise are the boundaries? |
 | `INDEL` | What structural errors exist? |
-| `FRAMESHIFT` | Is the reading frame preserved? |
+| `FRAMESHIFT` | Is the coding-base phase preserved? |
 | `STRUCTURAL_COHERENCE` | Is the overall segment arrangement correct? |
 | `DIAGNOSTIC_DEPTH` | Why is the prediction structurally wrong? |
 
@@ -104,7 +104,7 @@ Seven metric groups, each answering a distinct question about prediction quality
 
 Per-base TP/TN/FP/FN with precision, recall, and F1. The most basic metric -- treats each position independently.
 
-![Nucleotide classification](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_nucleotide_classification_nucleotide.png)
+![Nucleotide classification](docs/images/nucleotide_classification_nucleotide.png)
 
 ---
 
@@ -119,9 +119,9 @@ Evaluates section matching at increasing strictness using 1:1 greedy matching by
 | `full_coverage_hit` | Prediction covers GT | Under-prediction |
 | `perfect_boundary_hit` | Exact match (sweep-based) | Nothing |
 
-![Region discovery - neighborhood](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_region_discovery_neighborhood_hit.png)
+![Region discovery - neighborhood](docs/images/region_discovery_neighborhood_hit.png)
 
-![Region discovery - perfect boundary](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_region_discovery_perfect_boundary_hit.png)
+![Region discovery - perfect boundary](docs/images/region_discovery_perfect_boundary_hit.png)
 
 ---
 
@@ -132,9 +132,9 @@ How precise are predicted boundaries? Includes IoU distributions and two diagnos
 - **Bias matrix** (21x21): Signed boundary residuals revealing systematic directional errors (e.g., "predictions consistently start 2bp early")
 - **Reliability matrix** (11x11): Cumulative recall at tolerances 0--10 bp, showing how quickly recall degrades as boundary tolerance tightens
 
-![IoU average](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_iou_average.png)
+![IoU average](docs/images/iou_average.png)
 
-![IoU distribution](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_iou_distribution.png)
+![IoU distribution](docs/images/iou_distribution.png)
 
 ---
 
@@ -149,9 +149,9 @@ Classifies every contiguous mismatch region into one of 8 structural error types
 | Joined (merges two GT sections) | Split (splits one GT section) |
 | Whole insertion (new section) | Whole deletion (missing section) |
 
-![INDEL error counts](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_indel_counts.png)
+![INDEL error counts](docs/images/indel_counts.png)
 
-![INDEL error lengths](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_indel_lengths.png)
+![INDEL error lengths](docs/images/indel_lengths.png)
 
 ---
 
@@ -163,7 +163,9 @@ Evaluates the predicted segment chain **as a whole** -- not per-section, but as 
 
 `intron_chain` emits per-sequence `tp/fp/fn ∈ {0, 1}`: a sequence counts as TP **only if** the entire set of GT introns equals the set of predicted introns. Aggregated across sequences this becomes the familiar corpus precision/recall — directly comparable to gffcompare's intron-chain P/R.
 
-![Intron chain metrics](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_intron_chain.png)
+![Intron chain precision](docs/images/transcript_intron_exon_chain_precision.png)
+
+![Intron chain recall](docs/images/transcript_intron_exon_chain_recall.png)
 
 #### Per-transcript Soft Exon Metrics
 
@@ -172,58 +174,72 @@ The binary `intron_chain` metric hides "nearly right" predictions — a transcri
 - `exon_recall_per_transcript` — fraction in `[0, 1]` of GT exons whose `(start, end)` was recovered exactly. A transcript with 9/10 exons right scores `0.9`. Transcripts with zero GT exons are excluded.
 - `hallucinated_exon_count_per_transcript` — integer ≥ 0: predicted exons whose `(start, end)` is absent from GT. Captures the precision side without conflating it with boundary errors.
 
+![Per-transcript soft exon metrics](docs/images/per_transcript_soft_exon.png)
+
 Rendered as two overlayed histograms; a fat left tail of recall combined with a fat right tail of hallucinations flags a model that guesses rather than recovering true structure.
 
 #### Transcript Match Classification
 
-Holistic structural classification of each (GT, prediction) pair into one of 6 categories:
+Holistic structural classification of each (GT, prediction) pair into one of eight categories
+(see :class:`~dna_segmentation_benchmark.eval.transcript_classification.TranscriptMatchClass`):
 
 | Class | Condition |
 |-------|-----------|
-| `exact` | Identical segment chains |
-| `boundary_shift` | Same segment count, shifted boundaries |
-| `missing_segments` | Prediction is ordered subset of GT (segments skipped) |
-| `extra_segments` | GT is ordered subset of prediction (segments inserted) |
-| `structurally_different` | None of the above |
-| `missed` | No prediction for this class |
+| `exact` | Identical segment sets |
+| `boundary_shift_internal` | Same segment count, outer locus boundaries match, internal splice sites differ |
+| `boundary_shift_terminal` | Same segment count, but terminal (locus-edge) boundaries also differ |
+| `missing_segments` | Prediction's segment set is a strict subset of GT's |
+| `extra_segments` | GT's segment set is a strict subset of prediction's |
+| `partial_overlap` | At least one shared segment, but neither equality nor subset relation |
+| `no_overlap` | No shared `(start, end)` segment with GT |
+| `missed` | Prediction has no segments of this class |
 
-![Transcript match classification](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_transcript_match.png)
+![Transcript match classification](docs/images/transcript_match.png)
 
 #### Segment Count Delta
 
 Over-segmentation (positive) vs under-segmentation (negative).
 
-![Segment count delta](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_segment_count_delta.png)
+![Segment count delta](docs/images/segment_count_delta.png)
+
+#### Boundary Shift Distribution
+
+For transcripts where GT and prediction have matching segment counts, the per-transcript
+total absolute boundary offset (bp).
+
+![Boundary shift distribution](docs/images/boundary_shift_dist.png)
 
 ---
 
 ### Diagnostic Depth
 
-Causal diagnosis of structural errors -- answering *why* the prediction is wrong, not just *that* it is wrong.
-
-#### Junction Error Taxonomy
-
-| Error type | Description |
-|-----------|-------------|
-| Exon skip | GT segments merged (intervening segment absent) |
-| Segment retention | GT segment absorbed by neighbours |
-| Novel insertion | Extra segment splits a GT segment |
-| Cascade shift | Boundary error propagates across 3+ segments |
-| Compensating errors | Paired errors that cancel out |
-
-![Junction error taxonomy](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_junction_errors.png)
+Causal diagnosis of structural errors — answering *where* prediction errors concentrate, not
+just *that* they exist.
 
 #### Position Bias
 
-Match rate stratified by genomic position (5' / interior / 3'), revealing whether errors concentrate at sequence ends.
+Match rate stratified by relative position inside the GT coding span (5' / interior / 3'),
+revealing whether errors concentrate at sequence ends. Two histograms are emitted: false
+negatives (GT coding bases the predictor missed) and false positives (predicted coding bases
+inside the GT span that are not in GT).
 
-![Position bias](https://raw.githubusercontent.com/PredictProtein/benchmark/main/docs/images/EXON_position_bias.png)
+![Position bias](docs/images/position_bias.png)
+
+#### Segment-length EMD
+
+Earth Mover's Distance between the GT and predicted coding-segment length distributions.
 
 ---
 
 ### Frameshift
 
-Reading frame deviation (mod-3) between GT and predicted coding exons. Only valid on single-transcript sequences with `coding_label` configured.
+Per-position coding-base phase drift, defined as
+`|cumulative_pred_coding_count − cumulative_gt_coding_count| mod 3` along the transcript.
+Reflects relative coding-base displacement between GT and prediction; it is **not** the
+biological reading frame (which depends on the GFF `phase` column and is not consumed here).
+Useful as a qualitative diagnostic. When the GT coding length is not divisible by 3 (e.g.
+UTRs are painted into the coding mask), the metric is skipped for that sequence with a warning
+rather than aborting the run.
 
 ---
 
@@ -232,7 +248,11 @@ Reading frame deviation (mod-3) between GT and predicted coding exons. Only vali
 Two analyses run on every benchmark call:
 
 - **GT Transition Confusion Matrices**: At every position where GT changes label, what did the predictor do? One heatmap per source label.
-- **False Transition Analysis**: At positions where GT is stable (no label change), did the predictor introduce a spurious transition?
+- **False Transition Analysis**: At positions where GT is stable (no label change), did the predictor introduce a spurious transition? Each false transition is classified into *late-catchup*, *premature*, or *spurious* using lookbehind/lookahead context.
+
+![GT transition confusion matrices](docs/images/transition_confusion_matrices.png)
+
+![False transitions](docs/images/false_transitions.png)
 
 ---
 
@@ -244,12 +264,11 @@ All metrics are label-agnostic. Define your own token mapping:
 from dna_segmentation_benchmark import LabelConfig
 
 config = LabelConfig(
-    labels={0: "EXON", 1: "DONOR", 2: "INTRON", 3: "ACCEPTOR", 8: "NONCODING"},
     background_label=8,
-    coding_label=0,           # Required for FRAMESHIFT
-    splice_donor_label=1,     # Reserved for future splice metrics
-    splice_acceptor_label=3,  # Reserved for future splice metrics
-    intron_label=2,
+    exon_label=0,            # required; also used by FRAMESHIFT
+    intron_label=2,          # optional; required for intron-chain metrics
+    splice_donor_label=1,    # optional, reserved for future splice metrics
+    splice_acceptor_label=3, # optional, reserved for future splice metrics
 )
 ```
 
@@ -262,44 +281,33 @@ A pre-built config for the BEND benchmark is available as `BEND_LABEL_CONFIG`.
 Log metrics during training and full diagnostic reports after:
 
 ```python
-from dna_segmentation_benchmark import init_wandb_with_presets, log_benchmark_scalars, log_benchmark_full
+from dna_segmentation_benchmark import (
+    init_wandb_with_presets,
+    log_benchmark_scalars,
+    log_benchmark_media,
+    log_benchmark_media_videos,
+)
 
 run = init_wandb_with_presets("my-project", "run-name", label_config, classes=[0])
 
 # During training -- lightweight scalar logging per epoch
 log_benchmark_scalars(val_results, label_config, step=epoch, method_prefix="val")
 
-# After training -- full report with figures
-log_benchmark_full({"my_model": final_results}, figures, label_config)
+# Per-epoch diagnostic figures (boundary landscape, position bias, transitions, etc.)
+log_benchmark_media(val_results, label_config, step=epoch, method_prefix="val")
+
+# After training -- flush the buffered figure history as W&B videos
+log_benchmark_media_videos()
 ```
 
 Install with: `pip install dna-segmentation-benchmark[wandb]`
 
 ---
 
-## Examples
-
-See the [`examples/`](examples/) folder:
-
-- **[GTF programmatic example](examples/gtf_programmatic_example.ipynb)** -- end-to-end GFF/GTF evaluation
-- **[Array benchmark example](examples/array_benchmark_example.ipynb)** -- starting from numpy label arrays
-- **[W&B training loop](examples/wandb_training_loop.ipynb)** -- integration with Weights & Biases
-
----
-
 ## Documentation
 
-- **[Metrics Reference](docs/metrics.md)** -- complete documentation of every metric with formulas and aggregation details
-- **[Design Rationale](docs/design_rationale.md)** -- architectural decisions and comparison with gffcompare, Mikado, EGASP
+Full documentation is available at **https://dna-labeling-benchmark.readthedocs.io/en/latest/**
 
----
-
-## Updating README Plots
-
-The plots in this README are auto-generated from synthetic data. To refresh them:
-
-```bash
-python scripts/generate_readme_plots.py
-```
-
-This writes PNGs to `docs/images/` which are referenced by the README.
+- **[Metrics overview](https://dna-labeling-benchmark.readthedocs.io/en/latest/metrics/overview.html)** — index of every metric group with formulas and aggregation details
+- **[Getting started](https://dna-labeling-benchmark.readthedocs.io/en/latest/getting_started/index.html)** — array, GFF, method-comparison, and W&B walkthroughs
+- **[API reference](https://dna-labeling-benchmark.readthedocs.io/en/latest/api/index.html)** — Sphinx-generated module documentation
