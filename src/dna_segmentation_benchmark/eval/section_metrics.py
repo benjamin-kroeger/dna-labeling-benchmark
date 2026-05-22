@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from .intersection_over_union import _compute_intersection_over_union_score
+from .statistics import Counts
 from ..label_definition import EvalMetrics
 
 
@@ -37,19 +38,19 @@ def _eval_sections(
 
     out: dict = {}
     if need_region_discovery:
-        out[EvalMetrics.REGION_DISCOVERY.name] = {
+        out.update({
             "neighborhood_hit": section_data["neighborhood_hit"],
             "internal_hit": section_data["internal_hit"],
             "full_coverage_hit": section_data["full_coverage_hit"],
             "perfect_boundary_hit": section_data["perfect_boundary_hit"],
-        }
+        })
     if need_boundary_stats:
-        out[EvalMetrics.BOUNDARY_EXACTNESS.name] = {
+        out.update({
             "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
             "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
             "iou_scores": section_data["iou_scores"],
             "fuzzy_metrics": section_data["fuzzy_metrics"],
-        }
+        })
     return out
 
 
@@ -249,27 +250,27 @@ def _summarise_region_discovery(
 
     return {
         # 1:1-matched discovery metrics
-        "neighborhood_hit": {
-            "tp": matched_neighborhood,
-            "fn": total_gt - matched_neighborhood,
-            "fp": num_unmatched_pred,
-        },
+        "neighborhood_hit": Counts(
+            tp=matched_neighborhood,
+            fn=total_gt - matched_neighborhood,
+            fp=num_unmatched_pred,
+        ),
         # Forgives under-prediction (matched prediction is inside GT).
-        "internal_hit": {
-            "tp": matched_internal,
-            "fn": total_gt - matched_internal,
-            "fp": num_unmatched_pred,
-        },
+        "internal_hit": Counts(
+            tp=matched_internal,
+            fn=total_gt - matched_internal,
+            fp=num_unmatched_pred,
+        ),
         # Forgives over-prediction (matched prediction covers GT).
-        "full_coverage_hit": {
-            "tp": matched_full_coverage,
-            "fn": total_gt - matched_full_coverage,
-            "fp": num_unmatched_pred,
-        },
+        "full_coverage_hit": Counts(
+            tp=matched_full_coverage,
+            fn=total_gt - matched_full_coverage,
+            fp=num_unmatched_pred,
+        ),
         # Sweep-based (no 1:1 matching) — handles fragmented predictions well
-        "perfect_boundary_hit": {
-            "tp": int(np.sum(gt_hit_strict)),
-            "fn": int(total_gt - np.sum(gt_hit_strict)),
-            "fp": int(total_pred - np.sum(pred_hit_strict)),
-        },
+        "perfect_boundary_hit": Counts(
+            tp=int(np.sum(gt_hit_strict)),
+            fn=int(total_gt - np.sum(gt_hit_strict)),
+            fp=int(total_pred - np.sum(pred_hit_strict)),
+        ),
     }

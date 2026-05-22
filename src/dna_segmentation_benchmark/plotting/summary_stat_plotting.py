@@ -104,11 +104,17 @@ def compare_multiple_predictions(
             figures[key] = fig_transitions
 
         all_false_transition_data[method_name] = benchmark_results.pop("false_transitions", {})
-        if "splice_sites" in benchmark_results:
-            all_splice_site_data[method_name] = benchmark_results.pop("splice_sites")
 
         for metric_group, metric_data in benchmark_results.items():
             metric_group_str = metric_group if isinstance(metric_group, str) else metric_group.name
+            # STRUCTURAL_COHERENCE nests chain metrics and (optionally) splice
+            # sites under one group. Pull the splice sites out for their own
+            # plots and flatten the chain metrics into the long-format rows.
+            if metric_group_str == EvalMetrics.STRUCTURAL_COHERENCE.name:
+                splice = metric_data.get("splice_site_results")
+                if splice:
+                    all_splice_site_data[method_name] = splice
+                metric_data = metric_data.get("chain_metric_results", {})
             for single_metric_key, value in metric_data.items():
                 rows.append(
                     [

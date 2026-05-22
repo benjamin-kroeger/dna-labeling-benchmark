@@ -1,3 +1,4 @@
+import dataclasses
 import math
 
 import numpy as np
@@ -9,8 +10,7 @@ from dna_segmentation_benchmark.eval.evaluate_predictors import (
     benchmark_gt_vs_pred_multiple,
     EvalMetrics,
 )
-from dna_segmentation_benchmark.eval import aggregation
-from dna_segmentation_benchmark.eval.aggregation import recursive_merge
+from dna_segmentation_benchmark.eval.accumulators import BenchmarkAccumulator
 from dna_segmentation_benchmark.pipeline import (
     _coerce_feature_types,
     _normalise_pred_exon_feature_types,
@@ -165,10 +165,10 @@ def test_benchmark_multiple_streaming_aggregation_matches_merged_individual_resu
         return_individual_results=True,
     )
 
-    merged = {}
+    accumulator = BenchmarkAccumulator()
     for result in individual:
-        recursive_merge(merged, result)
-    merged = aggregation._aggregate_summary_metrics(merged, metrics)
+        accumulator.add(result)
+    merged = accumulator.summarise()
 
     _assert_metric_value_equal(merged, aggregated, "aggregated")
 
@@ -363,6 +363,11 @@ def _eval_diagnostic_depth(expected, computed):
 
 def _assert_metric_value_equal(expected, computed, key_name: str):
     """Compare a single metric value, handling dicts, lists, scalars, and None."""
+    # Typed count bundles (Counts) compare against count dicts on either side.
+    if dataclasses.is_dataclass(expected) and not isinstance(expected, type):
+        expected = dataclasses.asdict(expected)
+    if dataclasses.is_dataclass(computed) and not isinstance(computed, type):
+        computed = dataclasses.asdict(computed)
     if isinstance(expected, dict):
         assert isinstance(computed, dict), f"Expected dict for {key_name}, got {type(computed)}"
         for sub_key in expected:

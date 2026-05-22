@@ -1,9 +1,16 @@
-"""Summary statistics shared by the cross-sequence aggregator.
+"""Summary statistics shared by the cross-sequence accumulators.
 
 Pure numeric helpers: precision/recall (with bootstrap standard errors) and
 distribution summaries (MAE/RMSE/mean).  They have no knowledge of metric
-groups or result layout — that lives in :mod:`aggregation`.
+groups or result layout — that lives in :mod:`accumulators`.
+
+This module also hosts the typed value objects (:class:`Counts`,
+:class:`Stat`) that the accumulators collect and summarise.
 """
+
+from __future__ import annotations
+
+import dataclasses
 
 import numpy as np
 
@@ -101,3 +108,88 @@ def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
         "min": float(np.min(arr)),
         "max": float(np.max(arr)),
     }
+
+
+# ---------------------------------------------------------------------------
+# Typed accumulators (prototype)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class Counts:
+    """A single TP/FP/FN/TN confusion bundle for one sequence or comparison.
+
+    Replaces the bare ``{"tp": ..., "fp": ..., "fn": ...}`` dict.  Supports
+    ``+`` (and ``sum``) so callers can aggregate counts directly instead of
+    threading parallel ``tp``/``fp``/``fn`` lists through a generic merge.
+    """
+
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+    tn: int = 0
+
+    def __add__(self, other: "Counts") -> "Counts":
+        if not isinstance(other, Counts):
+            return NotImplemented
+        return Counts(self.tp + other.tp, self.fp + other.fp, self.fn + other.fn, self.tn + other.tn)
+
+    def __radd__(self, other):
+        # Lets ``sum(counts)`` work (sum starts from int 0).
+        if other == 0:
+            return self
+        return self.__add__(other)
+
+
+@dataclasses.dataclass(frozen=True)
+class Stat:
+    """Summarised precision/recall (with bootstrap standard errors).
+
+    Replaces the bare summary dict.  :meth:`to_dict` reproduces the exact key
+    set that :func:`_compute_summary_statistics` emits, so it is a drop-in at
+    the result boundary.
+    """
+
+    precision: float | None = None
+    recall: float | None = None
+    precision_stderr: float | None = None
+    recall_stderr: float | None = None
+    f1: float | None = None
+    f1_stderr: float | None = None
+
+    def to_dict(self) -> dict:
+        result = {
+            "precision": self.precision,
+            "recall": self.recall,
+            "precision_stderr": self.precision_stderr,
+            "recall_stderr": self.recall_stderr,
+        }
+        # Match _compute_summary_statistics: these keys appear only when set.
+        if self.f1_stderr is not None:
+            result["f1_stderr"] = self.f1_stderr
+        if self.f1 is not None:
+            result["f1"] = self.f1
+        return result
+
+
+def summarise_counts(per_sequence: list[Counts], n_bootstrap: int = 1000) -> Stat:
+    """Micro-average a list of per-sequence :class:`Counts` into a :class:`Stat`.
+
+    Delegates the precision/recall + bootstrap-standard-error computation to
+    :func:`_compute_summary_statistics` so the numbers are identical to the
+    pre-prototype path.
+    """
+    counts = list(per_sequence)
+    raw = _compute_summary_statistics(
+        tp=[c.tp for c in counts],
+        fn=[c.fn for c in counts],
+        fp=[c.fp for c in counts],
+        n_bootstrap=n_bootstrap,
+    )
+    return Stat(
+        precision=raw["precision"],
+        recall=raw["recall"],
+        precision_stderr=raw["precision_stderr"],
+        recall_stderr=raw["recall_stderr"],
+        f1_stderr=raw.get("f1_stderr"),
+    )

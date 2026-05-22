@@ -22,6 +22,7 @@ Metrics
 
 from __future__ import annotations
 
+from .statistics import Counts
 from .structure import ExtractedStructure, Segment
 from .. import LabelConfig
 
@@ -69,9 +70,9 @@ def _compute_chain_metrics(
 
     if len(gt_segs) == 0:
         return {
-            metric_prefix: {"tp": 0, "fp": 0, "fn": 0},
-            f"{metric_prefix}_subset": {"tp": 0, "fp": 0, "fn": 0},
-            f"{metric_prefix}_superset": {"tp": 0, "fp": 0, "fn": 0},
+            metric_prefix: Counts(),
+            f"{metric_prefix}_subset": Counts(),
+            f"{metric_prefix}_superset": Counts(),
         }
 
     exact = gt_segs == pred_segs
@@ -79,9 +80,9 @@ def _compute_chain_metrics(
     superset = bool(pred_segs) and pred_segs >= gt_segs
 
     return {
-        metric_prefix: {"tp": 1, "fp": 0, "fn": 0} if exact else {"tp": 0, "fp": 1, "fn": 1},
-        f"{metric_prefix}_subset": {"tp": 1, "fp": 0, "fn": 0} if subset else {"tp": 0, "fp": 1, "fn": 1},
-        f"{metric_prefix}_superset": {"tp": 1, "fp": 0, "fn": 0} if superset else {"tp": 0, "fp": 1, "fn": 1},
+        metric_prefix: Counts(tp=1) if exact else Counts(fp=1, fn=1),
+        f"{metric_prefix}_subset": Counts(tp=1) if subset else Counts(fp=1, fn=1),
+        f"{metric_prefix}_superset": Counts(tp=1) if superset else Counts(fp=1, fn=1),
     }
 
 
@@ -166,9 +167,9 @@ def _compute_intron_chain_metrics(
     prefix = "intron_chain"
     if not gt_spans:
         return {
-            prefix: {"tp": 0, "fp": 0, "fn": 0},
-            f"{prefix}_subset": {"tp": 0, "fp": 0, "fn": 0},
-            f"{prefix}_superset": {"tp": 0, "fp": 0, "fn": 0},
+            prefix: Counts(),
+            f"{prefix}_subset": Counts(),
+            f"{prefix}_superset": Counts(),
         }
 
     exact = gt_spans == pred_spans
@@ -176,9 +177,9 @@ def _compute_intron_chain_metrics(
     superset = bool(pred_spans) and pred_spans >= gt_spans
 
     return {
-        prefix: {"tp": 1, "fp": 0, "fn": 0} if exact else {"tp": 0, "fp": 1, "fn": 1},
-        f"{prefix}_subset": {"tp": 1, "fp": 0, "fn": 0} if subset else {"tp": 0, "fp": 1, "fn": 1},
-        f"{prefix}_superset": {"tp": 1, "fp": 0, "fn": 0} if superset else {"tp": 0, "fp": 1, "fn": 1},
+        prefix: Counts(tp=1) if exact else Counts(fp=1, fn=1),
+        f"{prefix}_subset": Counts(tp=1) if subset else Counts(fp=1, fn=1),
+        f"{prefix}_superset": Counts(tp=1) if superset else Counts(fp=1, fn=1),
     }
 
 

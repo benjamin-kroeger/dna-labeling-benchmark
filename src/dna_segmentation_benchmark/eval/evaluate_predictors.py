@@ -14,22 +14,22 @@ annotations with predictions and dispatch to the per-metric modules:
 
 Input preprocessing (intron inference, mask splitting) lives in
 :mod:`preprocessing`; cross-sequence accumulation and reduction live in
-:mod:`aggregation`.  All functions accept a :class:`LabelConfig` that maps
+:mod:`accumulators`.  All functions accept a :class:`LabelConfig` that maps
 integer tokens to names and declares semantic roles (background, coding, …).
 """
 
 from __future__ import annotations
 
 import dataclasses
-import functools
 import warnings
+from collections.abc import Iterator
 from copy import deepcopy
 from typing import Optional
-
+from typing import Iterable
 import numpy as np
 from tqdm import tqdm
 
-from .aggregation import recursive_merge, _aggregate_summary_metrics
+from .accumulators import BenchmarkAccumulator
 from .chain_comparison import (
     _compute_intron_chain_metrics,
     _compute_chain_metrics,
@@ -41,6 +41,7 @@ from .indel_metrics import _eval_indel
 from .preprocessing import _infer_introns_from_coding_gaps, _iter_unmasked_spans
 from .section_metrics import _eval_sections
 from .state_transitions import _compute_state_change_errors
+from .statistics import Counts
 from .structure import extract_structure
 from .structural_summary import _compute_structural_summary
 from .transcript_classification import _classify_transcript_match
@@ -60,7 +61,7 @@ _SECTION_DEPENDENT_GROUPS = frozenset(
 )
 
 
-def _needs_section_analysis(metrics: list[EvalMetrics]) -> bool:
+def _needs_section_analysis(metrics: Iterable[EvalMetrics]) -> bool:
     """Return ``True`` if any requested metric needs section-overlap data."""
     return bool(_SECTION_DEPENDENT_GROUPS & set(metrics))
 
@@ -131,13 +132,38 @@ def benchmark_gt_vs_pred_single(
         pred_labels = _infer_introns_from_coding_gaps(pred_labels, label_config)
 
     if mask_labels is None:
+        # A single unmasked span — return the raw per-sequence fragment.
         return _benchmark_chunk(gt_labels, pred_labels, label_config, metrics)
 
-    chunk_results = [
-        _benchmark_chunk(gt_labels[s:e], pred_labels[s:e], label_config, metrics)
-        for s, e in _iter_unmasked_spans(mask_labels)
-    ]
-    return functools.reduce(recursive_merge, chunk_results, {}) if chunk_results else {}
+    # Masked: evaluate each kept span and combine into the un-summarised form.
+    accumulator = BenchmarkAccumulator()
+    for s, e in _iter_unmasked_spans(mask_labels):
+        accumulator.add(_benchmark_chunk(gt_labels[s:e], pred_labels[s:e], label_config, metrics))
+    return accumulator.merged()
+
+
+def _iter_sequence_fragments(
+    gt_labels: np.ndarray,
+    pred_labels: np.ndarray,
+    label_config: LabelConfig,
+    metrics: frozenset,
+    mask_labels: Optional[np.ndarray],
+    infer_introns: bool,
+) -> Iterator[dict]:
+    """Yield the raw per-chunk fragment(s) for one sequence.
+
+    One fragment for an unmasked sequence; one per kept span when masked.
+    Intron inference is applied to the whole sequence before chunking.
+    """
+    if infer_introns:
+        gt_labels = _infer_introns_from_coding_gaps(gt_labels, label_config)
+        pred_labels = _infer_introns_from_coding_gaps(pred_labels, label_config)
+
+    if mask_labels is None:
+        yield _benchmark_chunk(gt_labels, pred_labels, label_config, metrics)
+    else:
+        for s, e in _iter_unmasked_spans(mask_labels):
+            yield _benchmark_chunk(gt_labels[s:e], pred_labels[s:e], label_config, metrics)
 
 
 def _benchmark_chunk(
@@ -170,7 +196,7 @@ def _benchmark_chunk(
         )
 
     if _needs_section_analysis(metrics):
-        metric_results.update(_eval_sections(grouped_gt_sections, grouped_pred_sections, metrics))
+        metric_results[EvalMetrics.REGION_DISCOVERY.name] = _eval_sections(grouped_gt_sections, grouped_pred_sections, metrics)
 
     if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
         metric_results[EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
@@ -181,7 +207,7 @@ def _benchmark_chunk(
         metric_results[EvalMetrics.FRAMESHIFT.name] = _eval_frameshift(gt_labels, pred_labels, label_config)
 
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
-        metric_results.update(_eval_structural(gt_labels, pred_labels, label_config))
+        metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = _eval_structural(gt_labels, pred_labels, label_config)
 
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
         metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = _compute_structural_summary(
@@ -224,48 +250,50 @@ def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_confi
     gt_struct = extract_structure(gt_labels, label_config)
     pred_struct = extract_structure(pred_labels, label_config)
 
-    sc_result: dict = {}
-    sc_result.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
-    sc_result.update(_compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, label_config))
+    chain_metric_results: dict = {}
+    chain_metric_results.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
+    chain_metric_results.update(_compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, label_config))
 
     gt_coding = gt_struct.filter_by_label(label_config.coding_label)
     pred_coding = pred_struct.filter_by_label(label_config.coding_label)
 
     if len(gt_coding) > 0:
-        sc_result.update(_compute_chain_metrics(gt_struct, pred_struct, label_config.coding_label, "exon_chain"))
-        sc_result.update(_compute_boundary_shift_metrics(gt_struct, pred_struct, label_config.coding_label))
-        sc_result["segment_count_delta"] = len(pred_coding) - len(gt_coding)
+        chain_metric_results.update(_compute_chain_metrics(gt_struct, pred_struct, label_config.coding_label, "exon_chain"))
+        chain_metric_results.update(_compute_boundary_shift_metrics(gt_struct, pred_struct, label_config.coding_label))
+        chain_metric_results["segment_count_delta"] = len(pred_coding) - len(gt_coding)
 
         match_cls = _classify_transcript_match(gt_struct, pred_struct, label_config.coding_label)
         if match_cls is not None:
-            sc_result["transcript_match_class"] = match_cls.value
+            chain_metric_results["transcript_match_class"] = match_cls.value
 
-    out: dict = {EvalMetrics.STRUCTURAL_COHERENCE.name: sc_result}
-
+    structural_coherance_results = {
+        "chain_metric_results":chain_metric_results,
+    }
     if (
         label_config.intron_label is not None
         and label_config.splice_donor_label is not None
         and label_config.splice_acceptor_label is not None
     ):
         splice_confusion = eval_splice_site_junctions(gt_struct, pred_struct, label_config)
-        out["splice_sites"] = dataclasses.asdict(splice_confusion)
+        splice_site_result = dataclasses.asdict(splice_confusion)
+        structural_coherance_results["splice_site_results"] = splice_site_result
 
-    return out
+    return structural_coherance_results
 
 
 def _compute_nucleotide_level_confusion(
     gt_labels: np.ndarray, pred_labels: np.ndarray, class_value: int
-) -> dict[str, int]:
-    """Calculate granular base accuracy as a dict of confusion metrics."""
+) -> Counts:
+    """Calculate granular base accuracy as a confusion bundle."""
     gt_pos = gt_labels == class_value
     pred_pos = pred_labels == class_value
 
-    return {
-        "tn": int(np.count_nonzero(~gt_pos & ~pred_pos)),
-        "fp": int(np.count_nonzero(~gt_pos & pred_pos)),
-        "fn": int(np.count_nonzero(gt_pos & ~pred_pos)),
-        "tp": int(np.count_nonzero(gt_pos & pred_pos)),
-    }
+    return Counts(
+        tn=int(np.count_nonzero(~gt_pos & ~pred_pos)),
+        fp=int(np.count_nonzero(~gt_pos & pred_pos)),
+        fn=int(np.count_nonzero(gt_pos & ~pred_pos)),
+        tp=int(np.count_nonzero(gt_pos & pred_pos)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -321,25 +349,30 @@ def benchmark_gt_vs_pred_multiple(
             stacklevel=2,
         )
 
-    results = [] if return_individual_results else None
-    aggregated: dict = {}
-    for i in tqdm(range(len(gt_labels)), desc="Running benchmark"):
-        seq_result = benchmark_gt_vs_pred_single(
-            gt_labels=gt_labels[i],
-            pred_labels=pred_labels[i],
-            label_config=label_config,
-            metrics=metrics,
-            mask_labels=mask_labels[i] if mask_labels is not None else None,
-            infer_introns=infer_introns,
-        )
-        if return_individual_results:
-            results.append(seq_result)
-        elif seq_result:
-            recursive_merge(aggregated, seq_result)
-
     if return_individual_results:
-        return results
+        return [
+            benchmark_gt_vs_pred_single(
+                gt_labels=gt_labels[i],
+                pred_labels=pred_labels[i],
+                label_config=label_config,
+                metrics=metrics,
+                mask_labels=mask_labels[i] if mask_labels is not None else None,
+                infer_introns=infer_introns,
+            )
+            for i in tqdm(range(len(gt_labels)), desc="Running benchmark")
+        ]
 
-    aggregated = _aggregate_summary_metrics(aggregated, metrics)
+    metrics_set = frozenset(metrics)
+    accumulator = BenchmarkAccumulator()
+    for i in tqdm(range(len(gt_labels)), desc="Running benchmark"):
+        for fragment in _iter_sequence_fragments(
+            gt_labels[i],
+            pred_labels[i],
+            label_config,
+            metrics_set,
+            mask_labels[i] if mask_labels is not None else None,
+            infer_introns,
+        ):
+            accumulator.add(fragment)
 
-    return aggregated
+    return accumulator.summarise()

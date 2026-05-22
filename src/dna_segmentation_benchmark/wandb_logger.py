@@ -82,17 +82,18 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "perfect_boundary_hit/recall": ("perfect_boundary_hit", "recall"),
     },
     "STRUCTURAL_COHERENCE": {
-        "intron_chain/precision": ("intron_chain", "precision"),
-        "intron_chain/recall": ("intron_chain", "recall"),
-        "exon_chain/precision": ("exon_chain", "precision"),
-        "exon_chain/recall": ("exon_chain", "recall"),
-        "segment_count_delta/mean": ("segment_count_delta", "mean"),
-        "segment_count_delta/mae": ("segment_count_delta", "mae"),
-        "exon_recall_per_transcript/mean": ("exon_recall_per_transcript",),
+        "intron_chain/precision": ("chain_metric_results", "intron_chain", "precision"),
+        "intron_chain/recall": ("chain_metric_results", "intron_chain", "recall"),
+        "exon_chain/precision": ("chain_metric_results", "exon_chain", "precision"),
+        "exon_chain/recall": ("chain_metric_results", "exon_chain", "recall"),
+        "segment_count_delta/mean": ("chain_metric_results", "segment_count_delta", "mean"),
+        "segment_count_delta/mae": ("chain_metric_results", "segment_count_delta", "mae"),
+        "exon_recall_per_transcript/mean": ("chain_metric_results", "exon_recall_per_transcript"),
         "hallucinated_exon_count_per_transcript/mean": (
+            "chain_metric_results",
             "hallucinated_exon_count_per_transcript",
         ),
-        "exact_match_rate": ("exact_match_rate",),
+        "exact_match_rate": ("chain_metric_results", "exact_match_rate"),
     },
 }
 

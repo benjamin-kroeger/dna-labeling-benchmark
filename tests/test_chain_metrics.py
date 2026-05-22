@@ -12,6 +12,7 @@ from dna_segmentation_benchmark.eval.evaluate_predictors import (
     benchmark_gt_vs_pred_single,
 )
 from dna_segmentation_benchmark.eval import preprocessing
+from dna_segmentation_benchmark.eval.statistics import Counts
 from dna_segmentation_benchmark.eval.structure import extract_structure
 from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
 
@@ -125,11 +126,7 @@ def test_infer_introns_fills_gaps_before_structural_metrics():
         infer_introns=True,
     )
 
-    assert result["STRUCTURAL_COHERENCE"]["intron_chain"] == {
-        "tp": 1,
-        "fp": 0,
-        "fn": 0,
-    }
+    assert result["STRUCTURAL_COHERENCE"]["intron_chain"] == Counts(tp=1, fp=0, fn=0)
 
 
 def test_infer_introns_warns_on_large_arrays(monkeypatch):
