@@ -16,10 +16,10 @@ from ..label_definition import EvalMetrics
 
 
 def _eval_sections(
-    grouped_gt_sections: list[np.ndarray],
-    grouped_pred_sections: list[np.ndarray],
-    metrics: frozenset[EvalMetrics],
-) -> dict:
+        grouped_gt_sections: list[np.ndarray],
+        grouped_pred_sections: list[np.ndarray],
+        metrics: frozenset[EvalMetrics],
+) -> tuple[dict | None, dict | None]:
     """Build REGION_DISCOVERY and/or BOUNDARY_EXACTNESS fragments.
 
     Only the section-overlap data required by the requested metrics is
@@ -29,37 +29,21 @@ def _eval_sections(
     need_region_discovery = EvalMetrics.REGION_DISCOVERY in metrics
     need_boundary_stats = EvalMetrics.BOUNDARY_EXACTNESS in metrics
 
-    section_data = _analyze_section_overlap_and_boundaries(
+    return _analyze_section_overlap_and_boundaries(
         grouped_gt_section_indices=grouped_gt_sections,
         grouped_pred_section_indices=grouped_pred_sections,
         need_region_discovery=need_region_discovery,
         need_boundary_stats=need_boundary_stats,
     )
 
-    out: dict = {}
-    if need_region_discovery:
-        out.update({
-            "neighborhood_hit": section_data["neighborhood_hit"],
-            "internal_hit": section_data["internal_hit"],
-            "full_coverage_hit": section_data["full_coverage_hit"],
-            "perfect_boundary_hit": section_data["perfect_boundary_hit"],
-        })
-    if need_boundary_stats:
-        out.update({
-            "first_sec_correct_3_prime_boundary": section_data["first_sec_correct_3_prime_boundary"],
-            "last_sec_correct_5_prime_boundary": section_data["last_sec_correct_5_prime_boundary"],
-            "iou_scores": section_data["iou_scores"],
-            "fuzzy_metrics": section_data["fuzzy_metrics"],
-        })
-    return out
 
 
 def _analyze_section_overlap_and_boundaries(
-    grouped_gt_section_indices: list[np.ndarray],
-    grouped_pred_section_indices: list[np.ndarray],
-    need_region_discovery: bool = True,
-    need_boundary_stats: bool = True,
-) -> dict:
+        grouped_gt_section_indices: list[np.ndarray],
+        grouped_pred_section_indices: list[np.ndarray],
+        need_region_discovery: bool = True,
+        need_boundary_stats: bool = True,
+) -> tuple[dict | None, dict | None]:
     """Analyze overlap and boundary precision between section groups.
 
     ``need_region_discovery`` controls the greedy 1:1 matching and the
@@ -170,38 +154,42 @@ def _analyze_section_overlap_and_boundaries(
                     if g_idx == total_gt - 1 and p_min == gt_min:
                         last_sec_correct_5_prime = 1
 
-    result: dict = {}
-
+    if need_region_discovery and boundary_residuals:
+        return _summarise_region_discovery(
+            candidates=candidates,
+            grouped_gt_section_indices=grouped_gt_section_indices,
+            grouped_pred_section_indices=grouped_pred_section_indices,
+            total_gt=total_gt,
+            total_pred=total_pred,
+            gt_hit_strict=gt_hit_strict,
+            pred_hit_strict=pred_hit_strict,
+        ), {"first_sec_correct_3_prime_boundary": first_sec_correct_3_prime, "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
+            "iou_scores": iou_scores, "fuzzy_metrics": {"boundary_residuals": boundary_residuals, "total_gt": total_gt}}
     if need_region_discovery:
-        result.update(
-            _summarise_region_discovery(
-                candidates=candidates,
-                grouped_gt_section_indices=grouped_gt_section_indices,
-                grouped_pred_section_indices=grouped_pred_section_indices,
-                total_gt=total_gt,
-                total_pred=total_pred,
-                gt_hit_strict=gt_hit_strict,
-                pred_hit_strict=pred_hit_strict,
-            )
-        )
+        return _summarise_region_discovery(
+            candidates=candidates,
+            grouped_gt_section_indices=grouped_gt_section_indices,
+            grouped_pred_section_indices=grouped_pred_section_indices,
+            total_gt=total_gt,
+            total_pred=total_pred,
+            gt_hit_strict=gt_hit_strict,
+            pred_hit_strict=pred_hit_strict,
+        ), None
+    if boundary_residuals:
+        return None, {"first_sec_correct_3_prime_boundary": first_sec_correct_3_prime, "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
+                      "iou_scores": iou_scores, "fuzzy_metrics": {"boundary_residuals": boundary_residuals, "total_gt": total_gt}}
 
-    if need_boundary_stats:
-        result["first_sec_correct_3_prime_boundary"] = first_sec_correct_3_prime
-        result["last_sec_correct_5_prime_boundary"] = last_sec_correct_5_prime
-        result["iou_scores"] = iou_scores
-        result["fuzzy_metrics"] = {"boundary_residuals": boundary_residuals, "total_gt": total_gt}
-
-    return result
+    raise ValueError("At least one of need_region_discovery or need_boundary_stats must be True.")
 
 
 def _summarise_region_discovery(
-    candidates: list[tuple[int, int, int]],
-    grouped_gt_section_indices: list[np.ndarray],
-    grouped_pred_section_indices: list[np.ndarray],
-    total_gt: int,
-    total_pred: int,
-    gt_hit_strict: np.ndarray,
-    pred_hit_strict: np.ndarray,
+        candidates: list[tuple[int, int, int]],
+        grouped_gt_section_indices: list[np.ndarray],
+        grouped_pred_section_indices: list[np.ndarray],
+        total_gt: int,
+        total_pred: int,
+        gt_hit_strict: np.ndarray,
+        pred_hit_strict: np.ndarray,
 ) -> dict:
     """Greedy 1:1 match the overlap candidates and classify discovery tiers.
 

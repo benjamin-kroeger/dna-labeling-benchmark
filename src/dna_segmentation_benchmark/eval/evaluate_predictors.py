@@ -196,7 +196,11 @@ def _benchmark_chunk(
         )
 
     if _needs_section_analysis(metrics):
-        metric_results[EvalMetrics.REGION_DISCOVERY.name] = _eval_sections(grouped_gt_sections, grouped_pred_sections, metrics)
+        section_data, boundary_data = _eval_sections(grouped_gt_sections, grouped_pred_sections, metrics)
+        if section_data:
+            metric_results[EvalMetrics.REGION_DISCOVERY.name]=section_data
+        if boundary_data:
+            metric_results[EvalMetrics.BOUNDARY_EXACTNESS.name]=boundary_data
 
     if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
         metric_results[EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
