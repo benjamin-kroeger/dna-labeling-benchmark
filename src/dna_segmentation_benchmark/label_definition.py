@@ -1,16 +1,13 @@
-"""Label configuration for the DNA segmentation benchmark.
+"""Label semantics for the DNA segmentation benchmark.
 
-This module provides :class:`LabelConfig`, a Pydantic model that is the single
-source of truth for what integer tokens mean in the benchmark.
+This module defines the public :class:`LabelConfig` model and the annotation
+mode/scope enums used by the array-based benchmark core.
 
-Each semantic role is a named field rather than an entry in a generic dict.
-This makes the YAML config self-documenting and keeps label semantics separate
-from parser choices such as which GFF/GTF feature types should be read as exon
-intervals.  Those parser choices belong to the GFF pipeline API.
+Stage 1 introduces two explicit annotation modes:
 
-Backward-compatible properties (``coding_label``, ``labels``) are provided so
-that internal modules (``state_transitions``, plotting, ``io_utils``, …) require
-no changes.
+* ``EXON_INTRON`` — one exonic label, optional intron and splice-site labels
+* ``UTR_CDS_INTRON`` — distinct ``5' UTR``, ``CDS``, and ``3' UTR`` labels,
+  plus optional intron and splice-site labels
 """
 
 from __future__ import annotations
@@ -21,16 +18,37 @@ from typing import Optional
 from pydantic import BaseModel, model_validator
 
 
+class AnnotationMode(str, Enum):
+    """Supported annotation semantics for array-based benchmarking."""
+
+    EXON_INTRON = "EXON_INTRON"
+    UTR_CDS_INTRON = "UTR_CDS_INTRON"
+
+
+class BenchmarkScope(str, Enum):
+    """Metric scopes available in Stage 1 array benchmarking."""
+
+    TRANSCRIPT_EXON = "transcript_exon"
+    CDS = "cds"
+
+
 class LabelConfig(BaseModel):
-    """Complete label definition for a benchmarking run.
+    """Complete label definition for one benchmarking run.
 
     Required fields
     ---------------
+    annotation_mode : AnnotationMode
+        Declares whether arrays represent a single exon-like class or a
+        transcript-anatomy label set with explicit UTR/CDS semantics.
     background_label : int
         Token for non-coding / intergenic / background regions.
-        Used as the sentinel value for padding and null arrays.
-    exon_label : int
-        Token for exon / CDS nucleotides.
+
+    Mode-specific required fields
+    -----------------------------
+    EXON_INTRON
+        ``exon_label``
+    UTR_CDS_INTRON
+        ``cds_label``, ``five_prime_utr_label``, ``three_prime_utr_label``
 
     Optional semantic roles
     -----------------------
@@ -40,46 +58,79 @@ class LabelConfig(BaseModel):
         Token for the 5' donor splice site.
     splice_acceptor_label : int | None
         Token for the 3' acceptor splice site.
-
-    Examples
-    --------
-    >>> # Helixer / SegmentNT — uses "exon" features
-    >>> config = LabelConfig(
-    ...     background_label=8,
-    ...     exon_label=0,
-    ...     intron_label=2,
-    ...     splice_donor_label=1,
-    ...     splice_acceptor_label=3,
-    ... )
-
-    GFF/GTF feature names such as ``"exon"`` or ``"CDS"`` are passed to
-    ``benchmark_from_gff`` / ``map_transcripts`` separately.
     """
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "forbid"}
 
+    annotation_mode: AnnotationMode
+    evaluation_scope: BenchmarkScope = BenchmarkScope.TRANSCRIPT_EXON
     background_label: int
-    exon_label: int
+
+    exon_label: Optional[int] = None
+    cds_label: Optional[int] = None
+    five_prime_utr_label: Optional[int] = None
+    three_prime_utr_label: Optional[int] = None
+
     intron_label: Optional[int] = None
     splice_donor_label: Optional[int] = None
     splice_acceptor_label: Optional[int] = None
 
-    # ------------------------------------------------------------------
-    # Validation
-    # ------------------------------------------------------------------
+    @model_validator(mode="after")
+    def _validate_mode_shape(self) -> "LabelConfig":
+        """Reject invalid field combinations for the selected mode."""
+        if self.annotation_mode == AnnotationMode.EXON_INTRON:
+            if self.exon_label is None:
+                raise ValueError("EXON_INTRON mode requires exon_label to be set.")
+            forbidden = {
+                "cds_label": self.cds_label,
+                "five_prime_utr_label": self.five_prime_utr_label,
+                "three_prime_utr_label": self.three_prime_utr_label,
+            }
+            present = [name for name, value in forbidden.items() if value is not None]
+            if present:
+                raise ValueError(
+                    "EXON_INTRON mode does not allow "
+                    + ", ".join(present)
+                    + ". Use UTR_CDS_INTRON mode for explicit UTR/CDS labels."
+                )
+        else:
+            if self.exon_label is not None:
+                raise ValueError("UTR_CDS_INTRON mode does not allow exon_label.")
+            missing = [
+                name
+                for name, value in (
+                    ("cds_label", self.cds_label),
+                    ("five_prime_utr_label", self.five_prime_utr_label),
+                    ("three_prime_utr_label", self.three_prime_utr_label),
+                )
+                if value is None
+            ]
+            if missing:
+                raise ValueError(
+                    "UTR_CDS_INTRON mode requires "
+                    + ", ".join(missing)
+                    + " to be set."
+                )
+        valid_scopes = self.available_scopes()
+        if self.evaluation_scope not in valid_scopes:
+            supported = ", ".join(scope.value for scope in valid_scopes)
+            raise ValueError(
+                "evaluation_scope="
+                f"{self.evaluation_scope.value!r} is not valid for annotation_mode="
+                f"{self.annotation_mode.value}. Supported scopes: {supported}."
+            )
+
+        if (self.splice_donor_label is None) ^ (self.splice_acceptor_label is None):
+            raise ValueError(
+                "splice_donor_label and splice_acceptor_label must either both be set or both be omitted."
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_unique_labels(self) -> "LabelConfig":
         """All non-None label integers must be distinct."""
-        candidates = [
-            ("background_label", self.background_label),
-            ("exon_label", self.exon_label),
-            ("intron_label", self.intron_label),
-            ("splice_donor_label", self.splice_donor_label),
-            ("splice_acceptor_label", self.splice_acceptor_label),
-        ]
         seen: dict[int, str] = {}
-        for field_name, value in candidates:
+        for field_name, value in self._configured_label_fields():
             if value is None:
                 continue
             if value in seen:
@@ -89,86 +140,100 @@ class LabelConfig(BaseModel):
             seen[value] = field_name
         return self
 
-    # ------------------------------------------------------------------
-    # Derived properties — allow callers that use the old API to work unchanged
-    # ------------------------------------------------------------------
-
     @property
-    def coding_label(self) -> int:
-        """Alias for ``exon_label``.
+    def supports_frameshift(self) -> bool:
+        """Whether CDS-only frameshift evaluation is well-defined."""
+        return (
+            self.annotation_mode == AnnotationMode.UTR_CDS_INTRON
+            and self.evaluation_scope == BenchmarkScope.CDS
+            and self.cds_label is not None
+        )
 
-        Used by ``transcript_mapping``, ``global_metrics``, and ``io_utils``
-        which were written against the old ``coding_label`` field name.
-        """
-        return self.exon_label
+    def scope_tokens(self, scope: BenchmarkScope | str) -> frozenset[int]:
+        """Return the positive-token set for one benchmark scope."""
+        try:
+            scope = BenchmarkScope(scope)
+        except ValueError as exc:
+            raise ValueError(f"Unknown benchmark scope: {scope}") from exc
+        if scope == BenchmarkScope.TRANSCRIPT_EXON:
+            if self.annotation_mode == AnnotationMode.EXON_INTRON:
+                return frozenset((self.exon_label,))
+            return frozenset(
+                (
+                    self.five_prime_utr_label,
+                    self.cds_label,
+                    self.three_prime_utr_label,
+                )
+            )
+        if scope == BenchmarkScope.CDS:
+            if self.annotation_mode != AnnotationMode.UTR_CDS_INTRON:
+                raise ValueError(
+                    f"Scope {scope.value!r} is not available for annotation_mode={self.annotation_mode.value}."
+                )
+            return frozenset((self.cds_label,))
+        raise ValueError(f"Unknown benchmark scope: {scope}")
+
+    def available_scopes(self) -> tuple[BenchmarkScope, ...]:
+        """Return the metric scopes available for this label configuration."""
+        if self.annotation_mode == AnnotationMode.UTR_CDS_INTRON:
+            return (BenchmarkScope.TRANSCRIPT_EXON, BenchmarkScope.CDS)
+        return (BenchmarkScope.TRANSCRIPT_EXON,)
 
     @property
     def labels(self) -> dict[int, str]:
-        """Full ``{token: name}`` dict for all defined labels.
-
-        Provides backward compatibility for ``state_transitions.py`` and
-        the transition plotting code which iterate over all label IDs.
-        """
-        result: dict[int, str] = {
-            self.background_label: "NONCODING",
-            self.exon_label: "EXON",
-        }
-        if self.intron_label is not None:
-            result[self.intron_label] = "INTRON"
-        if self.splice_donor_label is not None:
-            result[self.splice_donor_label] = "SPLICE_DONOR"
-        if self.splice_acceptor_label is not None:
-            result[self.splice_acceptor_label] = "SPLICE_ACCEPTOR"
-        return result
+        """Full ``{token: name}`` mapping for all defined labels."""
+        return dict(self._configured_labels())
 
     @property
     def evaluation_labels(self) -> dict[int, str]:
-        """Labels to compute per-class metrics for (excludes background).
-
-        Used by :func:`~dna_segmentation_benchmark.eval.evaluate_predictors.\
-benchmark_gt_vs_pred_single` when ``classes`` is not specified.
-        """
-        result: dict[int, str] = {self.exon_label: "EXON"}
-        if self.intron_label is not None:
-            result[self.intron_label] = "INTRON"
-        if self.splice_donor_label is not None:
-            result[self.splice_donor_label] = "SPLICE_DONOR"
-        if self.splice_acceptor_label is not None:
-            result[self.splice_acceptor_label] = "SPLICE_ACCEPTOR"
-        return result
-
-    # ------------------------------------------------------------------
-    # Convenience helpers
-    # ------------------------------------------------------------------
+        """Labels to compute per-class metrics for, excluding background."""
+        return {
+            token: name
+            for token, name in self._configured_labels()
+            if token != self.background_label
+        }
 
     def name_of(self, token: int) -> str:
-        """Return the human-readable name for *token*.
-
-        Falls back to ``str(token)`` for unknown tokens rather than raising.
-        """
+        """Return the human-readable name for *token*."""
         return self.labels.get(token, str(token))
 
-    @property
-    def background_name(self) -> str:
-        """Human-readable name of the background label."""
-        return "NONCODING"
+    def _configured_label_fields(self) -> tuple[tuple[str, Optional[int]], ...]:
+        """Return the configured label fields as ``(field_name, value)`` pairs."""
+        return (
+            ("background_label", self.background_label),
+            ("exon_label", self.exon_label),
+            ("cds_label", self.cds_label),
+            ("five_prime_utr_label", self.five_prime_utr_label),
+            ("three_prime_utr_label", self.three_prime_utr_label),
+            ("intron_label", self.intron_label),
+            ("splice_donor_label", self.splice_donor_label),
+            ("splice_acceptor_label", self.splice_acceptor_label),
+        )
 
-    @property
-    def coding_name(self) -> str:
-        """Human-readable name of the exon/coding label."""
-        return "EXON"
+    def _configured_labels(self) -> tuple[tuple[int, str], ...]:
+        """Return the concrete ``(token, name)`` pairs for this config."""
+        labels: list[tuple[int, str]] = [(self.background_label, "NONCODING")]
+        if self.annotation_mode == AnnotationMode.EXON_INTRON:
+            labels.append((self.exon_label, "EXON"))
+        else:
+            labels.extend(
+                [
+                    (self.five_prime_utr_label, "FIVE_PRIME_UTR"),
+                    (self.cds_label, "CDS"),
+                    (self.three_prime_utr_label, "THREE_PRIME_UTR"),
+                ]
+            )
+        if self.intron_label is not None:
+            labels.append((self.intron_label, "INTRON"))
+        if self.splice_donor_label is not None:
+            labels.append((self.splice_donor_label, "SPLICE_DONOR"))
+        if self.splice_acceptor_label is not None:
+            labels.append((self.splice_acceptor_label, "SPLICE_ACCEPTOR"))
+        return tuple(labels)
 
-    @property
-    def intron_name(self) -> Optional[str]:
-        """Human-readable name of the intron label, or ``None``."""
-        return "INTRON" if self.intron_label is not None else None
-
-
-# ------------------------------------------------------------------
-# Pre-built configs for common label sets
-# ------------------------------------------------------------------
 
 BEND_LABEL_CONFIG = LabelConfig(
+    annotation_mode=AnnotationMode.EXON_INTRON,
     background_label=8,
     exon_label=0,
     intron_label=2,
@@ -185,24 +250,18 @@ class EvalMetrics(Enum):
     * ``INDEL`` – *"What structural errors exist?"*
       5'/3' extensions/deletions, whole insertions/deletions, splits/joins.
     * ``REGION_DISCOVERY`` – *"Did we find the right regions?"*
-      Precision & recall at four overlap strictness levels
-      (neighborhood, internal, full-coverage, perfect-boundary).
+      Scope-aware precision & recall at four overlap strictness levels.
     * ``BOUNDARY_EXACTNESS`` – *"How precise are the boundaries?"*
-      IoU stats, bias/reliability landscape, inner/all section boundary
-      precision & recall, terminal-boundary flags.
+      Scope-aware IoU stats, bias/reliability landscape, and boundary flags.
     * ``NUCLEOTIDE_CLASSIFICATION`` – *"Per-base, how accurate is it?"*
-      Precision, recall, and F1 from the nucleotide confusion matrix.
+      Binary or multiclass outputs depending on annotation mode and scope.
     * ``FRAMESHIFT`` – *"Is the reading frame preserved?"*
-      Per-position reading-frame deviation.
+      CDS-only per-position reading-frame deviation.
     * ``STRUCTURAL_COHERENCE`` – *"Is the segment chain correct as a whole?"*
-      Strict binary ``intron_chain`` precision/recall (gffcompare-style),
-      per-transcript soft exon recall and hallucinated-exon count
-      (continuous distribution view), holistic transcript match
-      classification, transcript-level P/R tiers, and segment count
-      delta.
+      Scope-aware chain comparison, transcript classification, and segment
+      count diagnostics.
     * ``DIAGNOSTIC_DEPTH`` – *"Why is the prediction structurally wrong?"*
-      Segment-length EMD and position-bias histogram localising the
-      errors along the coding span.
+      Scope-aware segment-length EMD and position-bias summaries.
     """
 
     INDEL = 0

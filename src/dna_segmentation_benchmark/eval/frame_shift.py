@@ -21,19 +21,18 @@ logger = logging.getLogger(__name__)
 
 
 def _get_frame_shift_metrics(
-    gt_labels: np.ndarray,
-    pred_labels: np.ndarray,
-    coding_value: int,
+    gt_positive_mask: np.ndarray,
+    pred_positive_mask: np.ndarray,
 ) -> dict:
     """Compute per-position coding-base phase drift."""
-    gt_exon_indices = np.where(gt_labels == coding_value)[0]
-    pred_exon_indices = np.where(pred_labels == coding_value)[0]
+    gt_exon_indices = np.where(gt_positive_mask)[0]
+    pred_exon_indices = np.where(pred_positive_mask)[0]
 
     if len(gt_exon_indices) == 0 or len(pred_exon_indices) == 0:
-        return {"gt_frames": []}
+        return {"frames": []}
 
     if len(pred_exon_indices) < 3:
-        return {"gt_frames": []}
+        return {"frames": []}
 
     if len(gt_exon_indices) % 3 != 0:
         logger.warning(
@@ -42,17 +41,16 @@ def _get_frame_shift_metrics(
             "the coding mask. Provide a CDS-only mask for a meaningful frameshift signal.",
             len(gt_exon_indices),
         )
-        return {"gt_frames": []}
+        return {"frames": []}
 
-    valid_mask = np.isin(np.arange(len(gt_labels)), gt_exon_indices) & np.isin(
-        np.arange(len(gt_labels)), pred_exon_indices
-    )
+    valid_mask = gt_positive_mask & pred_positive_mask
 
-    frame_list = np.full(len(gt_labels), np.inf)
+    frame_list = np.full(len(gt_positive_mask), np.inf)
 
-    gt_cumsum = np.searchsorted(gt_exon_indices, np.arange(len(gt_labels)), side="right")
-    pred_cumsum = np.searchsorted(pred_exon_indices, np.arange(len(gt_labels)), side="right")
+    positions = np.arange(len(gt_positive_mask))
+    gt_cumsum = np.searchsorted(gt_exon_indices, positions, side="right")
+    pred_cumsum = np.searchsorted(pred_exon_indices, positions, side="right")
 
     frame_list[valid_mask] = np.abs(pred_cumsum[valid_mask] - gt_cumsum[valid_mask]) % 3
 
-    return {"gt_frames": frame_list.tolist()}
+    return {"frames": frame_list.tolist()}

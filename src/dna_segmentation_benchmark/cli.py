@@ -79,14 +79,31 @@ def _parse_pred_spec(spec: str) -> tuple[str, Path]:
 def _load_label_config(path: Path) -> LabelConfig:
     """Load a :class:`LabelConfig` from a YAML file.
 
-    Expected YAML structure::
+    The YAML must declare an ``annotation_mode`` and the labels required by
+    that mode.  Two shapes are supported:
 
+    ``EXON_INTRON``::
+
+        annotation_mode: EXON_INTRON
         background_label: 8
         exon_label: 0
         intron_label: 2
         splice_donor_label: 1
         splice_acceptor_label: 3
-        # GFF/GTF feature names such as exon/CDS are CLI options, not label config.
+
+    ``UTR_CDS_INTRON``::
+
+        annotation_mode: UTR_CDS_INTRON
+        background_label: 8
+        cds_label: 0
+        five_prime_utr_label: 4
+        three_prime_utr_label: 5
+        intron_label: 2
+        splice_donor_label: 1
+        splice_acceptor_label: 3
+
+    GFF/GTF feature names such as ``exon``/``CDS`` are CLI options
+    (``--gt-exon-feature-type`` / ``--gt-feature-role``), not label config.
     """
     import yaml
 
@@ -136,6 +153,90 @@ def _parse_pred_exon_feature_specs(
         by_predictor.setdefault(predictor, []).append(feature_type)
 
     return {predictor: values[0] if len(values) == 1 else values for predictor, values in by_predictor.items()}
+
+
+def _parse_role_pair(spec: str, *, param_hint: str) -> tuple[str, str]:
+    """Parse one ``feature_type:role`` token into a pair."""
+    feature_type, sep, role = spec.partition(":")
+    if not sep or not feature_type or not role:
+        raise click.BadParameter(
+            "Expected feature_type:role, e.g. CDS:cds.",
+            param_hint=param_hint,
+        )
+    return feature_type, role
+
+
+def _parse_gt_feature_role_specs(specs: tuple[str, ...]) -> dict[str, str] | None:
+    """Parse ``--gt-feature-role`` values into a feature-role map.
+
+    Each value is ``feature_type:role`` (e.g. ``CDS:cds``).  Returns ``None``
+    when no values are given, so the caller can fall back to the legacy
+    ``--gt-exon-feature-type`` path.
+    """
+    if not specs:
+        return None
+    role_map: dict[str, str] = {}
+    for spec in specs:
+        feature_type, role = _parse_role_pair(spec, param_hint="--gt-feature-role")
+        role_map[feature_type] = role
+    return role_map
+
+
+def _parse_pred_feature_role_specs(
+    specs: tuple[str, ...],
+) -> dict[str, str] | dict[str, dict[str, str]] | None:
+    """Parse ``--pred-feature-role`` values from the CLI.
+
+    Plain ``feature_type:role`` values apply to every predictor.  Named
+    ``predictor=feature_type:role`` values build per-predictor maps.  The two
+    forms cannot be mixed.  Returns ``None`` when no values are given.
+    """
+    if not specs:
+        return None
+
+    has_named = any("=" in spec for spec in specs)
+    has_plain = any("=" not in spec for spec in specs)
+    if has_named and has_plain:
+        raise click.BadParameter(
+            "Use either plain feature_type:role for all predictors or "
+            "predictor=feature_type:role entries, not both.",
+            param_hint="--pred-feature-role",
+        )
+
+    if has_plain:
+        role_map: dict[str, str] = {}
+        for spec in specs:
+            feature_type, role = _parse_role_pair(spec, param_hint="--pred-feature-role")
+            role_map[feature_type] = role
+        return role_map
+
+    by_predictor: dict[str, dict[str, str]] = {}
+    for spec in specs:
+        predictor, _, pair = spec.partition("=")
+        if not predictor or not pair:
+            raise click.BadParameter(
+                "Expected predictor=feature_type:role, e.g. helixer=CDS:cds.",
+                param_hint="--pred-feature-role",
+            )
+        feature_type, role = _parse_role_pair(pair, param_hint="--pred-feature-role")
+        by_predictor.setdefault(predictor, {})[feature_type] = role
+    return by_predictor
+
+
+def _pred_role_map_for(
+    pred_role_maps: dict[str, str] | dict[str, dict[str, str]] | None,
+    pred_name: str,
+) -> dict[str, str] | None:
+    """Return the per-predictor feature-role map for *pred_name*, if any.
+
+    A plain ``{feature_type: role}`` map applies to every predictor; a nested
+    ``{predictor: {feature_type: role}}`` map is indexed by *pred_name*.
+    """
+    if pred_role_maps is None:
+        return None
+    if all(isinstance(value, dict) for value in pred_role_maps.values()):
+        return pred_role_maps.get(pred_name)  # type: ignore[return-value]
+    return pred_role_maps  # type: ignore[return-value]
 
 
 def _serialise_results(results: dict) -> dict:
@@ -238,6 +339,30 @@ def cli():
     ),
 )
 @click.option(
+    "--gt-feature-role",
+    "gt_feature_role_specs",
+    type=str,
+    multiple=True,
+    help=(
+        "GT feature-role mapping as feature_type:role (repeatable), e.g. "
+        "--gt-feature-role CDS:cds --gt-feature-role five_prime_UTR:five_prime_utr. "
+        "Required for UTR_CDS_INTRON configs; takes precedence over "
+        "--gt-exon-feature-type."
+    ),
+)
+@click.option(
+    "--pred-feature-role",
+    "pred_feature_role_specs",
+    type=str,
+    multiple=True,
+    help=(
+        "Prediction feature-role mapping (repeatable). Use plain "
+        "feature_type:role for all predictors, or predictor=feature_type:role "
+        "for per-predictor maps (e.g. helixer=CDS:cds). Defaults to the GT "
+        "feature-role map."
+    ),
+)
+@click.option(
     "--metrics",
     "metric_names",
     type=click.Choice(list(_METRIC_NAMES.keys()), case_sensitive=False),
@@ -294,6 +419,8 @@ def run(
     transcript_types: tuple[str, ...],
     gt_exon_feature_types: tuple[str, ...],
     pred_exon_feature_specs: tuple[str, ...],
+    gt_feature_role_specs: tuple[str, ...],
+    pred_feature_role_specs: tuple[str, ...],
     metric_names: tuple[str, ...],
     output_path: Path | None,
     individual: bool,
@@ -336,17 +463,40 @@ def run(
 
     excl_list = list(exclude_features)
     tt_list = list(transcript_types)
-    gt_exon_types = _coerce_feature_types(
-        list(gt_exon_feature_types),
-        arg_name="--gt-exon-feature-type",
-    )
-    pred_exon_feature_types = _parse_pred_exon_feature_specs(pred_exon_feature_specs)
-    pred_exon_types_by_name = _normalise_pred_exon_feature_types(
-        list(pred_paths.keys()),
-        pred_exon_feature_types,
-        default=gt_exon_types,
-    )
     metrics = [_METRIC_NAMES[name.upper()] for name in metric_names]
+
+    # ------------------------------------------------------------------
+    # Resolve how GFF/GTF feature names map to label semantics.
+    #
+    # EXON_INTRON keeps the simple --gt-exon-feature-type / --pred-exon-
+    # feature-type path unless explicit feature-role flags are given.
+    # UTR_CDS_INTRON always uses feature-role maps (explicit, or the
+    # mode default when no flags are passed) because a single exonic
+    # feature type cannot express distinct UTR/CDS roles.
+    # ------------------------------------------------------------------
+    gt_role_map = _parse_gt_feature_role_specs(gt_feature_role_specs)
+    pred_role_maps = _parse_pred_feature_role_specs(pred_feature_role_specs)
+    is_exon_intron = label_config.annotation_mode.name == "EXON_INTRON"
+    use_role_maps = (not is_exon_intron) or gt_role_map is not None or pred_role_maps is not None
+
+    if use_role_maps:
+        gt_exon_types: list[str] | None = None
+        pred_exon_types_by_name: dict[str, list[str]] | None = None
+        gt_map_kwargs = dict(gt_feature_role_map=gt_role_map)
+        pred_map_kwargs = dict(pred_feature_role_maps=pred_role_maps)
+    else:
+        gt_exon_types = _coerce_feature_types(
+            list(gt_exon_feature_types),
+            arg_name="--gt-exon-feature-type",
+        )
+        pred_exon_feature_types = _parse_pred_exon_feature_specs(pred_exon_feature_specs)
+        pred_exon_types_by_name = _normalise_pred_exon_feature_types(
+            list(pred_paths.keys()),
+            pred_exon_feature_types,
+            default=gt_exon_types,
+        )
+        gt_map_kwargs = dict(exon_types=gt_exon_types)
+        pred_map_kwargs = dict(pred_exon_types=pred_exon_types_by_name)
 
     # ------------------------------------------------------------------
     # 2. Read GFF files once into memory
@@ -364,11 +514,12 @@ def run(
     mappings = map_transcripts(
         gt_path=gt_path,
         pred_paths={name: str(p) for name, p in pred_paths.items()},
+        label_config=label_config,
         transcript_types=tt_list,
-        exon_types=gt_exon_types,
-        pred_exon_types=pred_exon_types_by_name,
         exclude_features=excl_list,
         locus_matching_mode=mode,
+        **gt_map_kwargs,
+        **pred_map_kwargs,
     )
 
     if not mappings:
@@ -395,8 +546,8 @@ def run(
             pred_dfs=pred_dfs,
             label_config=label_config,
             transcript_types=tt_list,
-            exon_types=gt_exon_types,
-            pred_exon_types=pred_exon_types_by_name,
+            **gt_map_kwargs,
+            **pred_map_kwargs,
         )
 
         for pred_name in pred_paths:
@@ -421,13 +572,21 @@ def run(
             continue
 
         eval_classes = list(label_config.evaluation_labels.keys())
+        if use_role_maps:
+            gt_feature_desc = gt_role_map if gt_role_map is not None else "mode default"
+            pred_feature_desc = _pred_role_map_for(pred_role_maps, pred_name)
+            pred_feature_desc = pred_feature_desc if pred_feature_desc is not None else "GT map"
+        else:
+            gt_feature_desc = gt_exon_types
+            pred_feature_desc = pred_exon_types_by_name[pred_name]
         click.echo(
             f"  Benchmarking '{pred_name}': "
             f"{len(gt_labels)} transcript(s) | "
+            f"mode={label_config.annotation_mode.value} | "
             f"classes={[label_config.name_of(c) for c in eval_classes]} | "
             f"metrics={[m.name for m in metrics]} | "
-            f"gt_features={gt_exon_types} | "
-            f"pred_features={pred_exon_types_by_name[pred_name]}"
+            f"gt_features={gt_feature_desc} | "
+            f"pred_features={pred_feature_desc}"
         )
 
         per_transcript = benchmark_gt_vs_pred_multiple(
@@ -444,15 +603,28 @@ def run(
             all_results[pred_name] = per_transcript
             continue
 
+        if use_role_maps:
+            pred_role_map = _pred_role_map_for(pred_role_maps, pred_name)
+            global_map_kwargs = dict(
+                gt_exon_types=None,
+                pred_exon_types=None,
+                gt_feature_role_map=gt_role_map,
+                pred_feature_role_map=pred_role_map if pred_role_map is not None else gt_role_map,
+            )
+        else:
+            global_map_kwargs = dict(
+                gt_exon_types=gt_exon_types,
+                pred_exon_types=pred_exon_types_by_name[pred_name],
+            )
+
         global_result = compute_global_metrics(
             gt_df=gt_df,
             pred_df=pred_dfs[pred_name],
             mappings=mappings,
             predictor_name=pred_name,
             label_config=label_config,
-            gt_exon_types=gt_exon_types,
-            pred_exon_types=pred_exon_types_by_name[pred_name],
             transcript_types=tt_list,
+            **global_map_kwargs,
         )
 
         all_results[pred_name] = {
@@ -479,7 +651,62 @@ def run(
 # ------------------------------------------------------------------
 
 
+_EXON_INTRON_TEMPLATE = {
+    "annotation_mode": "EXON_INTRON",
+    "background_label": 8,
+    "exon_label": 0,
+    "intron_label": 2,
+    "splice_donor_label": 1,
+    "splice_acceptor_label": 3,
+}
+
+_UTR_CDS_INTRON_TEMPLATE = {
+    "annotation_mode": "UTR_CDS_INTRON",
+    "background_label": 8,
+    "cds_label": 0,
+    "five_prime_utr_label": 4,
+    "three_prime_utr_label": 5,
+    "intron_label": 2,
+    "splice_donor_label": 1,
+    "splice_acceptor_label": 3,
+}
+
+_CONFIG_TEMPLATES = {
+    "exon_intron": _EXON_INTRON_TEMPLATE,
+    "utr_cds_intron": _UTR_CDS_INTRON_TEMPLATE,
+}
+
+_TEMPLATE_HINTS = {
+    "exon_intron": (
+        "# One exonic class; optional intron/splice labels.\n"
+        "# Map GFF/GTF feature names with CLI flags:\n"
+        "#   --gt-exon-feature-type exon\n"
+        "#   --pred-exon-feature-type augustus:CDS --pred-exon-feature-type helixer:exon\n"
+    ),
+    "utr_cds_intron": (
+        "# Distinct 5' UTR / CDS / 3' UTR classes; enables CDS-scoped metrics\n"
+        "# and FRAMESHIFT. Map GFF/GTF feature names to roles with CLI flags:\n"
+        "#   --gt-feature-role five_prime_UTR:five_prime_utr\n"
+        "#   --gt-feature-role CDS:cds\n"
+        "#   --gt-feature-role three_prime_UTR:three_prime_utr\n"
+        "# Per-predictor maps use predictor=feature_type:role, e.g.\n"
+        "#   --pred-feature-role helixer=CDS:cds\n"
+    ),
+}
+
+
 @cli.command("init-config")
+@click.option(
+    "--mode",
+    "mode",
+    type=click.Choice(list(_CONFIG_TEMPLATES.keys()), case_sensitive=False),
+    default="exon_intron",
+    show_default=True,
+    help=(
+        "Annotation mode for the template.  'exon_intron' uses a single exonic "
+        "label; 'utr_cds_intron' uses distinct 5' UTR / CDS / 3' UTR labels."
+    ),
+)
 @click.option(
     "--output",
     "output_path",
@@ -488,24 +715,13 @@ def run(
     show_default=True,
     help="Where to write the template config.",
 )
-def init_config(output_path: Path):
-    """Generate a template label_config.yaml file."""
-    template = {
-        "background_label": 8,
-        "exon_label": 0,
-        "intron_label": 2,
-        "splice_donor_label": 1,
-        "splice_acceptor_label": 3,
-    }
+def init_config(mode: str, output_path: Path):
+    """Generate a template label_config.yaml file for the chosen mode."""
     import yaml
 
+    template = _CONFIG_TEMPLATES[mode.lower()]
     content = yaml.dump(template, sort_keys=False)
-    content += (
-        "# GFF/GTF feature names are CLI options:\n"
-        "#   --gt-exon-feature-type exon\n"
-        "#   --pred-exon-feature-type CDS\n"
-        "#   --pred-exon-feature-type augustus:CDS --pred-exon-feature-type helixer:exon\n"
-    )
+    content += _TEMPLATE_HINTS[mode.lower()]
     output_path.write_text(content)
-    click.echo(f"Template config written to {output_path}")
+    click.echo(f"Template config ({template['annotation_mode']}) written to {output_path}")
     click.echo("Edit the file to match your label set, then use: dna-benchmark run --config " + str(output_path))

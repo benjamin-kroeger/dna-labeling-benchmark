@@ -41,6 +41,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ..feature_roles import FeatureRoleMap, feature_types_for_scope, normalize_feature_role_map
+from ..label_definition import BenchmarkScope
 from ..label_definition import LabelConfig
 from ..transcript_mapping import TranscriptMapping
 
@@ -59,6 +61,8 @@ def compute_global_metrics(
     gt_exon_types: list[str],
     pred_exon_types: list[str],
     transcript_types: list[str],
+    gt_feature_role_map: FeatureRoleMap | None = None,
+    pred_feature_role_map: FeatureRoleMap | None = None,
 ) -> dict:
     """Compute global annotation-level metrics for one predictor.
 
@@ -95,26 +99,41 @@ def compute_global_metrics(
         GT isoforms per locus that received a match, addressing multi-isoform
         caller fairness.  Most meaningful with ``FULL_DISCOVERY`` matching.
     """
+    gt_feature_role_map = _resolve_feature_role_map(
+        label_config,
+        gt_feature_role_map,
+        gt_exon_types,
+        arg_name="gt_feature_role_map",
+    )
+    pred_feature_role_map = _resolve_feature_role_map(
+        label_config,
+        pred_feature_role_map,
+        pred_exon_types,
+        arg_name="pred_feature_role_map",
+    )
+
     return {
         "nucleotide": _compute_global_nucleotide_metrics(
             gt_df,
             pred_df,
             label_config,
-            gt_exon_types,
-            pred_exon_types,
+            gt_feature_role_map,
+            pred_feature_role_map,
             transcript_types,
         ),
         "exon": _compute_global_exon_metrics(
             gt_df,
             pred_df,
-            gt_exon_types,
-            pred_exon_types,
+            label_config,
+            gt_feature_role_map,
+            pred_feature_role_map,
         ),
         "exon_lenient": _compute_global_exon_lenient_metrics(
             gt_df,
             pred_df,
-            gt_exon_types,
-            pred_exon_types,
+            label_config,
+            gt_feature_role_map,
+            pred_feature_role_map,
         ),
         "transcript": _compute_transcript_level_metrics(
             mappings,
@@ -139,12 +158,30 @@ def compute_global_metrics(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_feature_role_map(
+    label_config: LabelConfig,
+    feature_role_map: FeatureRoleMap | None,
+    exon_types: list[str] | None,
+    *,
+    arg_name: str,
+) -> FeatureRoleMap:
+    """Resolve a global-metrics feature-role map from new or legacy inputs."""
+    if feature_role_map is None and exon_types is not None:
+        if label_config.annotation_mode.name != "EXON_INTRON":
+            raise ValueError(
+                f"{arg_name} must be provided explicitly in UTR_CDS_INTRON mode. "
+                "Legacy exon_types only express one exonic role."
+            )
+        feature_role_map = {feature_type: "exon" for feature_type in exon_types}
+    return normalize_feature_role_map(feature_role_map, label_config, arg_name=arg_name)
+
+
 def _compute_global_nucleotide_metrics(
     gt_df: pd.DataFrame,
     pred_df: pd.DataFrame,
     label_config: LabelConfig,
-    gt_exon_types: list[str],
-    pred_exon_types: list[str],
+    gt_feature_role_map: FeatureRoleMap,
+    pred_feature_role_map: FeatureRoleMap,
     transcript_types: list[str],
 ) -> dict:
     """Nucleotide precision/recall/F1 using union-of-exons per locus.
@@ -157,66 +194,69 @@ def _compute_global_nucleotide_metrics(
     This matches gffcompare's methodology: each genomic base is counted once
     regardless of how many isoforms cover it.
     """
-    if label_config.coding_label is None:
-        return {}
-
-    coding_val = label_config.coding_label
+    results: dict[str, dict] = {}
     bg_val = label_config.background_label
-
-    total_tp = total_fp = total_fn = 0
-
     all_seqids = set(gt_df["seqid"].dropna().unique()) | set(pred_df["seqid"].dropna().unique())
 
-    for seqid in sorted(all_seqids):
-        for strand in ("+", "-"):
-            ref_spans = _get_transcript_spans(gt_df, seqid, strand, transcript_types)
-            pred_spans = _get_transcript_spans(pred_df, seqid, strand, transcript_types)
+    for scope in label_config.available_scopes():
+        scope_label = min(label_config.scope_tokens(scope))
+        total_tp = total_fp = total_fn = 0
 
-            all_spans = ref_spans + pred_spans
-            if not all_spans:
-                continue
+        for seqid in sorted(all_seqids):
+            for strand in ("+", "-"):
+                ref_spans = _get_transcript_spans(gt_df, seqid, strand, transcript_types)
+                pred_spans = _get_transcript_spans(pred_df, seqid, strand, transcript_types)
 
-            for region_start, region_end in _merge_intervals(all_spans):
-                length = region_end - region_start + 1
+                all_spans = ref_spans + pred_spans
+                if not all_spans:
+                    continue
 
-                ref_arr = _build_exon_union_array(
-                    gt_df,
-                    seqid,
-                    strand,
-                    region_start,
-                    length,
-                    gt_exon_types,
-                    coding_val,
-                    bg_val,
-                )
-                pred_arr = _build_exon_union_array(
-                    pred_df,
-                    seqid,
-                    strand,
-                    region_start,
-                    length,
-                    pred_exon_types,
-                    coding_val,
-                    bg_val,
-                )
+                for region_start, region_end in _merge_intervals(all_spans):
+                    length = region_end - region_start + 1
 
-                ref_exonic = ref_arr == coding_val
-                pred_exonic = pred_arr == coding_val
-                total_tp += int(np.sum(ref_exonic & pred_exonic))
-                total_fp += int(np.sum(~ref_exonic & pred_exonic))
-                total_fn += int(np.sum(ref_exonic & ~pred_exonic))
+                    ref_arr = _build_scope_union_array(
+                        gt_df,
+                        seqid,
+                        strand,
+                        region_start,
+                        length,
+                        gt_feature_role_map,
+                        label_config,
+                        scope,
+                        scope_label,
+                        bg_val,
+                    )
+                    pred_arr = _build_scope_union_array(
+                        pred_df,
+                        seqid,
+                        strand,
+                        region_start,
+                        length,
+                        pred_feature_role_map,
+                        label_config,
+                        scope,
+                        scope_label,
+                        bg_val,
+                    )
 
-    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
-    recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
+                    ref_exonic = ref_arr == scope_label
+                    pred_exonic = pred_arr == scope_label
+                    total_tp += int(np.sum(ref_exonic & pred_exonic))
+                    total_fp += int(np.sum(~ref_exonic & pred_exonic))
+                    total_fn += int(np.sum(ref_exonic & ~pred_exonic))
 
-    return {
-        "tp": total_tp,
-        "fp": total_fp,
-        "fn": total_fn,
-        "precision": precision,
-        "recall": recall,
-        "f1": _f1(precision, recall),
-    }
+        precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
+        recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
+        results[scope.value] = {
+            "tp": total_tp,
+            "fp": total_fp,
+            "fn": total_fn,
+            "precision": precision,
+            "recall": recall,
+            "f1": _f1(precision, recall),
+        }
+
+    return {"scopes": results}
 
 
 # ---------------------------------------------------------------------------
@@ -227,8 +267,9 @@ def _compute_global_nucleotide_metrics(
 def _compute_global_exon_metrics(
     gt_df: pd.DataFrame,
     pred_df: pd.DataFrame,
-    gt_exon_types: list[str],
-    pred_exon_types: list[str],
+    label_config: LabelConfig,
+    gt_feature_role_map: FeatureRoleMap,
+    pred_feature_role_map: FeatureRoleMap,
 ) -> dict:
     """Exon sensitivity/precision using de-duplicated exact boundary matching.
 
@@ -244,32 +285,36 @@ def _compute_global_exon_metrics(
     first/last exons), but avoids the ambiguity introduced by UTR variation
     and TSS heterogeneity.
     """
-    ref_exon_keys = _collect_exon_keys(gt_df, gt_exon_types)
-    pred_exon_keys = _collect_exon_keys(pred_df, pred_exon_types)
+    results: dict[str, dict] = {}
+    for scope in label_config.available_scopes():
+        ref_exon_keys = _collect_scoped_exon_keys(gt_df, gt_feature_role_map, label_config, scope)
+        pred_exon_keys = _collect_scoped_exon_keys(pred_df, pred_feature_role_map, label_config, scope)
 
-    n_matched = len(ref_exon_keys & pred_exon_keys)
-    ref_total = len(ref_exon_keys)
-    pred_total = len(pred_exon_keys)
+        n_matched = len(ref_exon_keys & pred_exon_keys)
+        ref_total = len(ref_exon_keys)
+        pred_total = len(pred_exon_keys)
 
-    sensitivity = n_matched / ref_total if ref_total > 0 else 0.0
-    precision = n_matched / pred_total if pred_total > 0 else 0.0
+        sensitivity = n_matched / ref_total if ref_total > 0 else 0.0
+        precision = n_matched / pred_total if pred_total > 0 else 0.0
+        results[scope.value] = {
+            "ref_exon_count": ref_total,
+            "ref_exon_matched": n_matched,
+            "pred_exon_count": pred_total,
+            "pred_exon_matched": n_matched,
+            "sensitivity": sensitivity,
+            "precision": precision,
+            "f1": _f1(sensitivity, precision),
+        }
 
-    return {
-        "ref_exon_count": ref_total,
-        "ref_exon_matched": n_matched,
-        "pred_exon_count": pred_total,
-        "pred_exon_matched": n_matched,
-        "sensitivity": sensitivity,
-        "precision": precision,
-        "f1": _f1(sensitivity, precision),
-    }
+    return {"scopes": results}
 
 
 def _compute_global_exon_lenient_metrics(
     gt_df: pd.DataFrame,
     pred_df: pd.DataFrame,
-    gt_exon_types: list[str],
-    pred_exon_types: list[str],
+    label_config: LabelConfig,
+    gt_feature_role_map: FeatureRoleMap,
+    pred_feature_role_map: FeatureRoleMap,
 ) -> dict:
     """Exon sensitivity/precision with terminal-exon boundary leniency.
 
@@ -288,102 +333,78 @@ def _compute_global_exon_lenient_metrics(
     Matching is performed on de-duplicated lenient canonical keys, so each
     distinct splice-site combination is counted once regardless of isoform count.
     """
-    ref_keys = _collect_exon_keys_lenient(gt_df, gt_exon_types)
-    pred_keys = _collect_exon_keys_lenient(pred_df, pred_exon_types)
+    results: dict[str, dict] = {}
+    for scope in label_config.available_scopes():
+        ref_keys = _collect_scoped_exon_keys_lenient(gt_df, gt_feature_role_map, label_config, scope)
+        pred_keys = _collect_scoped_exon_keys_lenient(pred_df, pred_feature_role_map, label_config, scope)
 
-    n_matched = len(ref_keys & pred_keys)
-    ref_total = len(ref_keys)
-    pred_total = len(pred_keys)
+        n_matched = len(ref_keys & pred_keys)
+        ref_total = len(ref_keys)
+        pred_total = len(pred_keys)
 
-    sensitivity = n_matched / ref_total if ref_total > 0 else 0.0
-    precision = n_matched / pred_total if pred_total > 0 else 0.0
+        sensitivity = n_matched / ref_total if ref_total > 0 else 0.0
+        precision = n_matched / pred_total if pred_total > 0 else 0.0
+        results[scope.value] = {
+            "ref_exon_count": ref_total,
+            "ref_exon_matched": n_matched,
+            "pred_exon_count": pred_total,
+            "pred_exon_matched": n_matched,
+            "sensitivity": sensitivity,
+            "precision": precision,
+            "f1": _f1(sensitivity, precision),
+        }
 
-    return {
-        "ref_exon_count": ref_total,
-        "ref_exon_matched": n_matched,
-        "pred_exon_count": pred_total,
-        "pred_exon_matched": n_matched,
-        "sensitivity": sensitivity,
-        "precision": precision,
-        "f1": _f1(sensitivity, precision),
-    }
+    return {"scopes": results}
 
 
-def _collect_exon_keys_lenient(
+def _collect_scoped_exon_keys_lenient(
     df: pd.DataFrame,
-    exon_types: list[str],
+    feature_role_map: FeatureRoleMap,
+    label_config: LabelConfig,
+    scope: BenchmarkScope | str,
 ) -> set[tuple]:
-    """Return lenient canonical keys for exons.
-
-    For each transcript (grouped by ``parent``):
-    * First exon (index 0 when sorted by start): ``(seqid, strand, None, end)``
-      — the 5' terminal boundary is relaxed, only the splice-donor end must match.
-    * Last exon: ``(seqid, strand, start, None)``
-      — the 3' terminal boundary is relaxed, only the splice-acceptor start must match.
-    * Internal exons: ``(seqid, strand, start, end)`` — both boundaries are splice sites.
-    * Single-exon transcripts: ``(seqid, strand, start, end)`` — strict matching.
-    * Exons with no parent annotation: included with strict keys.
-    """
-    exon_mask = df["type"].isin(exon_types)
-    exons = df[exon_mask]
-    if exons.empty:
-        return set()
-
+    """Return lenient canonical exon keys for one benchmark scope."""
+    intervals_by_parent, orphan_intervals = _collect_scoped_transcript_intervals(
+        df,
+        feature_role_map,
+        label_config,
+        scope,
+    )
     keys: set[tuple] = set()
 
-    has_parent = "parent" in df.columns
+    for intervals in intervals_by_parent.values():
+        n = len(intervals)
+        for i, (seqid, strand, start, end) in enumerate(intervals):
+            if n == 1:
+                keys.add((seqid, strand, start, end))
+            elif i == 0:
+                keys.add((seqid, strand, None, end))
+            elif i == n - 1:
+                keys.add((seqid, strand, start, None))
+            else:
+                keys.add((seqid, strand, start, end))
 
-    if has_parent:
-        with_parent = exons[exons["parent"].notna()]
-        if not with_parent.empty:
-            for _, group in with_parent.groupby("parent"):
-                sorted_g = group.sort_values("start")
-                n = len(sorted_g)
-                for i, row in enumerate(sorted_g.itertuples(index=False)):
-                    seqid = row.seqid
-                    strand = row.strand
-                    start = int(row.start)
-                    end = int(row.end)
-                    if n == 1:
-                        keys.add((seqid, strand, start, end))
-                    elif i == 0:
-                        keys.add((seqid, strand, None, end))
-                    elif i == n - 1:
-                        keys.add((seqid, strand, start, None))
-                    else:
-                        keys.add((seqid, strand, start, end))
-
-        no_parent = exons[exons["parent"].isna()]
-        for row in no_parent.itertuples(index=False):
-            keys.add((row.seqid, row.strand, int(row.start), int(row.end)))
-    else:
-        for row in exons.itertuples(index=False):
-            keys.add((row.seqid, row.strand, int(row.start), int(row.end)))
-
+    keys.update(orphan_intervals)
     return keys
 
 
-def _collect_exon_keys(
+def _collect_scoped_exon_keys(
     df: pd.DataFrame,
-    exon_types: list[str],
+    feature_role_map: FeatureRoleMap,
+    label_config: LabelConfig,
+    scope: BenchmarkScope | str,
 ) -> set[tuple[str, str, int, int]]:
-    """Return a set of unique ``(seqid, strand, start, end)`` for all exon rows."""
-    mask = (
-        df["type"].isin(exon_types)
-        & df["seqid"].notna()
-        & df["strand"].notna()
-        & df["start"].notna()
-        & df["end"].notna()
+    """Return unique merged exon intervals for one benchmark scope."""
+    intervals_by_parent, orphan_intervals = _collect_scoped_transcript_intervals(
+        df,
+        feature_role_map,
+        label_config,
+        scope,
     )
-    exons = df[mask]
-    return set(
-        zip(
-            exons["seqid"],
-            exons["strand"],
-            exons["start"].astype(int),
-            exons["end"].astype(int),
-        )
-    )
+    keys: set[tuple[str, str, int, int]] = set(orphan_intervals)
+    for intervals in intervals_by_parent.values():
+        keys.update(intervals)
+    return keys
 
 
 # ---------------------------------------------------------------------------
@@ -677,48 +698,109 @@ def _cluster_into_loci(
     return loci
 
 
-def _build_exon_union_array(
+def _collect_scoped_transcript_intervals(
+    df: pd.DataFrame,
+    feature_role_map: FeatureRoleMap,
+    label_config: LabelConfig,
+    scope: BenchmarkScope | str,
+) -> tuple[dict[str, list[tuple[str, str, int, int]]], set[tuple[str, str, int, int]]]:
+    """Return merged scope intervals grouped by transcript parent."""
+    scope_feature_types = feature_types_for_scope(feature_role_map, label_config, scope)
+    if not scope_feature_types:
+        return {}, set()
+
+    mask = (
+        df["type"].isin(scope_feature_types)
+        & df["seqid"].notna()
+        & df["strand"].notna()
+        & df["start"].notna()
+        & df["end"].notna()
+    )
+    scoped_rows = df[mask]
+    if scoped_rows.empty:
+        return {}, set()
+
+    intervals_by_parent: dict[str, list[tuple[str, str, int, int]]] = {}
+    orphan_intervals: set[tuple[str, str, int, int]] = set()
+
+    with_parent = scoped_rows[scoped_rows["parent"].notna()]
+    for parent_id, group in with_parent.groupby("parent", sort=False):
+        intervals_by_parent[str(parent_id)] = _merge_rows_to_intervals(group)
+
+    no_parent = scoped_rows[scoped_rows["parent"].isna()]
+    for row in no_parent.itertuples(index=False):
+        orphan_intervals.add((row.seqid, row.strand, int(row.start), int(row.end)))
+
+    return intervals_by_parent, orphan_intervals
+
+
+def _merge_rows_to_intervals(group: pd.DataFrame) -> list[tuple[str, str, int, int]]:
+    """Merge adjacent or overlapping rows into exon-like intervals."""
+    rows = group.sort_values("start")
+    merged: list[tuple[str, str, int, int]] = []
+    current_seqid: str | None = None
+    current_strand: str | None = None
+    current_start: int | None = None
+    current_end: int | None = None
+
+    for row in rows.itertuples(index=False):
+        seqid = str(row.seqid)
+        strand = str(row.strand)
+        start = int(row.start)
+        end = int(row.end)
+        if current_start is None:
+            current_seqid = seqid
+            current_strand = strand
+            current_start = start
+            current_end = end
+            continue
+        if start <= current_end + 1:
+            current_end = max(current_end, end)
+            continue
+        merged.append((current_seqid, current_strand, current_start, current_end))
+        current_seqid = seqid
+        current_strand = strand
+        current_start = start
+        current_end = end
+
+    if current_start is not None:
+        merged.append((current_seqid, current_strand, current_start, current_end))
+    return merged
+
+
+def _build_scope_union_array(
     df: pd.DataFrame,
     seqid: str,
     strand: str,
     region_start: int,
     array_length: int,
-    exon_types: list[str],
-    coding_val: int,
+    feature_role_map: FeatureRoleMap,
+    label_config: LabelConfig,
+    scope: BenchmarkScope | str,
+    scope_label: int,
     bg_val: int,
 ) -> np.ndarray:
-    """Build a 1-D array marking the union of all exon intervals in a region.
-
-    Positions overlapping any exon feature are set to ``coding_val``; all
-    other positions are set to ``bg_val``.  Coordinates are clipped to
-    ``[0, array_length)`` relative to ``region_start``.
-
-    Parameters
-    ----------
-    region_start : int
-        1-based inclusive start of the region (used as array offset).
-    array_length : int
-        Length of the output array.
-    """
+    """Build a union array for one scope in one genomic region."""
     arr = np.full(array_length, bg_val, dtype=np.int32)
     region_end = region_start + array_length - 1
+    scope_feature_types = feature_types_for_scope(feature_role_map, label_config, scope)
 
     mask = (
         (df["seqid"] == seqid)
         & (df["strand"] == strand)
-        & df["type"].isin(exon_types)
+        & df["type"].isin(scope_feature_types)
         & df["start"].notna()
         & df["end"].notna()
         & (df["start"] <= region_end)
         & (df["end"] >= region_start)
     )
-    exons = df[mask]
+    rows = df[mask]
 
-    for feat_start, feat_end in zip(exons["start"], exons["end"]):
+    for feat_start, feat_end in zip(rows["start"], rows["end"]):
         local_start = max(0, int(feat_start) - region_start)
         local_end = min(array_length, int(feat_end) - region_start + 1)
         if local_start < local_end:
-            arr[local_start:local_end] = coding_val
+            arr[local_start:local_end] = scope_label
 
     return arr
 

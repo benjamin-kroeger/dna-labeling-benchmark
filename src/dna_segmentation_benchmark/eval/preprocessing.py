@@ -2,8 +2,10 @@
 
 Two concerns:
 
-* **Intron inference** — relabel background gaps between adjacent coding runs
-  as introns (:func:`_infer_introns_from_coding_gaps`).
+* **Scope resolution** — derive scope-specific positive masks from a full label
+  array.
+* **Intron inference** — relabel background gaps between adjacent transcribed-
+  exon runs as introns (:func:`_infer_introns_from_coding_gaps`).
 * **Mask splitting** — turn a boolean exclusion mask into the kept spans that
   are evaluated independently (:func:`_iter_unmasked_spans`).
 """
@@ -16,7 +18,7 @@ from collections.abc import Iterator
 import numpy as np
 
 from .utils import get_contiguous_groups
-from ..label_definition import LabelConfig
+from ..label_definition import BenchmarkScope, LabelConfig
 
 # Arrays at or above this length are treated as possible chromosome-scale input.
 # On such arrays, a coding-to-coding gap can be either a true intron or an
@@ -38,16 +40,16 @@ def _infer_introns_from_coding_gaps(
     labels: np.ndarray,
     label_config: LabelConfig,
 ) -> np.ndarray:
-    """Return labels with inferred introns between adjacent coding segments.
+    """Return labels with inferred introns between adjacent exonic segments.
 
     The function only rewrites positions that currently equal
     ``label_config.background_label``.  Existing coding, intron, splice-site,
     or other non-background labels are preserved.
 
-    For transcript-sized arrays, every background gap between adjacent coding
-    runs is interpreted as an intron.  This matches the usual representation
-    produced by GFF/GTF exon or CDS painting, where exons are coding-label runs
-    and introns are the unlabeled gaps between them.
+    For transcript-sized arrays, every background gap between adjacent
+    transcript-exon runs is interpreted as an intron.  This matches the usual
+    representation produced by exon/CDS painting, where exons are explicit
+    positive runs and introns are the unlabeled gaps between them.
 
     For large arrays, defined by
     :data:`_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH`, the function emits a
@@ -62,7 +64,7 @@ def _infer_introns_from_coding_gaps(
     labels
         One-dimensional label array to transform.
     label_config
-        Provides ``coding_label``, ``intron_label``, and
+        Provides transcript-exon scope tokens, ``intron_label``, and
         ``background_label``.
 
     Returns
@@ -83,19 +85,19 @@ def _infer_introns_from_coding_gaps(
             stacklevel=2,
         )
 
-    coding = label_config.coding_label
+    exonic_mask = resolve_scope_mask(labels, BenchmarkScope.TRANSCRIPT_EXON, label_config)
     intron = label_config.intron_label
     background = label_config.background_label
 
-    if coding is None or intron is None:
+    if intron is None:
         warnings.warn(
-            "infer_introns=True requires both coding_label and intron_label; leaving labels unchanged.",
+            "infer_introns=True requires intron_label to be set; leaving labels unchanged.",
             stacklevel=2,
         )
         return labels.copy()
 
     inferred = labels.copy()
-    coding_groups = get_contiguous_groups(np.where(inferred == coding)[0])
+    coding_groups = get_contiguous_groups(np.where(exonic_mask)[0])
     gap_lengths = [
         int(right[0]) - int(left[-1]) - 1
         for left, right in zip(coding_groups, coding_groups[1:])
@@ -114,6 +116,32 @@ def _infer_introns_from_coding_gaps(
         gap[gap == background] = intron
 
     return inferred
+
+
+def resolve_scope_token_set(
+    scope: BenchmarkScope | str,
+    label_config: LabelConfig,
+) -> frozenset[int]:
+    """Return the positive-token set represented by *scope*."""
+    return label_config.scope_tokens(scope)
+
+
+def resolve_scope_mask(
+    labels: np.ndarray,
+    scope: BenchmarkScope | str,
+    label_config: LabelConfig,
+) -> np.ndarray:
+    """Return a boolean mask for all positions belonging to *scope*."""
+    return np.isin(labels, tuple(resolve_scope_token_set(scope, label_config)))
+
+
+def resolve_scope_sections(
+    labels: np.ndarray,
+    scope: BenchmarkScope | str,
+    label_config: LabelConfig,
+) -> list[np.ndarray]:
+    """Return contiguous index groups for the requested benchmark scope."""
+    return get_contiguous_groups(np.where(resolve_scope_mask(labels, scope, label_config))[0])
 
 
 def _large_array_inferable_gap_cutoff(gap_lengths: list[int]) -> int | None:

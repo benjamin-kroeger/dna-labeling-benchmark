@@ -8,6 +8,7 @@ structural metrics.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Collection
 from typing import Optional
 
 import numpy as np
@@ -57,6 +58,11 @@ class ExtractedStructure:
     def filter_by_label(self, label: int) -> tuple[Segment, ...]:
         """Return only segments matching *label*, preserving order."""
         return tuple(s for s in self.segments if s.label == label)
+
+    def filter_by_labels(self, labels: Collection[int]) -> tuple[Segment, ...]:
+        """Return only segments whose label is present in *labels*."""
+        label_set = frozenset(labels)
+        return tuple(s for s in self.segments if s.label in label_set)
 
     @property
     def label_sequence(self) -> tuple[int, ...]:
@@ -120,3 +126,46 @@ def extract_structure(
         segments.append(Segment(label=lbl, start=int(s), end=int(e)))
 
     return ExtractedStructure(segments=tuple(segments), length=n)
+
+
+def extract_scoped_segments(
+    structure: ExtractedStructure,
+    positive_labels: Collection[int],
+    merged_label: int = -1,
+) -> tuple[Segment, ...]:
+    """Collapse adjacent segments that belong to the same benchmark scope.
+
+    This is required for scopes such as ``transcript_exon`` in
+    ``UTR_CDS_INTRON`` mode, where a biologically single exon may be split into
+    multiple adjacent label runs (for example ``5' UTR`` followed by ``CDS``).
+    """
+    label_set = frozenset(positive_labels)
+    merged: list[Segment] = []
+    current_start: int | None = None
+    current_end: int | None = None
+
+    for segment in structure.segments:
+        if segment.label not in label_set:
+            if current_start is not None:
+                merged.append(Segment(label=merged_label, start=current_start, end=current_end))
+                current_start = None
+                current_end = None
+            continue
+
+        if current_start is None:
+            current_start = segment.start
+            current_end = segment.end
+            continue
+
+        if segment.start == current_end + 1:
+            current_end = segment.end
+            continue
+
+        merged.append(Segment(label=merged_label, start=current_start, end=current_end))
+        current_start = segment.start
+        current_end = segment.end
+
+    if current_start is not None:
+        merged.append(Segment(label=merged_label, start=current_start, end=current_end))
+
+    return tuple(merged)

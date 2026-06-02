@@ -15,17 +15,15 @@ from ..label_definition import LabelConfig
 def _eval_indel(
     grouped_insertions: list[np.ndarray],
     grouped_deletions: list[np.ndarray],
-    gt_labels: np.ndarray,
-    pred_labels: np.ndarray,
-    label_config: LabelConfig,
+    gt_positive_mask: np.ndarray,
+    pred_positive_mask: np.ndarray,
+    _label_config: LabelConfig,
 ) -> dict:
     """Sort insertion/deletion runs into 5'/3'/whole/join-split buckets."""
-    background_value = label_config.background_label
-
     # _classify_mismatches looks one position before/after each group, so pad
     # with one background sentinel on each side for safe access.
-    padded_gt = np.concatenate(([background_value], gt_labels, [background_value]))
-    padded_pred = np.concatenate(([background_value], pred_labels, [background_value]))
+    padded_gt = np.concatenate(([False], gt_positive_mask.astype(bool), [False]))
+    padded_pred = np.concatenate(([False], pred_positive_mask.astype(bool), [False]))
     padded_arr = np.stack((padded_gt, padded_pred), axis=0)
 
     # Shift indices by +1 to match the padded array layout
@@ -35,12 +33,10 @@ def _eval_indel(
     ext5, ext3, joined, whole_ins = _classify_mismatches(
         grouped_indices=padded_insertions,
         gt_pred_arr=padded_arr,
-        class_value=label_config.coding_label,
     )
     del5, del3, split, whole_del = _classify_mismatches(
         grouped_indices=padded_deletions,
         gt_pred_arr=padded_arr,
-        class_value=label_config.coding_label,
     )
 
     return {
@@ -58,7 +54,6 @@ def _eval_indel(
 def _classify_mismatches(
     grouped_indices: list[np.ndarray],
     gt_pred_arr: np.ndarray,
-    class_value: int,
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray]]:
     """Sort contiguous mismatch groups into four categories.
 
@@ -82,9 +77,8 @@ def _classify_mismatches(
         first_idx = mismatch[0]
         last_idx = mismatch[-1]
 
-        target_on_3_prime = int(gt_pred_arr[0, last_idx + 1]) == int(gt_pred_arr[1, last_idx + 1]) == class_value
-
-        target_on_5_prime = int(gt_pred_arr[0, first_idx - 1]) == int(gt_pred_arr[1, first_idx - 1]) == class_value
+        target_on_3_prime = bool(gt_pred_arr[0, last_idx + 1]) and bool(gt_pred_arr[1, last_idx + 1])
+        target_on_5_prime = bool(gt_pred_arr[0, first_idx - 1]) and bool(gt_pred_arr[1, first_idx - 1])
 
         adjusted = mismatch - 1
 

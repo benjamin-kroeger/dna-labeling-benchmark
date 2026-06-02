@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import pyranges1 as pr
 
+from .feature_roles import normalize_feature_role_map, paint_feature_rows
 from .label_definition import LabelConfig
 
 logger = logging.getLogger(__name__)
@@ -144,20 +145,15 @@ def collect_gff(
 def read_gff_to_arrays(
     gff_path: str | Path,
     label_config: LabelConfig,
+    feature_role_map: dict[str, str] | None = None,
     exclude_features: list[str] | None = None,
     transcript_types: list[str] | None = None,
 ) -> dict[str, np.ndarray]:
     """Parse a GFF/GTF file and create **one array per transcript**.
 
-    Each transcript (``mRNA`` / ``transcript``) defines a single
-    evaluation unit.  Child features (``exon``, ``CDS``, etc.) are
-    mapped into local coordinates within that transcript's span.
-
-    .. note::
-
-       All child features are painted with ``coding_label`` regardless
-       of their actual GFF type (CDS, exon, UTR, etc.).  This produces
-       a binary coding / non-coding mask, not a multi-label array.
+    Each transcript (``mRNA`` / ``transcript``) defines a single evaluation
+    unit. Child features are mapped into local coordinates within that
+    transcript's span according to an explicit semantic feature-role map.
 
     Parameters
     ----------
@@ -165,6 +161,10 @@ def read_gff_to_arrays(
         Path to the GFF3 or GTF file.
     label_config : LabelConfig
         Label configuration defining the integer tokens.
+    feature_role_map : dict[str, str] | None
+        Maps GFF/GTF feature types to semantic roles such as ``"exon"``,
+        ``"cds"``, ``"five_prime_utr"``, or ``"three_prime_utr"``.  When
+        omitted, a mode-specific default is used.
     exclude_features : list[str] | None
         GFF feature types to completely ignore (e.g. ``['gene']``).
     transcript_types : list[str] | None
@@ -178,17 +178,16 @@ def read_gff_to_arrays(
 
     Raises
     ------
-    ValueError
-        If ``coding_label`` is not defined in *label_config*.
     RuntimeError
         If the GFF file cannot be parsed.
     """
-    if label_config.coding_label is None:
-        raise ValueError("LabelConfig must have `coding_label` set to parse GFF features.")
-
-    coding_val = label_config.coding_label
     bg_val = label_config.background_label
     transcript_types = transcript_types or DEFAULT_TRANSCRIPT_TYPES
+    feature_role_map = normalize_feature_role_map(
+        feature_role_map,
+        label_config,
+        arg_name="feature_role_map",
+    )
 
     try:
         df = collect_gff(str(gff_path), exclude_features=exclude_features)
@@ -262,7 +261,15 @@ def read_gff_to_arrays(
                 t_start + len(arr) - 1,
             )
 
-        if local_start < local_end:
-            arr[local_start:local_end] = coding_val
+        # Left here only for clipping diagnostics; actual painting is done
+        # after all children for one transcript have been selected.
+
+    for transcript_id, (t_start, _, arr) in transcript_lookup.items():
+        children = child_df[
+            (child_df["parent"].astype(str) == transcript_id)
+            & (child_df["start"].notna())
+            & (child_df["end"].notna())
+        ][["type", "start", "end"]]
+        paint_feature_rows(arr, children, t_start, feature_role_map, label_config)
 
     return annotations

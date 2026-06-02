@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from .structure import ExtractedStructure
+from .structure import ExtractedStructure, Segment
 
 
 class TranscriptMatchClass(str, Enum):
@@ -81,6 +81,43 @@ def _classify_transcript_match(
     if n_gt == n_pred:
         # Same segment count — pairwise positional comparison for terminal check
         if gt_segs[0].start == pred_segs[0].start and gt_segs[-1].end == pred_segs[-1].end:
+            return TranscriptMatchClass.BOUNDARY_SHIFT_INTERNAL
+        return TranscriptMatchClass.BOUNDARY_SHIFT_TERMINAL
+
+    if pred_set < gt_set:
+        return TranscriptMatchClass.MISSING_SEGMENTS
+
+    if gt_set < pred_set:
+        return TranscriptMatchClass.EXTRA_SEGMENTS
+
+    if gt_set & pred_set:
+        return TranscriptMatchClass.PARTIAL_OVERLAP
+
+    return TranscriptMatchClass.NO_OVERLAP
+
+
+def _classify_segment_match(
+    gt_segments: tuple[Segment, ...],
+    pred_segments: tuple[Segment, ...],
+) -> TranscriptMatchClass | None:
+    """Holistically classify a structural relationship for pre-selected segments."""
+    n_gt = len(gt_segments)
+    n_pred = len(pred_segments)
+
+    if n_gt == 0:
+        return None
+
+    if n_pred == 0:
+        return TranscriptMatchClass.MISSED
+
+    gt_set: frozenset[tuple[int, int]] = frozenset((s.start, s.end) for s in gt_segments)
+    pred_set: frozenset[tuple[int, int]] = frozenset((s.start, s.end) for s in pred_segments)
+
+    if gt_set == pred_set:
+        return TranscriptMatchClass.EXACT
+
+    if n_gt == n_pred:
+        if gt_segments[0].start == pred_segments[0].start and gt_segments[-1].end == pred_segments[-1].end:
             return TranscriptMatchClass.BOUNDARY_SHIFT_INTERNAL
         return TranscriptMatchClass.BOUNDARY_SHIFT_TERMINAL
 

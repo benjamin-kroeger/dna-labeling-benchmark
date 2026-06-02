@@ -1,0 +1,48 @@
+# Benchmark dataset registry.
+#
+# Each entry resolves to a (FASTA, GTF) pair plus optional ground-truth
+# labels. Remote entries are pinned to a Hugging Face Hub *commit SHA* so
+# results stay reproducible across registry edits. To add a new dataset:
+#
+#   1. Upload files to the HF dataset repo (gzip large FASTAs).
+#   2. Take note of the commit SHA after the upload commit.
+#   3. Compute sha256 of each *uploaded* (compressed) file:
+#        sha256sum chr22/sequence.fa.gz
+#   4. Add an entry below.
+
+datasets:
+
+  toy:
+    description: >
+      Tiny synthetic locus shipped in-package for tests and tutorials. No
+      network required. Not biologically meaningful.
+    builtin: true
+    fasta:
+      remote_path: toy.fa
+      sha256: ""        # unused for builtin
+      local_name: toy.fa
+    gtf:
+      remote_path: toy.gtf
+      sha256: ""
+      local_name: toy.gtf
+    license: CC0-1.0
+
+  # ---- Example remote entry — fill in repo_id, revision, and sha256s. ----
+  #
+  # gencode_v49_chr22:
+  #   description: GRCh38 chr22 + GENCODE v49 basic annotation, single-chrom subset.
+  #   repo_id: <hf-user>/dnasb-data
+  #   revision: <40-char-commit-sha>
+  #   assembly: GRCh38
+  #   license: GENCODE / Ensembl terms
+  #   citation: "Frankish et al., NAR 2021 (10.1093/nar/gkaa1087)"
+  #   fasta:
+  #     remote_path: gencode_v49_chr22/sequence.fa.gz
+  #     sha256: <sha256-of-the-.fa.gz>
+  #   gtf:
+  #     remote_path: gencode_v49_chr22/annotation.gtf.gz
+  #     sha256: <sha256-of-the-.gtf.gz>
+  #   labels:
+  #     remote_path: gencode_v49_chr22/ground_truth.npz
+  #     sha256: <sha256-of-the-.npz>
+  #     decompress: false

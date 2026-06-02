@@ -80,6 +80,22 @@ def _normalise_pred_exon_feature_types(
     return {name: list(normalized) for name in pred_names}
 
 
+def _pred_global_role_map(
+    pred_feature_role_maps: dict[str, str] | dict[str, dict[str, str]] | None,
+    pred_name: str,
+) -> dict[str, str] | None:
+    """Return the per-predictor feature-role map for *pred_name*, if any.
+
+    A plain ``{feature_type: role}`` map applies to every predictor; a nested
+    ``{predictor: {feature_type: role}}`` map is indexed by *pred_name*.
+    """
+    if not pred_feature_role_maps:
+        return None
+    if all(isinstance(value, dict) for value in pred_feature_role_maps.values()):
+        return pred_feature_role_maps.get(pred_name)  # type: ignore[return-value]
+    return pred_feature_role_maps  # type: ignore[return-value]
+
+
 def benchmark_from_gff(
     gt_path: str | Path,
     pred_paths: dict[str, str | Path],
@@ -88,6 +104,8 @@ def benchmark_from_gff(
     *,
     gt_exon_feature_types: FeatureTypeInput = "exon",
     pred_exon_feature_types: PredFeatureTypeInput | None = None,
+    gt_feature_role_map: dict[str, str] | None = None,
+    pred_feature_role_maps: dict[str, str] | dict[str, dict[str, str]] | None = None,
     exclude_features: list[str] | None = None,
     transcript_types: list[str] | None = None,
     mapping_output_path: str | Path | None = None,
@@ -105,8 +123,8 @@ def benchmark_from_gff(
 
     ``label_config`` defines the integer label semantics used in the produced
     arrays: background, exon/coding, optional intron, and optional splice-site
-    tokens.  GFF/GTF feature names are parser configuration and are passed
-    explicitly via ``gt_exon_feature_types`` and ``pred_exon_feature_types``.
+    tokens. Feature-role maps control how GFF/GTF feature names are interpreted
+    during parsing.
 
     Parameters
     ----------
@@ -131,6 +149,12 @@ def benchmark_from_gff(
         predictor name to feature types, e.g. ``{"augustus": "CDS",
         "helixer": "exon"}``.  Use ``"CDS"`` for tools like Augustus that emit
         CDS features instead of exon features.
+    gt_feature_role_map : dict[str, str] | None
+        Explicit GT feature-role map. Takes precedence over
+        ``gt_exon_feature_types``.
+    pred_feature_role_maps : dict[str, str] | dict[str, dict[str, str]] | None
+        Explicit predictor feature-role maps. Takes precedence over
+        ``pred_exon_feature_types``.
     exclude_features : list[str] | None
         GFF feature types to ignore (e.g., ``["gene"]``).
     transcript_types : list[str] | None
@@ -154,17 +178,35 @@ def benchmark_from_gff(
     """
     exclude_features = exclude_features or []
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
-    gt_exon_types = _coerce_feature_types(
-        gt_exon_feature_types,
-        arg_name="gt_exon_feature_types",
-    )
-    pred_exon_types_by_name = _normalise_pred_exon_feature_types(
-        list(pred_paths.keys()),
-        pred_exon_feature_types,
-        default=gt_exon_types,
-    )
     if metrics is None:
         metrics = [EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION]
+
+    # Decide how GFF/GTF feature names map to label semantics.  EXON_INTRON
+    # keeps the simple exon-type path unless explicit feature-role maps are
+    # given; UTR_CDS_INTRON always uses feature-role maps (explicit, or the
+    # mode default) because one exon type cannot express UTR/CDS roles.
+    use_role_maps = (
+        label_config.annotation_mode.name != "EXON_INTRON"
+        or gt_feature_role_map is not None
+        or pred_feature_role_maps is not None
+    )
+    if use_role_maps:
+        gt_exon_types = None
+        pred_exon_types_by_name = None
+        gt_map_kwargs = dict(gt_feature_role_map=gt_feature_role_map)
+        pred_map_kwargs = dict(pred_feature_role_maps=pred_feature_role_maps)
+    else:
+        gt_exon_types = _coerce_feature_types(
+            gt_exon_feature_types,
+            arg_name="gt_exon_feature_types",
+        )
+        pred_exon_types_by_name = _normalise_pred_exon_feature_types(
+            list(pred_paths.keys()),
+            pred_exon_feature_types,
+            default=gt_exon_types,
+        )
+        gt_map_kwargs = dict(exon_types=gt_exon_types)
+        pred_map_kwargs = dict(pred_exon_types=pred_exon_types_by_name)
 
     # 1. Parse files
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
@@ -177,11 +219,12 @@ def benchmark_from_gff(
     mappings = map_transcripts(
         gt_path=gt_path,
         pred_paths={name: str(p) for name, p in pred_paths.items()},
+        label_config=label_config,
         transcript_types=transcript_types,
-        exon_types=gt_exon_types,
-        pred_exon_types=pred_exon_types_by_name,
         exclude_features=exclude_features,
         locus_matching_mode=locus_matching_mode,
+        **gt_map_kwargs,
+        **pred_map_kwargs,
     )
 
     if not mappings:
@@ -204,8 +247,8 @@ def benchmark_from_gff(
             pred_dfs=pred_dfs,
             label_config=label_config,
             transcript_types=transcript_types,
-            exon_types=gt_exon_types,
-            pred_exon_types=pred_exon_types_by_name,
+            **gt_map_kwargs,
+            **pred_map_kwargs,
         )
 
         for pred_name in pred_paths:
@@ -238,15 +281,28 @@ def benchmark_from_gff(
             infer_introns=infer_introns,
         )
 
+        if use_role_maps:
+            pred_role_map = _pred_global_role_map(pred_feature_role_maps, pred_name)
+            global_map_kwargs = dict(
+                gt_exon_types=None,
+                pred_exon_types=None,
+                gt_feature_role_map=gt_feature_role_map,
+                pred_feature_role_map=pred_role_map if pred_role_map is not None else gt_feature_role_map,
+            )
+        else:
+            global_map_kwargs = dict(
+                gt_exon_types=gt_exon_types,
+                pred_exon_types=pred_exon_types_by_name[pred_name],
+            )
+
         global_result = compute_global_metrics(
             gt_df=gt_df,
             pred_df=pred_dfs[pred_name],
             mappings=mappings,
             predictor_name=pred_name,
             label_config=label_config,
-            gt_exon_types=gt_exon_types,
-            pred_exon_types=pred_exon_types_by_name[pred_name],
             transcript_types=transcript_types,
+            **global_map_kwargs,
         )
 
         all_results[pred_name] = {

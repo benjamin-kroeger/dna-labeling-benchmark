@@ -50,6 +50,43 @@ def _slugify_plot_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
 
 
+def _scope_display_name(label_config: LabelConfig, scope: str | None) -> str:
+    """Return a human-readable target name for one scope."""
+    if scope is None:
+        scope = label_config.evaluation_scope.value
+    if scope == "transcript_exon":
+        if label_config.annotation_mode.name == "EXON_INTRON":
+            return label_config.name_of(label_config.exon_label)
+        return "TRANSCRIPT_EXON"
+    if scope == "cds":
+        return "CDS"
+    if scope == "intron":
+        return "INTRON"
+    return scope.upper()
+
+
+def _metric_scopes(df_metric: pd.DataFrame) -> list[str | None]:
+    """Return ordered scope values for one metric subset."""
+    if "scope" not in df_metric.columns:
+        return [None]
+    scopes = [scope for scope in df_metric["scope"].dropna().unique().tolist()]
+    if not scopes:
+        return [None]
+    ordered: list[str | None] = []
+    if "transcript_exon" in scopes:
+        ordered.append("transcript_exon")
+        scopes.remove("transcript_exon")
+    ordered.extend(sorted(scopes))
+    return ordered
+
+
+def _figure_key(base: str, scope: str | None, default_scope: str | None) -> str:
+    """Build a stable figure key, preserving legacy names for the default scope."""
+    if scope is None or scope == default_scope:
+        return base
+    return f"{base}_{scope}"
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -107,6 +144,8 @@ def compare_multiple_predictions(
 
         for metric_group, metric_data in benchmark_results.items():
             metric_group_str = metric_group if isinstance(metric_group, str) else metric_group.name
+            if metric_group_str == "metadata":
+                continue
             # STRUCTURAL_COHERENCE nests chain metrics and (optionally) splice
             # sites under one group. Pull the splice sites out for their own
             # plots and flatten the chain metrics into the long-format rows.
@@ -114,16 +153,21 @@ def compare_multiple_predictions(
                 splice = metric_data.get("splice_site_results")
                 if splice:
                     all_splice_site_data[method_name] = splice
-                metric_data = metric_data.get("chain_metric_results", {})
+                for scope, scope_payload in metric_data.get("scopes", {}).items():
+                    for single_metric_key, value in scope_payload.items():
+                        rows.append([method_name, metric_group_str, scope, single_metric_key, value])
+                for single_metric_key, value in metric_data.items():
+                    if single_metric_key in {"scopes", "splice_site_results"}:
+                        continue
+                    rows.append([method_name, metric_group_str, "intron", single_metric_key, value])
+                continue
+            if isinstance(metric_data, dict) and "scopes" in metric_data:
+                for scope, scope_payload in metric_data["scopes"].items():
+                    for single_metric_key, value in scope_payload.items():
+                        rows.append([method_name, metric_group_str, scope, single_metric_key, value])
+                continue
             for single_metric_key, value in metric_data.items():
-                rows.append(
-                    [
-                        method_name,
-                        metric_group_str,
-                        single_metric_key,
-                        value,
-                    ]
-                )
+                rows.append([method_name, metric_group_str, None, single_metric_key, value])
 
     # ---- Combined false-transition plot (all methods) --------------------
     fig_false = plot_false_transitions(all_false_transition_data, label_config)
@@ -152,32 +196,35 @@ def compare_multiple_predictions(
 
     df = pd.DataFrame(
         rows,
-        columns=["method_name", "metric_group", "metric_key", "value"],
+        columns=["method_name", "metric_group", "scope", "metric_key", "value"],
     )
-
-    class_name = label_config.name_of(label_config.coding_label)
 
     # ---- INDEL plots ------------------------------------------------
     if EvalMetrics.INDEL in metrics_to_eval:
         df_indel = df[(df["metric_group"] == EvalMetrics.INDEL.name)].copy()
 
         if not df_indel.empty:
-            fig = plot_stacked_indel_counts_bar(
-                df_indel,
-                class_name,
-                save_path=(output_dir / "indel_counts.png") if output_dir else None,
-                metadata=PLOT_METADATA.get("indel_counts"),
-            )
-            if fig is not None:
-                figures["indel_counts"] = fig
+            default_scope = _metric_scopes(df_indel)[0]
+            for scope in _metric_scopes(df_indel):
+                df_scope = df_indel[df_indel["scope"] == scope] if scope is not None else df_indel[df_indel["scope"].isna()]
+                class_name = _scope_display_name(label_config, scope)
+                suffix = "" if scope == default_scope else f"_{scope}"
+                fig = plot_stacked_indel_counts_bar(
+                    df_scope,
+                    class_name,
+                    save_path=(output_dir / f"indel_counts{suffix}.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("indel_counts"),
+                )
+                if fig is not None:
+                    figures[_figure_key("indel_counts", scope, default_scope)] = fig
 
-            fig = plot_individual_error_lengths_histograms(
-                df_indel,
-                class_name,
-                save_path=(output_dir / "indel_lengths.png") if output_dir else None,
-            )
-            if fig is not None:
-                figures["indel_lengths"] = fig
+                fig = plot_individual_error_lengths_histograms(
+                    df_scope,
+                    class_name,
+                    save_path=(output_dir / f"indel_lengths{suffix}.png") if output_dir else None,
+                )
+                if fig is not None:
+                    figures[_figure_key("indel_lengths", scope, default_scope)] = fig
 
     # ---- Fuzzy boundary landscape plots (from BOUNDARY_EXACTNESS) ----
     if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
@@ -187,21 +234,24 @@ def compare_multiple_predictions(
 
         df = df[df["metric_key"] != "fuzzy_metrics"]
 
-        fuzzy_metrics_figs = plot_boundary_precision_landscapes(
-            df_fuzzy,
-            class_name=class_name,
-            metadata=PLOT_METADATA.get("boundary_landscape"),
-        )
-        for method_name, fig in zip(df_fuzzy["method_name"].unique().tolist(), fuzzy_metrics_figs):
-            key = "boundary_landscape" if single_method_mode else f"{method_name}_boundary_landscape"
-            if output_dir is not None:
-                filename = (
-                    "boundary_landscape.png"
-                    if single_method_mode
-                    else f"boundary_landscape_{_slugify_plot_token(method_name)}.png"
-                )
-                _save_figure(fig, output_dir / filename, logger=logger)
-            figures[key] = fig
+        default_scope = _metric_scopes(df_fuzzy)[0]
+        for scope in _metric_scopes(df_fuzzy):
+            df_scope = df_fuzzy[df_fuzzy["scope"] == scope] if scope is not None else df_fuzzy[df_fuzzy["scope"].isna()]
+            class_name = _scope_display_name(label_config, scope)
+            fuzzy_metrics_figs = plot_boundary_precision_landscapes(
+                df_scope,
+                class_name=class_name,
+                metadata=PLOT_METADATA.get("boundary_landscape"),
+            )
+            for method_name, fig in zip(df_scope["method_name"].unique().tolist(), fuzzy_metrics_figs):
+                base_key = "boundary_landscape" if single_method_mode else f"{method_name}_boundary_landscape"
+                key = _figure_key(base_key, scope, default_scope)
+                if output_dir is not None:
+                    filename = (
+                        f"{base_key}{'' if scope == default_scope else f'_{scope}'}.png"
+                    )
+                    _save_figure(fig, output_dir / filename, logger=logger)
+                figures[key] = fig
 
     # ---- IoU plots (from BOUNDARY_EXACTNESS) -------------------------
     if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:
@@ -210,170 +260,194 @@ def compare_multiple_predictions(
             ].copy()
 
         if not df_iou.empty:
-            prefix = (output_dir / "iou") if output_dir else None
-            iou_figs = plot_iou_metrics(
-                df_iou,
-                class_name,
-                save_path_prefix=prefix,
-                metadata_average=PLOT_METADATA.get("iou_average"),
-                metadata_distribution=PLOT_METADATA.get("iou_distribution"),
-            )
-            for idx, fig in enumerate(iou_figs):
-                suffix = "average" if idx == 0 else "distribution"
-                figures[f"iou_{suffix}"] = fig
+            default_scope = _metric_scopes(df_iou)[0]
+            for scope in _metric_scopes(df_iou):
+                df_scope = df_iou[df_iou["scope"] == scope] if scope is not None else df_iou[df_iou["scope"].isna()]
+                class_name = _scope_display_name(label_config, scope)
+                prefix = (output_dir / f"iou{'' if scope == default_scope else f'_{scope}'}") if output_dir else None
+                iou_figs = plot_iou_metrics(
+                    df_scope,
+                    class_name,
+                    save_path_prefix=prefix,
+                    metadata_average=PLOT_METADATA.get("iou_average"),
+                    metadata_distribution=PLOT_METADATA.get("iou_distribution"),
+                )
+                for idx, fig in enumerate(iou_figs):
+                    suffix = "average" if idx == 0 else "distribution"
+                    figures[_figure_key(f"iou_{suffix}", scope, default_scope)] = fig
 
     # ---- Region-discovery bar plots -----------------------------------
     if EvalMetrics.REGION_DISCOVERY in metrics_to_eval:
         df_rd = df[(df["metric_group"] == EvalMetrics.REGION_DISCOVERY.name)].copy()
 
         if not df_rd.empty:
-            prefix = (output_dir / "region_discovery") if output_dir else None
-            rd_figs = plot_ml_metrics_bar(
-                df_rd,
-                class_name,
-                save_path_prefix=prefix,
-                metadata_map=PLOT_METADATA,
-            )
-            for level, fig in rd_figs.items():
-                figures[f"region_discovery_{level}"] = fig
+            default_scope = _metric_scopes(df_rd)[0]
+            for scope in _metric_scopes(df_rd):
+                df_scope = df_rd[df_rd["scope"] == scope] if scope is not None else df_rd[df_rd["scope"].isna()]
+                class_name = _scope_display_name(label_config, scope)
+                prefix = (output_dir / f"region_discovery{'' if scope == default_scope else f'_{scope}'}") if output_dir else None
+                rd_figs = plot_ml_metrics_bar(
+                    df_scope,
+                    class_name,
+                    save_path_prefix=prefix,
+                    metadata_map=PLOT_METADATA,
+                )
+                for level, fig in rd_figs.items():
+                    figures[_figure_key(f"region_discovery_{level}", scope, default_scope)] = fig
 
     # ---- Nucleotide-classification bar plots --------------------------
     if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics_to_eval:
         df_nc = df[(df["metric_group"] == EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name)].copy()
 
         if not df_nc.empty:
-            prefix = (output_dir / "nucleotide_classification") if output_dir else None
-            nc_figs = plot_ml_metrics_bar(
-                df_nc,
-                class_name,
-                save_path_prefix=prefix,
-                metadata_map=PLOT_METADATA,
-            )
-            for level, fig in nc_figs.items():
-                figures[f"nucleotide_classification_{level}"] = fig
+            default_scope = _metric_scopes(df_nc)[0]
+            for scope in _metric_scopes(df_nc):
+                df_scope = df_nc[df_nc["scope"] == scope] if scope is not None else df_nc[df_nc["scope"].isna()]
+                class_name = _scope_display_name(label_config, scope)
+                prefix = (output_dir / f"nucleotide_classification{'' if scope == default_scope else f'_{scope}'}") if output_dir else None
+                nc_figs = plot_ml_metrics_bar(
+                    df_scope,
+                    class_name,
+                    save_path_prefix=prefix,
+                    metadata_map=PLOT_METADATA,
+                )
+                for level, fig in nc_figs.items():
+                    figures[_figure_key(f"nucleotide_classification_{level}", scope, default_scope)] = fig
 
     # ---- Frameshift plots -------------------------------------------
     if EvalMetrics.FRAMESHIFT in metrics_to_eval:
         df_fs = df[(df["metric_group"] == EvalMetrics.FRAMESHIFT.name)].copy()
 
         if not df_fs.empty:
-            fig = plot_frameshift_percentage_bar(
-                df_fs,
-                class_name,
-                save_path=(output_dir / "frameshift.png") if output_dir else None,
-                metadata=PLOT_METADATA.get("frameshift"),
-            )
-            if fig is not None:
-                figures["frameshift"] = fig
+            default_scope = _metric_scopes(df_fs)[0]
+            for scope in _metric_scopes(df_fs):
+                df_scope = df_fs[df_fs["scope"] == scope] if scope is not None else df_fs[df_fs["scope"].isna()]
+                class_name = _scope_display_name(label_config, scope)
+                suffix = "" if scope == default_scope else f"_{scope}"
+                fig = plot_frameshift_percentage_bar(
+                    df_scope,
+                    class_name,
+                    save_path=(output_dir / f"frameshift{suffix}.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("frameshift"),
+                )
+                if fig is not None:
+                    figures[_figure_key("frameshift", scope, default_scope)] = fig
 
     # ---- Structural coherence plots ------------------------------------
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics_to_eval:
         df_sc = df[(df["metric_group"] == EvalMetrics.STRUCTURAL_COHERENCE.name)].copy()
+        structural_scopes = [scope for scope in _metric_scopes(df_sc) if scope != "intron"]
+        default_scope = structural_scopes[0] if structural_scopes else None
 
-        # Combined precision / recall overview — one figure per measure,
-        # reusing plot_ml_metrics_bar (x = metric, hue = method).
-        _PR_KEYS = ("intron_chain", "intron_chain_subset", "intron_chain_superset", "exon_chain", "exon_chain_superset", "exon_chain_subset")
-        _PR_DISPLAY = {
-            "intron_chain": "Exact intron chain",
-            "intron_chain_subset": "Intron Subset",
-            "intron_chain_superset": "Intron Superset",
-            "exon_chain": "Exact exon chain",
-            "exon_chain_superset": "Exon Superset",
-            "exon_chain_subset": "Exon Subset",
-        }
-        _method_scores: dict[str, dict] = {}
-        for _, _row in df_sc.iterrows():
-            if _row["metric_key"] in _PR_KEYS and isinstance(_row["value"], dict):
-                _method_scores.setdefault(_row["method_name"], {})[_row["metric_key"]] = _row["value"]
+        for scope in structural_scopes or [None]:
+            df_sc_scope = df_sc[
+                (df_sc["scope"] == "intron")
+                | ((df_sc["scope"] == scope) if scope is not None else df_sc["scope"].isna())
+            ].copy()
+            class_name = _scope_display_name(label_config, scope)
 
-        if _method_scores:
-            _pr_rows = []
-            for _method, _scores in _method_scores.items():
-                for _measure in ("precision", "recall"):
-                    _combined = {
-                        _PR_DISPLAY[k]: v.get(_measure, 0.0) for k, v in _scores.items() if isinstance(v, dict)
-                    }
-                    # Propagate bootstrap stderrs alongside scores using the same
-                    # display-name key with a "_stderr" suffix so plot_ml_metrics_bar
-                    # can separate them and render error bars.
-                    for k, v in _scores.items():
-                        if isinstance(v, dict):
-                            se = v.get(f"{_measure}_stderr")
-                            if se is not None:
-                                _combined[f"{_PR_DISPLAY[k]}_stderr"] = se
-                    _pr_rows.append(
-                        {
-                            "method_name": _method,
-                            "metric_group": EvalMetrics.STRUCTURAL_COHERENCE.name,
-                            "metric_key": "ts_level_" + _measure,
-                            "value": _combined,
-                        }
-                    )
-            _df_pr = pd.DataFrame(_pr_rows)
-            _prefix = (output_dir / "transcript_pr_overview") if output_dir else None
-            _pr_figs = plot_ml_metrics_bar(
-                _df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA
-            )
-            _pr_suffix = {
-                "ts_level_precision": "precision",
-                "ts_level_recall": "recall",
+            # Combined precision / recall overview — one figure per measure,
+            # reusing plot_ml_metrics_bar (x = metric, hue = method).
+            _PR_KEYS = ("intron_chain", "intron_chain_subset", "intron_chain_superset", "exon_chain", "exon_chain_superset", "exon_chain_subset")
+            _PR_DISPLAY = {
+                "intron_chain": "Exact intron chain",
+                "intron_chain_subset": "Intron Subset",
+                "intron_chain_superset": "Intron Superset",
+                "exon_chain": "Exact exon chain",
+                "exon_chain_superset": "Exon Superset",
+                "exon_chain_subset": "Exon Subset",
             }
-            for _level, _fig in _pr_figs.items():
-                _suffix = _pr_suffix.get(_level, _level)
-                figures[f"transcript_pr_overview_{_suffix}"] = _fig
+            _method_scores: dict[str, dict] = {}
+            for _, _row in df_sc_scope.iterrows():
+                if _row["metric_key"] in _PR_KEYS and isinstance(_row["value"], dict):
+                    _method_scores.setdefault(_row["method_name"], {})[_row["metric_key"]] = _row["value"]
 
-        # Transcript match class distribution with count annotations
-        fig = plot_transcript_match_distribution(
-            df_sc,
-            class_name,
-            save_path=(output_dir / "transcript_match.png") if output_dir else None,
-            metadata=PLOT_METADATA.get("transcript_match"),
-        )
-        if fig is not None:
-            figures["transcript_match"] = fig
+            if _method_scores:
+                _pr_rows = []
+                for _method, _scores in _method_scores.items():
+                    for _measure in ("precision", "recall"):
+                        _combined = {
+                            _PR_DISPLAY[k]: v.get(_measure, 0.0) for k, v in _scores.items() if isinstance(v, dict)
+                        }
+                        for k, v in _scores.items():
+                            if isinstance(v, dict):
+                                se = v.get(f"{_measure}_stderr")
+                                if se is not None:
+                                    _combined[f"{_PR_DISPLAY[k]}_stderr"] = se
+                        _pr_rows.append(
+                            {
+                                "method_name": _method,
+                                "metric_group": EvalMetrics.STRUCTURAL_COHERENCE.name,
+                                "metric_key": "ts_level_" + _measure,
+                                "value": _combined,
+                            }
+                        )
+                _df_pr = pd.DataFrame(_pr_rows)
+                _prefix = (output_dir / f"transcript_pr_overview{'' if scope == default_scope else f'_{scope}'}") if output_dir else None
+                _pr_figs = plot_ml_metrics_bar(
+                    _df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA
+                )
+                _pr_suffix = {
+                    "ts_level_precision": "precision",
+                    "ts_level_recall": "recall",
+                }
+                for _level, _fig in _pr_figs.items():
+                    _suffix = _pr_suffix.get(_level, _level)
+                    figures[_figure_key(f"transcript_pr_overview_{_suffix}", scope, default_scope)] = _fig
 
-        # Segment count delta per model
-        fig = plot_segment_count_delta(
-            df_sc,
-            class_name,
-            save_path=(output_dir / "segment_count_delta.png") if output_dir else None,
-            metadata=PLOT_METADATA.get("segment_count_delta"),
-        )
-        if fig is not None:
-            figures["segment_count_delta"] = fig
+            fig = plot_transcript_match_distribution(
+                df_sc_scope,
+                class_name,
+                save_path=(output_dir / f"transcript_match{'' if scope == default_scope else f'_{scope}'}.png") if output_dir else None,
+                metadata=PLOT_METADATA.get("transcript_match"),
+            )
+            if fig is not None:
+                figures[_figure_key("transcript_match", scope, default_scope)] = fig
 
-        # Boundary shift distribution (histograms + scatter)
-        fig = plot_boundary_shift_distribution(
-            df_sc,
-            class_name,
-            save_path=(output_dir / "boundary_shift_dist.png") if output_dir else None,
-            metadata=PLOT_METADATA.get("boundary_shift_distribution"),
-        )
-        if fig is not None:
-            figures["boundary_shift_dist"] = fig
+            fig = plot_segment_count_delta(
+                df_sc_scope,
+                class_name,
+                save_path=(output_dir / f"segment_count_delta{'' if scope == default_scope else f'_{scope}'}.png") if output_dir else None,
+                metadata=PLOT_METADATA.get("segment_count_delta"),
+            )
+            if fig is not None:
+                figures[_figure_key("segment_count_delta", scope, default_scope)] = fig
 
-        # Per-transcript continuous exon recovery + hallucinated exon count
-        fig = plot_per_transcript_soft_exon_metrics(
-            df_sc,
-            class_name,
-            save_path=(output_dir / "per_transcript_soft_exon.png") if output_dir else None,
-            metadata=PLOT_METADATA.get("per_transcript_soft_exon"),
-        )
-        if fig is not None:
-            figures["per_transcript_soft_exon"] = fig
+            fig = plot_boundary_shift_distribution(
+                df_sc_scope,
+                class_name,
+                save_path=(output_dir / f"boundary_shift_dist{'' if scope == default_scope else f'_{scope}'}.png") if output_dir else None,
+                metadata=PLOT_METADATA.get("boundary_shift_distribution"),
+            )
+            if fig is not None:
+                figures[_figure_key("boundary_shift_dist", scope, default_scope)] = fig
+
+            fig = plot_per_transcript_soft_exon_metrics(
+                df_sc_scope,
+                class_name,
+                save_path=(output_dir / f"per_transcript_soft_exon{'' if scope == default_scope else f'_{scope}'}.png") if output_dir else None,
+                metadata=PLOT_METADATA.get("per_transcript_soft_exon"),
+            )
+            if fig is not None:
+                figures[_figure_key("per_transcript_soft_exon", scope, default_scope)] = fig
 
     # ---- Diagnostic depth plots ----------------------------------------
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics_to_eval:
         df_dd = df[(df["metric_group"] == EvalMetrics.DIAGNOSTIC_DEPTH.name)].copy()
 
         if not df_dd.empty:
-            fig = plot_position_bias(
-                df_dd,
-                class_name,
-                save_path=(output_dir / "position_bias.png") if output_dir else None,
-                metadata=PLOT_METADATA.get("position_bias"),
-            )
-            if fig is not None:
-                figures["position_bias"] = fig
+            default_scope = _metric_scopes(df_dd)[0]
+            for scope in _metric_scopes(df_dd):
+                df_scope = df_dd[df_dd["scope"] == scope] if scope is not None else df_dd[df_dd["scope"].isna()]
+                class_name = _scope_display_name(label_config, scope)
+                suffix = "" if scope == default_scope else f"_{scope}"
+                fig = plot_position_bias(
+                    df_scope,
+                    class_name,
+                    save_path=(output_dir / f"position_bias{suffix}.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("position_bias"),
+                )
+                if fig is not None:
+                    figures[_figure_key("position_bias", scope, default_scope)] = fig
 
     return figures

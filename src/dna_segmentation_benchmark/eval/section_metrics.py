@@ -174,8 +174,16 @@ def _analyze_section_overlap_and_boundaries(
             total_pred=total_pred,
             gt_hit_strict=gt_hit_strict,
             pred_hit_strict=pred_hit_strict,
-        ), None
-    if boundary_residuals:
+        ), {
+            "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
+            "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
+            "iou_scores": iou_scores,
+            "fuzzy_metrics": {
+                "boundary_residuals": boundary_residuals,
+                "total_gt": total_gt,
+            },
+        } if need_boundary_stats else None
+    if need_boundary_stats:
         return None, {"first_sec_correct_3_prime_boundary": first_sec_correct_3_prime, "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
                       "iou_scores": iou_scores, "fuzzy_metrics": {"boundary_residuals": boundary_residuals, "total_gt": total_gt}}
 

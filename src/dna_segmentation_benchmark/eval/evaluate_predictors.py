@@ -32,19 +32,21 @@ from tqdm import tqdm
 from .accumulators import BenchmarkAccumulator
 from .chain_comparison import (
     _compute_intron_chain_metrics,
-    _compute_chain_metrics,
-    _compute_boundary_shift_metrics,
-    _compute_per_transcript_exon_soft_metrics,
+    _compute_scoped_chain_metrics,
 )
 from .frame_shift import _get_frame_shift_metrics
 from .indel_metrics import _eval_indel
-from .preprocessing import _infer_introns_from_coding_gaps, _iter_unmasked_spans
+from .preprocessing import (
+    _infer_introns_from_coding_gaps,
+    _iter_unmasked_spans,
+    resolve_scope_mask,
+    resolve_scope_sections,
+)
 from .section_metrics import _eval_sections
 from .state_transitions import _compute_state_change_errors
 from .statistics import Counts
 from .structure import extract_structure
 from .structural_summary import _compute_structural_summary
-from .transcript_classification import _classify_transcript_match
 from .utils import get_contiguous_groups
 from .splice_sites import eval_splice_site_junctions
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
@@ -133,13 +135,13 @@ def benchmark_gt_vs_pred_single(
 
     if mask_labels is None:
         # A single unmasked span — return the raw per-sequence fragment.
-        return _benchmark_chunk(gt_labels, pred_labels, label_config, metrics)
+        return _attach_metadata(_benchmark_chunk(gt_labels, pred_labels, label_config, metrics), label_config)
 
     # Masked: evaluate each kept span and combine into the un-summarised form.
     accumulator = BenchmarkAccumulator()
     for s, e in _iter_unmasked_spans(mask_labels):
         accumulator.add(_benchmark_chunk(gt_labels[s:e], pred_labels[s:e], label_config, metrics))
-    return accumulator.merged()
+    return _attach_metadata(accumulator.merged(), label_config)
 
 
 def _iter_sequence_fragments(
@@ -177,45 +179,69 @@ def _benchmark_chunk(
     ``metrics`` must already be normalised to a frozenset; intron inference
     and mask splitting are handled by :func:`benchmark_gt_vs_pred_single`.
     """
-    coding = label_config.coding_label
-
     # Row 0 = GT, Row 1 = prediction  (NO sentinel padding here)
     arr = np.stack((gt_labels, pred_labels), axis=0)
 
     metric_results: dict[str, dict] = {}
     metric_results.update(_eval_transitions(arr, label_config))
 
-    grouped_insertions = get_contiguous_groups(np.where((arr[0] != coding) & (arr[1] == coding))[0])
-    grouped_deletions = get_contiguous_groups(np.where((arr[0] == coding) & (arr[1] != coding))[0])
-    grouped_gt_sections = get_contiguous_groups(np.where(arr[0] == coding)[0])
-    grouped_pred_sections = get_contiguous_groups(np.where(arr[1] == coding)[0])
+    scope = label_config.evaluation_scope
+    gt_mask = resolve_scope_mask(gt_labels, scope, label_config)
+    pred_mask = resolve_scope_mask(pred_labels, scope, label_config)
+    grouped_insertions = get_contiguous_groups(np.where(~gt_mask & pred_mask)[0])
+    grouped_deletions = get_contiguous_groups(np.where(gt_mask & ~pred_mask)[0])
+    grouped_gt_sections = resolve_scope_sections(gt_labels, scope, label_config)
+    grouped_pred_sections = resolve_scope_sections(pred_labels, scope, label_config)
 
     if EvalMetrics.INDEL in metrics:
         metric_results[EvalMetrics.INDEL.name] = _eval_indel(
-            grouped_insertions, grouped_deletions, gt_labels, pred_labels, label_config
+            grouped_insertions,
+            grouped_deletions,
+            gt_mask,
+            pred_mask,
+            label_config,
         )
 
     if _needs_section_analysis(metrics):
-        section_data, boundary_data = _eval_sections(grouped_gt_sections, grouped_pred_sections, metrics)
+        section_data, boundary_data = _eval_sections(
+            grouped_gt_sections,
+            grouped_pred_sections,
+            metrics,
+        )
         if section_data:
-            metric_results[EvalMetrics.REGION_DISCOVERY.name]=section_data
+            metric_results[EvalMetrics.REGION_DISCOVERY.name] = section_data
         if boundary_data:
-            metric_results[EvalMetrics.BOUNDARY_EXACTNESS.name]=boundary_data
+            metric_results[EvalMetrics.BOUNDARY_EXACTNESS.name] = boundary_data
 
     if EvalMetrics.NUCLEOTIDE_CLASSIFICATION in metrics:
         metric_results[EvalMetrics.NUCLEOTIDE_CLASSIFICATION.name] = {
-            "nucleotide": _compute_nucleotide_level_confusion(gt_labels, pred_labels, coding),
+            "nucleotide": _compute_nucleotide_level_confusion(
+                gt_mask,
+                pred_mask,
+            )
         }
 
     if EvalMetrics.FRAMESHIFT in metrics:
-        metric_results[EvalMetrics.FRAMESHIFT.name] = _eval_frameshift(gt_labels, pred_labels, label_config)
+        if not label_config.supports_frameshift:
+            raise ValueError(
+                "FRAMESHIFT is only valid in UTR_CDS_INTRON mode with "
+                "evaluation_scope='cds'."
+            )
+        frameshift = _eval_frameshift(
+            gt_mask,
+            pred_mask,
+        )
+        metric_results[EvalMetrics.FRAMESHIFT.name] = {
+            "gt_frames": np.asarray(frameshift["frames"])
+        }
 
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
         metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = _eval_structural(gt_labels, pred_labels, label_config)
 
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
         metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = _compute_structural_summary(
-            grouped_gt_sections, grouped_pred_sections
+            grouped_gt_sections,
+            grouped_pred_sections,
         )
 
     return metric_results
@@ -235,17 +261,11 @@ def _eval_transitions(arr: np.ndarray, label_config: LabelConfig) -> dict:
     }
 
 
-def _eval_frameshift(gt_labels: np.ndarray, pred_labels: np.ndarray, label_config: LabelConfig) -> dict:
-    """Per-position reading-frame deviation between GT and predicted exons."""
-    if label_config.coding_label is None:
-        raise ValueError(
-            "FRAMESHIFT metric requested but LabelConfig.coding_label is not "
-            "set.  Provide a coding_label when constructing your LabelConfig."
-        )
+def _eval_frameshift(gt_positive_mask: np.ndarray, pred_positive_mask: np.ndarray) -> dict:
+    """Per-position reading-frame deviation for one explicit CDS-like scope."""
     return _get_frame_shift_metrics(
-        gt_labels=gt_labels,
-        pred_labels=pred_labels,
-        coding_value=label_config.coding_label,
+        gt_positive_mask=gt_positive_mask,
+        pred_positive_mask=pred_positive_mask,
     )
 
 
@@ -253,26 +273,16 @@ def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_confi
     """Build STRUCTURAL_COHERENCE (and, when configured, splice_sites)."""
     gt_struct = extract_structure(gt_labels, label_config)
     pred_struct = extract_structure(pred_labels, label_config)
+    scope = label_config.evaluation_scope
 
-    chain_metric_results: dict = {}
-    chain_metric_results.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
-    chain_metric_results.update(_compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, label_config))
-
-    gt_coding = gt_struct.filter_by_label(label_config.coding_label)
-    pred_coding = pred_struct.filter_by_label(label_config.coding_label)
-
-    if len(gt_coding) > 0:
-        chain_metric_results.update(_compute_chain_metrics(gt_struct, pred_struct, label_config.coding_label, "exon_chain"))
-        chain_metric_results.update(_compute_boundary_shift_metrics(gt_struct, pred_struct, label_config.coding_label))
-        chain_metric_results["segment_count_delta"] = len(pred_coding) - len(gt_coding)
-
-        match_cls = _classify_transcript_match(gt_struct, pred_struct, label_config.coding_label)
-        if match_cls is not None:
-            chain_metric_results["transcript_match_class"] = match_cls.value
-
-    structural_coherance_results = {
-        "chain_metric_results":chain_metric_results,
-    }
+    structural_coherance_results = _compute_scoped_chain_metrics(
+        gt_struct,
+        pred_struct,
+        label_config,
+        scope,
+    )
+    if label_config.intron_label is not None:
+        structural_coherance_results.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
     if (
         label_config.intron_label is not None
         and label_config.splice_donor_label is not None
@@ -286,17 +296,14 @@ def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_confi
 
 
 def _compute_nucleotide_level_confusion(
-    gt_labels: np.ndarray, pred_labels: np.ndarray, class_value: int
+    gt_positive_mask: np.ndarray, pred_positive_mask: np.ndarray
 ) -> Counts:
     """Calculate granular base accuracy as a confusion bundle."""
-    gt_pos = gt_labels == class_value
-    pred_pos = pred_labels == class_value
-
     return Counts(
-        tn=int(np.count_nonzero(~gt_pos & ~pred_pos)),
-        fp=int(np.count_nonzero(~gt_pos & pred_pos)),
-        fn=int(np.count_nonzero(gt_pos & ~pred_pos)),
-        tp=int(np.count_nonzero(gt_pos & pred_pos)),
+        tn=int(np.count_nonzero(~gt_positive_mask & ~pred_positive_mask)),
+        fp=int(np.count_nonzero(~gt_positive_mask & pred_positive_mask)),
+        fn=int(np.count_nonzero(gt_positive_mask & ~pred_positive_mask)),
+        tp=int(np.count_nonzero(gt_positive_mask & pred_positive_mask)),
     )
 
 
@@ -379,4 +386,14 @@ def benchmark_gt_vs_pred_multiple(
         ):
             accumulator.add(fragment)
 
-    return accumulator.summarise()
+    return _attach_metadata(accumulator.summarise(), label_config)
+
+
+def _attach_metadata(result: dict, label_config: LabelConfig) -> dict:
+    """Attach annotation-mode metadata to a benchmark result payload."""
+    payload = dict(result)
+    payload["metadata"] = {
+        "annotation_mode": label_config.annotation_mode.value,
+        "evaluation_scope": label_config.evaluation_scope.value,
+    }
+    return payload

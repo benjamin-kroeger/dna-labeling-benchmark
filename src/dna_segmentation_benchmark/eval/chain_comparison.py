@@ -23,8 +23,10 @@ Metrics
 from __future__ import annotations
 
 from .statistics import Counts
-from .structure import ExtractedStructure, Segment
+from .structure import ExtractedStructure, Segment, extract_scoped_segments
+from .transcript_classification import _classify_segment_match
 from .. import LabelConfig
+from ..label_definition import BenchmarkScope
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +185,55 @@ def _compute_intron_chain_metrics(
     }
 
 
+def _segments_for_scope(
+        structure: ExtractedStructure,
+        scope: BenchmarkScope | str,
+        label_config: LabelConfig,
+) -> tuple[Segment, ...]:
+    """Return scope-resolved segments, collapsing adjacent compatible labels."""
+    return extract_scoped_segments(structure, label_config.scope_tokens(scope))
+
+
+def _compute_scoped_chain_metrics(
+        gt_structure: ExtractedStructure,
+        pred_structure: ExtractedStructure,
+        label_config: LabelConfig,
+        scope: BenchmarkScope | str,
+) -> dict:
+    """Compare exonic segment chains for an explicit benchmark scope."""
+    gt_segs = _segments_for_scope(gt_structure, scope, label_config)
+    pred_segs = _segments_for_scope(pred_structure, scope, label_config)
+
+    if len(gt_segs) == 0:
+        return {
+            "exon_chain": Counts(),
+            "exon_chain_subset": Counts(),
+            "exon_chain_superset": Counts(),
+        }
+
+    gt_set: set[tuple[int, int]] = {(s.start, s.end) for s in gt_segs}
+    pred_set: set[tuple[int, int]] = {(s.start, s.end) for s in pred_segs}
+
+    exact = gt_set == pred_set
+    subset = bool(pred_set) and pred_set <= gt_set
+    superset = bool(pred_set) and pred_set >= gt_set
+
+    chain_metrics = {
+        "exon_chain": Counts(tp=1) if exact else Counts(fp=1, fn=1),
+        "exon_chain_subset": Counts(tp=1) if subset else Counts(fp=1, fn=1),
+        "exon_chain_superset": Counts(tp=1) if superset else Counts(fp=1, fn=1),
+    }
+    chain_metrics.update(_compute_boundary_shift_from_segments(gt_segs, pred_segs))
+    chain_metrics.update(_compute_soft_metrics_from_segments(gt_segs, pred_segs))
+
+    match_cls = _classify_segment_match(gt_segs, pred_segs)
+    if match_cls is not None:
+        chain_metrics["transcript_match_class"] = match_cls.value
+
+    chain_metrics["segment_count_delta"] = len(pred_segs) - len(gt_segs)
+    return chain_metrics
+
+
 # ---------------------------------------------------------------------------
 # Boundary shift (per-transcript, separate from chain PR)
 # ---------------------------------------------------------------------------
@@ -214,18 +265,33 @@ def _compute_boundary_shift_metrics(
     return {"boundary_shift_count": count, "boundary_shift_total": total}
 
 
+def _compute_boundary_shift_from_segments(
+        gt_segs: tuple[Segment, ...],
+        pred_segs: tuple[Segment, ...],
+) -> dict:
+    """Count shifted boundaries for a pre-selected scope segment chain."""
+    if len(gt_segs) == 0 or len(gt_segs) != len(pred_segs):
+        return {"boundary_shift_count": 0, "boundary_shift_total": 0}
+
+    count, total = _measure_shifted_boundaries(gt_segs, pred_segs)
+    return {"boundary_shift_count": count, "boundary_shift_total": total}
+
+
 def _raise_if_introns_missing_but_inferable(
         structure: ExtractedStructure,
         label_config: LabelConfig,
         side_name: str,
 ) -> None:
     """Reject exon/CDS-only structures before intron-chain scoring."""
-    coding = label_config.coding_label
     intron = label_config.intron_label
-    if coding is None or intron is None:
+    if intron is None:
         return
 
-    coding_segs = structure.filter_by_label(coding)
+    coding_segs = _segments_for_scope(
+        structure,
+        BenchmarkScope.TRANSCRIPT_EXON,
+        label_config,
+    )
     intron_segs = structure.filter_by_label(intron)
     if len(coding_segs) > 1 and not intron_segs:
         raise ValueError(
@@ -259,16 +325,27 @@ def _compute_per_transcript_exon_soft_metrics(
         Empty dict when GT has no exons.
     """
 
-    gt_exons: set[tuple[int, int]] = {(s.start, s.end) for s in gt_structure.filter_by_label(label_config.coding_label)}
-    pred_exons: set[tuple[int, int]] = {(s.start, s.end) for s in pred_structure.filter_by_label(label_config.coding_label)}
+    gt_exons = _segments_for_scope(gt_structure, BenchmarkScope.TRANSCRIPT_EXON, label_config)
+    pred_exons = _segments_for_scope(pred_structure, BenchmarkScope.TRANSCRIPT_EXON, label_config)
 
-    if not gt_exons:
+    return _compute_soft_metrics_from_segments(gt_exons, pred_exons)
+
+
+def _compute_soft_metrics_from_segments(
+        gt_exons: tuple[Segment, ...],
+        pred_exons: tuple[Segment, ...],
+) -> dict:
+    """Per-transcript recall and hallucination counts for a scope segment set."""
+    gt_set: set[tuple[int, int]] = {(s.start, s.end) for s in gt_exons}
+    pred_set: set[tuple[int, int]] = {(s.start, s.end) for s in pred_exons}
+
+    if not gt_set:
         return {}
 
-    shared = gt_exons & pred_exons
+    shared = gt_set & pred_set
     return {
-        "exon_recall_per_transcript": len(shared) / len(gt_exons),
-        "hallucinated_exon_count_per_transcript": len(pred_exons - gt_exons),
+        "exon_recall_per_transcript": len(shared) / len(gt_set),
+        "hallucinated_exon_count_per_transcript": len(pred_set - gt_set),
     }
 
 
@@ -306,5 +383,4 @@ def _measure_shifted_boundaries(
             count += 1
             total += abs(g.end - p.end)
     return count, total
-
 

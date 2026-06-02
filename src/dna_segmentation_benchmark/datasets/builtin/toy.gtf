@@ -1,0 +1,8 @@
+chr_toy	toy	gene	1	420	.	+	.	gene_id "g1";
+chr_toy	toy	transcript	1	420	.	+	.	gene_id "g1"; transcript_id "g1.t1";
+chr_toy	toy	exon	1	120	.	+	.	gene_id "g1"; transcript_id "g1.t1"; exon_number "1";
+chr_toy	toy	exon	181	300	.	+	.	gene_id "g1"; transcript_id "g1.t1"; exon_number "2";
+chr_toy	toy	exon	361	420	.	+	.	gene_id "g1"; transcript_id "g1.t1"; exon_number "3";
+chr_toy	toy	CDS	1	120	.	+	0	gene_id "g1"; transcript_id "g1.t1"; exon_number "1";
+chr_toy	toy	CDS	181	300	.	+	0	gene_id "g1"; transcript_id "g1.t1"; exon_number "2";
+chr_toy	toy	CDS	361	420	.	+	0	gene_id "g1"; transcript_id "g1.t1"; exon_number "3";

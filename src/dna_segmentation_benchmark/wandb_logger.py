@@ -82,18 +82,15 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "perfect_boundary_hit/recall": ("perfect_boundary_hit", "recall"),
     },
     "STRUCTURAL_COHERENCE": {
-        "intron_chain/precision": ("chain_metric_results", "intron_chain", "precision"),
-        "intron_chain/recall": ("chain_metric_results", "intron_chain", "recall"),
-        "exon_chain/precision": ("chain_metric_results", "exon_chain", "precision"),
-        "exon_chain/recall": ("chain_metric_results", "exon_chain", "recall"),
-        "segment_count_delta/mean": ("chain_metric_results", "segment_count_delta", "mean"),
-        "segment_count_delta/mae": ("chain_metric_results", "segment_count_delta", "mae"),
-        "exon_recall_per_transcript/mean": ("chain_metric_results", "exon_recall_per_transcript"),
-        "hallucinated_exon_count_per_transcript/mean": (
-            "chain_metric_results",
-            "hallucinated_exon_count_per_transcript",
-        ),
-        "exact_match_rate": ("chain_metric_results", "exact_match_rate"),
+        "intron_chain/precision": ("intron_chain", "precision"),
+        "intron_chain/recall": ("intron_chain", "recall"),
+        "exon_chain/precision": ("exon_chain", "precision"),
+        "exon_chain/recall": ("exon_chain", "recall"),
+        "segment_count_delta/mean": ("segment_count_delta", "mean"),
+        "segment_count_delta/mae": ("segment_count_delta", "mae"),
+        "exon_recall_per_transcript/mean": ("exon_recall_per_transcript",),
+        "hallucinated_exon_count_per_transcript/mean": ("hallucinated_exon_count_per_transcript",),
+        "exact_match_rate": ("exact_match_rate",),
     },
 }
 
@@ -150,6 +147,30 @@ def _get_nested_scalar(data: dict, path: tuple[str, ...]) -> float | None:
     return None
 
 
+def _default_scope_name(group_data: dict) -> str | None:
+    """Return the preferred default scope for one scoped metric group."""
+    scopes = group_data.get("scopes")
+    if not isinstance(scopes, dict) or not scopes:
+        return None
+    if "transcript_exon" in scopes:
+        return "transcript_exon"
+    return next(iter(scopes.keys()))
+
+
+def _default_scope_payload(group_key: str, group_data: dict) -> dict:
+    """Return a legacy-style default payload for one metric group."""
+    scope_name = _default_scope_name(group_data)
+    if scope_name is None:
+        return group_data
+
+    payload = dict(group_data["scopes"][scope_name])
+    if group_key == "STRUCTURAL_COHERENCE":
+        for key, value in group_data.items():
+            if key not in {"scopes", "splice_site_results"}:
+                payload[key] = value
+    return payload
+
+
 def _flatten_selected_scalars(
     results: dict,
     *,
@@ -161,10 +182,11 @@ def _flatten_selected_scalars(
         group_data = results.get(group_key)
         if not isinstance(group_data, dict):
             continue
+        group_payload = _default_scope_payload(group_key, group_data)
         group_display = _GROUP_DISPLAY_NAMES.get(group_key, group_key)
         section = f"{prefix}/{group_display}" if prefix else group_display
         for leaf_name, source_path in metrics.items():
-            value = _get_nested_scalar(group_data, source_path)
+            value = _get_nested_scalar(group_payload, source_path)
             if value is not None:
                 flat[f"{section}/{leaf_name}"] = value
     return flat

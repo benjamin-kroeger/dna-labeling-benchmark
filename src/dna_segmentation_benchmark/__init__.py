@@ -2,6 +2,8 @@
 
 Public API
 ----------
+.. autoclass:: AnnotationMode
+.. autoclass:: BenchmarkScope
 .. autoclass:: LabelConfig
 .. autoclass:: EvalMetrics
 .. autofunction:: benchmark_gt_vs_pred_single
@@ -15,7 +17,12 @@ Public API
 .. autofunction:: init_wandb_with_presets
 """
 
-from .label_definition import LabelConfig, BEND_LABEL_CONFIG
+from .label_definition import (
+    AnnotationMode,
+    BenchmarkScope,
+    LabelConfig,
+    BEND_LABEL_CONFIG,
+)
 from .eval.evaluate_predictors import (
     EvalMetrics,
     benchmark_gt_vs_pred_single,
@@ -34,6 +41,8 @@ from .transcript_mapping import LocusMatchingMode
 
 __all__ = [
     "LabelConfig",
+    "AnnotationMode",
+    "BenchmarkScope",
     "BEND_LABEL_CONFIG",
     "EvalMetrics",
     "LocusMatchingMode",
