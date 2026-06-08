@@ -28,3 +28,7 @@ docs/api/generated/
 # Misc
 *.log
 .DS_Store
+.misc/
+
+.claude
+.claudeignore
