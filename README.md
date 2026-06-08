@@ -16,10 +16,11 @@ pip install dna-segmentation-benchmark
 
 ```python
 from dna_segmentation_benchmark import (
-    LabelConfig, EvalMetrics, benchmark_from_gff, compare_multiple_predictions,
+    AnnotationMode, LabelConfig, EvalMetrics, benchmark_from_gff, compare_multiple_predictions,
 )
 
 label_config = LabelConfig(
+    annotation_mode=AnnotationMode.EXON_INTRON,
     background_label=8,
     exon_label=0,
     intron_label=2,
@@ -45,10 +46,11 @@ figures = compare_multiple_predictions(
 ```python
 import numpy as np
 from dna_segmentation_benchmark import (
-    LabelConfig, EvalMetrics, benchmark_gt_vs_pred_multiple, compare_multiple_predictions,
+    AnnotationMode, LabelConfig, EvalMetrics, benchmark_gt_vs_pred_multiple, compare_multiple_predictions,
 )
 
 label_config = LabelConfig(
+    annotation_mode=AnnotationMode.EXON_INTRON,
     background_label=8,
     exon_label=0,
     intron_label=2,
@@ -80,7 +82,8 @@ dna-benchmark run \
     --output results.json
 ```
 
-Generate a starter `label_config.yaml` with `dna-benchmark init-config`.
+Generate a starter `label_config.yaml` with `dna-benchmark init-config`
+(`--mode exon_intron` or `--mode utr_cds_intron`).
 
 ---
 
@@ -258,21 +261,50 @@ Two analyses run on every benchmark call:
 
 ## Label Configuration
 
-All metrics are label-agnostic. Define your own token mapping:
+All metrics are label-agnostic. Every `LabelConfig` declares an explicit
+**annotation mode** that fixes what the positive labels mean:
+
+| Mode | Positive labels | Use it for |
+|------|-----------------|------------|
+| `EXON_INTRON` | one `exon_label` | exon/intron structure; tools that don't split UTR from CDS |
+| `UTR_CDS_INTRON` | `five_prime_utr_label`, `cds_label`, `three_prime_utr_label` | full transcript anatomy; CDS-scoped metrics; `FRAMESHIFT` |
 
 ```python
-from dna_segmentation_benchmark import LabelConfig
+from dna_segmentation_benchmark import AnnotationMode, LabelConfig
 
-config = LabelConfig(
+# Exon/intron structure
+exon_config = LabelConfig(
+    annotation_mode=AnnotationMode.EXON_INTRON,
     background_label=8,
-    exon_label=0,            # required; also used by FRAMESHIFT
+    exon_label=0,            # required in this mode
     intron_label=2,          # optional; required for intron-chain metrics
-    splice_donor_label=1,    # optional, reserved for future splice metrics
-    splice_acceptor_label=3, # optional, reserved for future splice metrics
+    splice_donor_label=1,    # optional; both splice labels set together
+    splice_acceptor_label=3, # optional
+)
+
+# Transcript anatomy with explicit UTR/CDS
+anatomy_config = LabelConfig(
+    annotation_mode=AnnotationMode.UTR_CDS_INTRON,
+    background_label=8,
+    cds_label=0,             # required in this mode
+    five_prime_utr_label=4,  # required
+    three_prime_utr_label=5, # required
+    intron_label=2,
+    splice_donor_label=1,
+    splice_acceptor_label=3,
 )
 ```
 
-A pre-built config for the BEND benchmark is available as `BEND_LABEL_CONFIG`.
+The mode also fixes the **evaluation scope**. Per-transcript metrics run on the
+configured `evaluation_scope` (`transcript_exon` by default; `cds` is available
+in `UTR_CDS_INTRON`), while global file-level metrics report every available
+scope. `FRAMESHIFT` is only valid in `UTR_CDS_INTRON` with
+`evaluation_scope=BenchmarkScope.CDS`.
+
+A pre-built `EXON_INTRON` config for the BEND benchmark is available as
+`BEND_LABEL_CONFIG`. See the
+[annotation modes guide](https://dna-labeling-benchmark.readthedocs.io/en/latest/getting_started/annotation_modes.html)
+for the full walkthrough.
 
 ---
 
