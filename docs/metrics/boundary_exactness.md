@@ -52,7 +52,7 @@ boundary bias landscape which can show if certain numbers or nucleotides are con
 The cumulative reliability highlights how recall improves if each boundary is counted as an exact match given x 
 nucleotides of error in both 5' and 3' direction.
 
-![Boundary residuals](../images/example_boundary_landscape.png)
+![Boundary residuals](../images/Method_A_boundary_landscape.png)
 
 
 Interpretation:

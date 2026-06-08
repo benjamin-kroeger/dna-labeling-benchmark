@@ -21,7 +21,7 @@ At every position where the GT label changes, the benchmark records:
 
 The result is one confusion matrix per GT source label.
 
-![GT Transition Confusion Matrices](../images/transition_confusion_matrices.png)
+![GT Transition Confusion Matrices](../images/Method_A_transition_matrices.png)
 
 How to read it:
 

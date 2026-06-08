@@ -51,8 +51,8 @@ enable intron inference at the public entry points (e.g. pass
 `infer_introns=True` to `benchmark_gt_vs_pred_single` /
 `benchmark_gt_vs_pred_multiple`).
 
-![Intron/exon chain recall](../images/transcript_intron_exon_chain_recall.png)
-![Intron/exon chain precision](../images/transcript_intron_exon_chain_precision.png)
+![Intron/exon chain recall](../images/transcript_pr_overview_recall.png)
+![Intron/exon chain precision](../images/transcript_pr_overview_precision.png)
 
 ---
 

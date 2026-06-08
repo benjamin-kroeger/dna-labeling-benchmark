@@ -61,6 +61,22 @@ figures = compare_multiple_predictions(
 For the second case, the plotting code automatically unwraps the
 `per_transcript` section.
 
+## Example Output
+
+The comparison bundle includes per-method plots for boundary landscape, per-class position bias, and transition matrices.
+
+**Boundary landscape:**
+
+![Method A boundary landscape](../images/Method_A_boundary_landscape.png)
+![Method B boundary landscape](../images/Method_B_boundary_landscape.png)
+![Method C boundary landscape](../images/Method_C_boundary_landscape.png)
+
+**Transition matrices:**
+
+![Method A transitions](../images/Method_A_transition_matrices.png)
+![Method B transitions](../images/Method_B_transition_matrices.png)
+![Method C transitions](../images/Method_C_transition_matrices.png)
+
 ## Interpretation
 
 This plotting layer is comparative, not evaluative on its own. Use the

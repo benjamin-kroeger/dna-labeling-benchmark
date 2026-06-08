@@ -6,7 +6,7 @@ classification quality per base.
 
 ## Example Plot
 
-![Nucleotide classification example](../images/nucleotide_classification.png)
+![Nucleotide classification example](../images/nucleotide_classification_nucleotide.png)
 
 ## What It Computes
 

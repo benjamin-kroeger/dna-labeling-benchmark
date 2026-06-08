@@ -20,7 +20,7 @@ counts any exact-boundary match, without the 1:1 assignment.
 
 ### `neighborhood_hit`
 
-![region_discovery_neighbor.png](../images/region_discovery_neighbor.png)
+![region_discovery_neighborhood_hit.png](../images/region_discovery_neighborhood_hit.png)
 
 True positive if the matched prediction overlaps the GT section at all.
 
@@ -28,7 +28,7 @@ This is the most forgiving tier. Any contact counts.
 
 ### `internal_hit`
 
-![region_discovery_internal.png](../images/region_discovery_internal.png)
+![region_discovery_internal_hit.png](../images/region_discovery_internal_hit.png)
 
 True positive if the matched prediction lies entirely inside the GT section.
 
@@ -37,7 +37,7 @@ This forgives under-prediction of the GT span less than
 
 ### `full_coverage_hit`
 
-![region_discovery_full_coverage.png](../images/region_discovery_full_coverage.png)
+![region_discovery_full_coverage_hit.png](../images/region_discovery_full_coverage_hit.png)
 
 True positive if the matched prediction fully covers the GT section.
 
@@ -46,7 +46,7 @@ under-prediction.
 
 ### `perfect_boundary_hit`
 
-![region_discovery_perfect.png](../images/region_discovery_perfect.png)
+![region_discovery_perfect_boundary_hit.png](../images/region_discovery_perfect_boundary_hit.png)
 
 True positive only when both boundaries match exactly.
 
