@@ -15,8 +15,6 @@ mask.
 
 ![INDEL events by boundary](../images/indel_counts_by_boundary.png)
 
-![INDEL length example](../images/indel_lengths.png)
-
 Four complementary views are produced (all boundary-resolved views use one panel
 **per method** over a shared, biologically-ordered grid, so methods compare
 directly):
@@ -31,10 +29,29 @@ directly):
 - **`indel_counts_by_boundary`** — the raw-magnitude companion: the same grid
   coloured by event count on a **log** scale (so one huge cell does not wash out
   the rest). Answers *where* the errors concentrate in absolute terms.
-- **`indel_lengths`** — a GT-boundary × event-type grid of per-method run-length
-  distributions. Answers *how large* the slips are at each junction, separating
-  small boundary slips from long insertions/deletions or broad merge/split
-  regions.
+- **`indel_lengths_<boundary>`** — one figure per exon-position category: a
+  4 × 2 grid (insertions top row, deletions bottom row) of overlaid per-method
+  run-length histograms. Answers *how large* the slips are at each junction,
+  separating small boundary slips from long insertions/deletions or broad
+  merge/split regions.
+
+### Run-length distributions by exon position
+
+**Internal exon**
+
+![INDEL length distributions — internal exon](../images/indel_lengths_internal_exon.png)
+
+**5′ terminal exon**
+
+![INDEL length distributions — five prime terminal exon](../images/indel_lengths_five_prime_terminal_exon.png)
+
+**3′ terminal exon**
+
+![INDEL length distributions — three prime terminal exon](../images/indel_lengths_three_prime_terminal_exon.png)
+
+**Single-exon gene**
+
+![INDEL length distributions — single exon gene](../images/indel_lengths_single_exon_gene.png)
 
 ## Categories
 
@@ -152,6 +169,6 @@ cells with zero opportunity are masked.
 - 5'/3' and the boundary key order refer to **array orientation**, not
   biological strand. Minus-strand input in genomic coordinates would invert
   the labels. See {doc}`conventions`.
-- The length distribution plot uses a `log10` x-axis with tick labels
+- The run-length distribution plots use a `log10` x-axis with tick labels
   re-projected to linear bp. A peak labelled "100" represents bins *near*
   100 bp, not exactly 100.
