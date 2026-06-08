@@ -33,7 +33,7 @@ import seaborn as sns
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import MaxNLocator
 
-from ..config import ICON_MAP, DEFAULT_MULTI_PLOT_FIG_SIZE, PlotMetadata, DEFAULT_FIG_SIZE
+from ..config import DEFAULT_MULTI_PLOT_FIG_SIZE, PlotMetadata, DEFAULT_FIG_SIZE
 from ..utils import _add_icon_to_ax, _save_figure, _add_pictogram_panel
 from ...label_definition import SEMANTIC_BOUNDARY_ORDER
 
@@ -464,8 +464,7 @@ def plot_individual_error_lengths_histograms(
                     ax.set_xticklabels([f"{10**x:.0f}" if np.isfinite(x) else "" for x in log_ticks])
 
                 ax.set_title(_pretty_event(event_type), fontsize=11, pad=8)
-                if event_type in ICON_MAP:
-                    _add_icon_to_ax(ax, ICON_MAP[event_type], zoom=0.11, y_rel_pos=1.42, logger=logger)
+                _add_icon_to_ax(ax, event_type, y_rel_pos=1.42, logger=logger)
                 ax.set_xlabel("Run length (nt)" if r == 1 else "", fontsize=9)
                 ax.set_ylabel("Count" if c == 0 else "", fontsize=9)
 
@@ -490,7 +489,7 @@ def plot_individual_error_lengths_histograms(
             bottom=0.16 if handles else 0.09,
             top=0.78,
             wspace=0.20,
-            hspace=0.85,
+            hspace=1.4,
         )
         if handles:
             fig.legend(

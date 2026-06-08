@@ -4,7 +4,6 @@ from pathlib import Path
 import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
 from dna_segmentation_benchmark.plotting.config import DEFAULT_FIG_SIZE, PlotMetadata
 
@@ -82,31 +81,48 @@ def _save_figure(fig: plt.Figure, save_path: Path, logger, dpi: int = 300) -> No
     logger.info("Saved figure to %s", save_path)
 
 
+def _composite_on_white(img: np.ndarray) -> np.ndarray:
+    """Alpha-composite an RGBA float32 image against a white background → RGB.
+
+    Resolves the alpha channel before matplotlib ever sees the data, so
+    semi-transparent edge pixels (antialiased lines in icons) are always
+    blended against white rather than against whatever colour happens to be
+    behind the rendered artist.
+    """
+    if img.ndim == 3 and img.shape[2] == 4:
+        rgb = img[..., :3].astype(np.float32)
+        alpha = img[..., 3:4].astype(np.float32)
+        return rgb * alpha + (1.0 - alpha)  # white = 1.0 in float space
+    return img
+
+
 def _add_icon_to_ax(
     ax: plt.Axes,
-    icon_path: str,
+    event_type: str,
     logger,
-    zoom: float = 0.2,
-    x_rel_pos: float = 0.5,
     y_rel_pos: float = 1.25,
+    icon_height_frac: float = 0.38,
 ) -> None:
-    """Place an image (icon) above *ax*."""
-    try:
-        icon_img = plt.imread(icon_path)
-        imagebox = OffsetImage(icon_img, zoom=zoom, interpolation="nearest")
-        ab = AnnotationBbox(
-            imagebox,
-            (x_rel_pos, y_rel_pos),
-            xycoords=ax.transAxes,
-            frameon=False,
-            annotation_clip=False,
-        )
-        ab.set_clip_on(False)
-        ax.add_artist(ab)
-    except FileNotFoundError:
-        logger.warning("Icon not found: %s", icon_path)
-    except Exception:
-        logger.warning("Could not load icon: %s", icon_path, exc_info=True)
+    """Draw a vector icon above *ax* in a small inset axes.
+
+    ``y_rel_pos`` is the vertical centre of the icon in axes-fraction
+    coordinates (>1 = above the axes).  ``icon_height_frac`` controls the
+    inset height as a fraction of the parent axes height.
+    """
+    from .icons import VECTOR_ICON_DRAWERS
+    draw_fn = VECTOR_ICON_DRAWERS.get(event_type)
+    if draw_fn is None:
+        logger.warning("No vector icon for event type: %s", event_type)
+        return
+
+    y0 = y_rel_pos - icon_height_frac / 2
+    icon_ax = ax.inset_axes([0.0, y0, 1.0, icon_height_frac])
+    icon_ax.set_in_layout(False)
+    icon_ax.set_clip_on(False)
+    icon_ax.patch.set_visible(False)
+    for spine in icon_ax.spines.values():
+        spine.set_visible(False)
+    draw_fn(icon_ax)
 
 
 def _add_pictogram_panel(
@@ -238,7 +254,7 @@ def _add_pictogram_panel(
 
             icon_ax = fig.add_axes([icon_ax_x0, icon_ax_y0, icon_w_fig_frac, icon_h_fig_frac])
             icon_ax.set_in_layout(False)
-            icon_ax.imshow(icon_img)
+            icon_ax.imshow(_composite_on_white(icon_img), interpolation="lanczos")
             # Pad limits slightly so edge pixels are never clipped
             icon_ax.set_xlim(-1, icon_w_px)
             icon_ax.set_ylim(icon_h_px, -3)
