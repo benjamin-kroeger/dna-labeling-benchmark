@@ -9,12 +9,14 @@ you already have paired ground-truth and prediction arrays in memory.
 import numpy as np
 
 from dna_segmentation_benchmark import (
+    AnnotationMode,
     EvalMetrics,
     LabelConfig,
     benchmark_gt_vs_pred_multiple,
 )
 
 label_config = LabelConfig(
+    annotation_mode=AnnotationMode.EXON_INTRON,
     background_label=8,
     exon_label=0,
     intron_label=2,
@@ -47,34 +49,27 @@ results = benchmark_gt_vs_pred_multiple(
 
 ## Label Config
 
-`LabelConfig` defines what the integer tokens in your arrays mean.
+`LabelConfig` defines what the integer tokens in your arrays mean. It always
+declares an explicit `annotation_mode` — see {doc}`annotation_modes` for the
+full discussion of modes and scopes.
 
-Required fields:
-
-- `background_label`
-- `exon_label`
-
-Optional fields:
-
-- `intron_label`
-- `splice_donor_label`
-- `splice_acceptor_label`
-
-Minimal exon-only setup:
+Minimal `EXON_INTRON` setup:
 
 ```python
-from dna_segmentation_benchmark import LabelConfig
+from dna_segmentation_benchmark import AnnotationMode, LabelConfig
 
 label_config = LabelConfig(
+    annotation_mode=AnnotationMode.EXON_INTRON,
     background_label=8,
     exon_label=0,
 )
 ```
 
-Setup with explicit introns and splice-site labels:
+`EXON_INTRON` with explicit introns and splice-site labels:
 
 ```python
 label_config = LabelConfig(
+    annotation_mode=AnnotationMode.EXON_INTRON,
     background_label=8,
     exon_label=0,
     intron_label=2,
@@ -83,7 +78,27 @@ label_config = LabelConfig(
 )
 ```
 
-Use an exon-only config when your arrays only distinguish coding from
+`UTR_CDS_INTRON` setup when your arrays carry distinct UTR and CDS tokens:
+
+```python
+from dna_segmentation_benchmark import AnnotationMode, BenchmarkScope, LabelConfig
+
+label_config = LabelConfig(
+    annotation_mode=AnnotationMode.UTR_CDS_INTRON,
+    background_label=8,
+    cds_label=0,
+    five_prime_utr_label=4,
+    three_prime_utr_label=5,
+    intron_label=2,
+    # evaluation_scope=BenchmarkScope.CDS  # to score CDS only per transcript
+)
+```
+
+In `UTR_CDS_INTRON` the per-transcript metrics use `evaluation_scope`
+(`transcript_exon` by default, where `5' UTR + CDS + 3' UTR` count as exonic;
+`cds` to score the coding span only).
+
+Use an `EXON_INTRON` config when your arrays only distinguish exonic from
 background. Add `intron_label` when you want strict intron-chain evaluation on
 arrays that already carry explicit intron tokens.
 
@@ -158,8 +173,11 @@ Common combinations:
 - full structural analysis: add `INDEL`, `NUCLEOTIDE_CLASSIFICATION`,
   `FRAMESHIFT`
 
-`FRAMESHIFT` should only be used on transcript-level inputs where the full CDS
-is present. GT coding positions must form complete codons.
+`FRAMESHIFT` is only valid in `UTR_CDS_INTRON` mode with
+`evaluation_scope=BenchmarkScope.CDS`; requesting it in any other configuration
+raises an error. Even then it should only be used on transcript-level inputs
+where the full CDS is present, because GT coding positions must form complete
+codons.
 
 ## Next Steps
 

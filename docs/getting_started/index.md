@@ -9,9 +9,15 @@ Use the array API when your training or inference pipeline already produces
 integer label arrays. Use the GFF/GTF pipeline when you want the benchmark to
 handle parsing, transcript pairing, array construction, and aggregation.
 
+Both entry points are anchored to an explicit **annotation mode**
+(`EXON_INTRON` or `UTR_CDS_INTRON`). Read {doc}`annotation_modes` first — it
+explains what the positive labels mean, how evaluation scopes work, and which
+metrics each mode unlocks.
+
 ```{toctree}
 :titlesonly:
 
+annotation_modes
 array_benchmark
 wandb_logging
 method_comparison

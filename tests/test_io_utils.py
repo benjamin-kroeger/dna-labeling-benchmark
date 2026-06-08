@@ -15,7 +15,7 @@ from dna_segmentation_benchmark.io_utils import (
     collect_gff,
     read_gff_to_arrays,
 )
-from dna_segmentation_benchmark.label_definition import LabelConfig
+from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
 
 
 # ------------------------------------------------------------------
@@ -27,6 +27,7 @@ from dna_segmentation_benchmark.label_definition import LabelConfig
 def simple_config():
     """Two-token label config (coding=0, background=1)."""
     return LabelConfig(
+        annotation_mode=AnnotationMode.EXON_INTRON,
         background_label=1,
         exon_label=0,
     )
@@ -69,6 +70,32 @@ chr1\tTest\texon\t50\t70\t.\t+\t.\tgene_id "gene1"; transcript_id "T1";
     f = tmp_path / "test.gtf"
     f.write_text(content)
     return str(f)
+
+
+@pytest.fixture
+def utr_gff(tmp_path):
+    """GFF3 with explicit UTR/CDS roles for one transcript."""
+    content = """\
+##gff-version 3
+chr1\tTest\tmRNA\t1\t30\t.\t+\t.\tID=tx1
+chr1\tTest\tfive_prime_UTR\t1\t5\t.\t+\t.\tID=u5;Parent=tx1
+chr1\tTest\tCDS\t6\t20\t.\t+\t0\tID=cds1;Parent=tx1
+chr1\tTest\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=u3;Parent=tx1
+"""
+    f = tmp_path / "utr.gff"
+    f.write_text(content)
+    return str(f)
+
+
+@pytest.fixture
+def utr_config():
+    return LabelConfig(
+        annotation_mode=AnnotationMode.UTR_CDS_INTRON,
+        background_label=9,
+        five_prime_utr_label=4,
+        cds_label=0,
+        three_prime_utr_label=5,
+    )
 
 
 # ------------------------------------------------------------------
@@ -191,6 +218,23 @@ def test_gtf_parsing(gtf_file, simple_config):
     np.testing.assert_array_equal(arr[30:49], np.full(19, 1))
     np.testing.assert_array_equal(arr[49:70], np.full(21, 0))
     np.testing.assert_array_equal(arr[70:100], np.full(30, 1))
+
+
+def test_utr_cds_feature_role_painting(utr_gff, utr_config):
+    arrays = read_gff_to_arrays(
+        utr_gff,
+        utr_config,
+        feature_role_map={
+            "five_prime_UTR": "five_prime_utr",
+            "CDS": "cds",
+            "three_prime_UTR": "three_prime_utr",
+        },
+    )
+
+    arr = arrays["tx1_+"]
+    np.testing.assert_array_equal(arr[0:5], np.full(5, 4))
+    np.testing.assert_array_equal(arr[5:20], np.full(15, 0))
+    np.testing.assert_array_equal(arr[20:30], np.full(10, 5))
 
 
 # ------------------------------------------------------------------

@@ -64,18 +64,49 @@ The pipeline returns one result block per predictor:
 {py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple`.
 
 `global` covers file-level counts such as how much GT or prediction content was
-unmatched.
+unmatched. Global metric families (`nucleotide`, `exon`, `exon_lenient`) nest
+their scopes under a `scopes` key, so a `UTR_CDS_INTRON` run reports both
+`transcript_exon` and `cds` views in one pass:
 
-## Exon Feature Types
+```python
+results["helixer"]["global"]["nucleotide"]["scopes"]
+# {"transcript_exon": {...}, "cds": {...}}
+```
+
+## Feature Types and Roles
 
 The parser feature types are not part of {py:class}`dna_segmentation_benchmark.LabelConfig`.
-They are explicit pipeline arguments:
+They are explicit pipeline arguments.
+
+For `EXON_INTRON` runs, the simple exon-type arguments are enough:
 
 - `gt_exon_feature_types`
 - `pred_exon_feature_types`
 
 That matters for tools such as Augustus that emit `CDS` rows instead of
 `exon` rows.
+
+For `UTR_CDS_INTRON` runs, a single exon type cannot express UTR vs CDS, so pass
+explicit feature-role maps instead:
+
+```python
+results = benchmark_from_gff(
+    gt_path="ground_truth.gtf",
+    pred_paths={"helixer": "helixer.gtf"},
+    label_config=anatomy_config,  # AnnotationMode.UTR_CDS_INTRON
+    gt_feature_role_map={
+        "five_prime_UTR": "five_prime_utr",
+        "CDS": "cds",
+        "three_prime_UTR": "three_prime_utr",
+    },
+    # pred_feature_role_maps defaults to gt_feature_role_map; pass a dict
+    # (or a nested {predictor: {...}} dict) to override per predictor.
+)
+```
+
+Valid roles are `exon`, `five_prime_utr`, `cds`, `three_prime_utr`, `intron`,
+`splice_donor`, and `splice_acceptor`, gated by the active mode and the labels
+you configured.
 
 ## Locus Matching Modes
 
@@ -125,15 +156,19 @@ The same workflow is available through `dna-benchmark`.
 
 ### Create a Config Template
 
+Pick the annotation mode (see {doc}`annotation_modes`):
+
 ```bash
-dna-benchmark init-config --output label_config.yaml
+dna-benchmark init-config --mode exon_intron     --output label_config.yaml
+dna-benchmark init-config --mode utr_cds_intron  --output anatomy_config.yaml
 ```
 
 The generated YAML describes label meanings, not parser behavior.
 
-Typical contents:
+`EXON_INTRON` template:
 
 ```yaml
+annotation_mode: EXON_INTRON
 background_label: 8
 exon_label: 0
 intron_label: 2
@@ -141,23 +176,44 @@ splice_donor_label: 1
 splice_acceptor_label: 3
 ```
 
-Required fields:
+`UTR_CDS_INTRON` template:
 
-- `background_label`
-- `exon_label`
+```yaml
+annotation_mode: UTR_CDS_INTRON
+background_label: 8
+cds_label: 0
+five_prime_utr_label: 4
+three_prime_utr_label: 5
+intron_label: 2
+splice_donor_label: 1
+splice_acceptor_label: 3
+```
 
-Optional fields:
+### Mapping GFF/GTF feature names
 
-- `intron_label`
-- `splice_donor_label`
-- `splice_acceptor_label`
+The label config never names GFF/GTF feature types — that mapping lives in CLI
+flags so the same labels can be reused across files with different conventions.
 
-Keep feature-type choices such as `exon` vs `CDS` in the CLI flags:
+In `EXON_INTRON` mode, keep the simple exon-type flags:
 
-- `--gt-exon-feature-type`
-- `--pred-exon-feature-type`
+- `--gt-exon-feature-type` (e.g. `exon`)
+- `--pred-exon-feature-type` (e.g. `segmentnt:exon`, `augustus:CDS`)
+
+In `UTR_CDS_INTRON` mode a single exon type cannot express UTR vs CDS, so use
+**feature-role maps** instead. Each value is `feature_type:role`:
+
+- `--gt-feature-role` — e.g. `--gt-feature-role CDS:cds`
+- `--pred-feature-role` — plain `feature_type:role` for all predictors, or
+  `predictor=feature_type:role` per predictor (e.g. `helixer=CDS:cds`)
+
+Valid roles are `exon`, `five_prime_utr`, `cds`, `three_prime_utr`, `intron`,
+`splice_donor`, `splice_acceptor` (subject to the mode and the labels you
+configured). When no role flags are given in `UTR_CDS_INTRON` mode, a sensible
+default map (`five_prime_UTR`, `CDS`, `three_prime_UTR`) is used.
 
 ### Run the Benchmark
+
+`EXON_INTRON` (legacy exon-type flags):
 
 ```bash
 dna-benchmark run \
@@ -174,6 +230,23 @@ dna-benchmark run \
   --metrics REGION_DISCOVERY \
   --metrics BOUNDARY_EXACTNESS \
   --metrics STRUCTURAL_COHERENCE \
+  --output results.json
+```
+
+`UTR_CDS_INTRON` (feature-role maps):
+
+```bash
+dna-benchmark run \
+  --gt ground_truth.gtf \
+  --pred helixer:helixer.gtf \
+  --config anatomy_config.yaml \
+  --gt-feature-role five_prime_UTR:five_prime_utr \
+  --gt-feature-role CDS:cds \
+  --gt-feature-role three_prime_UTR:three_prime_utr \
+  --exclude-features gene \
+  --metrics REGION_DISCOVERY \
+  --metrics BOUNDARY_EXACTNESS \
+  --metrics NUCLEOTIDE_CLASSIFICATION \
   --output results.json
 ```
 

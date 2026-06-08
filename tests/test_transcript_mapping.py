@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from dna_segmentation_benchmark.io_utils import collect_gff
-from dna_segmentation_benchmark.label_definition import LabelConfig
+from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
 from dna_segmentation_benchmark.transcript_mapping import (
     MatchClass,
     PredictionMatch,
@@ -37,6 +37,7 @@ from dna_segmentation_benchmark.transcript_mapping import (
 def simple_label_config():
     """A minimal two-token label config."""
     return LabelConfig(
+        annotation_mode=AnnotationMode.EXON_INTRON,
         background_label=1,
         exon_label=0,
     )
@@ -145,6 +146,44 @@ chr3\tPred\tmRNA\t1\t50\t.\t+\t.\tID=pred_chr3_t1
 chr3\tPred\tCDS\t10\t30\t.\t+\t0\tID=pred_chr3_cds1;Parent=pred_chr3_t1
 """
     f = tmp_path / "pred_chr3.gff"
+    f.write_text(content)
+    return str(f)
+
+
+@pytest.fixture
+def utr_label_config():
+    return LabelConfig(
+        annotation_mode=AnnotationMode.UTR_CDS_INTRON,
+        background_label=9,
+        five_prime_utr_label=4,
+        cds_label=0,
+        three_prime_utr_label=5,
+    )
+
+
+@pytest.fixture
+def utr_gt_gff(tmp_path):
+    content = """\
+##gff-version 3
+chr1\tTest\tmRNA\t1\t30\t.\t+\t.\tID=gt_tx1
+chr1\tTest\tfive_prime_UTR\t1\t5\t.\t+\t.\tID=gt_u5;Parent=gt_tx1
+chr1\tTest\tCDS\t6\t20\t.\t+\t0\tID=gt_cds;Parent=gt_tx1
+chr1\tTest\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=gt_u3;Parent=gt_tx1
+"""
+    f = tmp_path / "utr_gt.gff"
+    f.write_text(content)
+    return str(f)
+
+
+@pytest.fixture
+def utr_pred_gff(tmp_path):
+    content = """\
+##gff-version 3
+chr1\tPred\tmRNA\t1\t30\t.\t+\t.\tID=pred_tx1
+chr1\tPred\tfive_prime_UTR\t1\t20\t.\t+\t.\tID=pred_u5;Parent=pred_tx1
+chr1\tPred\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=pred_u3;Parent=pred_tx1
+"""
+    f = tmp_path / "utr_pred.gff"
     f.write_text(content)
     return str(f)
 
@@ -546,6 +585,54 @@ class TestBuildPairedArrays:
             pred_arrs["PredB"],
             np.full(len(gt_arr), 1, dtype=np.int32),
         )
+
+    def test_utr_role_maps_paint_distinct_labels(
+        self, utr_gt_gff, utr_pred_gff, utr_label_config,
+    ):
+        mappings = map_transcripts(
+            gt_path=utr_gt_gff,
+            pred_paths={"Pred": utr_pred_gff},
+            label_config=utr_label_config,
+            gt_feature_role_map={
+                "five_prime_UTR": "five_prime_utr",
+                "CDS": "cds",
+                "three_prime_UTR": "three_prime_utr",
+            },
+            pred_feature_role_maps={
+                "Pred": {
+                    "five_prime_UTR": "five_prime_utr",
+                    "three_prime_UTR": "three_prime_utr",
+                }
+            },
+        )
+
+        mapping = next(m for m in mappings if m.gt_id == "gt_tx1")
+        gt_df, pred_dfs = self._get_dfs(utr_gt_gff, {"Pred": utr_pred_gff}, excl=[])
+        gt_arr, pred_arrs = build_paired_arrays(
+            mapping=mapping,
+            gt_df=gt_df,
+            pred_dfs=pred_dfs,
+            label_config=utr_label_config,
+            gt_feature_role_map={
+                "five_prime_UTR": "five_prime_utr",
+                "CDS": "cds",
+                "three_prime_UTR": "three_prime_utr",
+            },
+            pred_feature_role_maps={
+                "Pred": {
+                    "five_prime_UTR": "five_prime_utr",
+                    "three_prime_UTR": "three_prime_utr",
+                }
+            },
+        )
+
+        np.testing.assert_array_equal(gt_arr[0:5], np.full(5, 4))
+        np.testing.assert_array_equal(gt_arr[5:20], np.full(15, 0))
+        np.testing.assert_array_equal(gt_arr[20:30], np.full(10, 5))
+
+        pred_arr = pred_arrs["Pred"]
+        np.testing.assert_array_equal(pred_arr[0:20], np.full(20, 4))
+        np.testing.assert_array_equal(pred_arr[20:30], np.full(10, 5))
 
 
 # ------------------------------------------------------------------
