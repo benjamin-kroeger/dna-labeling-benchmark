@@ -1,11 +1,16 @@
 # Diagnostic Depth
 
-Diagnostic Depth complements the per-section and structural metrics with two
+Diagnostic Depth complements the per-section and structural metrics with
 distribution-level diagnostics that expose *where* and *how severely* a
 predictor fails, rather than just whether it does.
 
-Both metrics are computed for a single label class (typically `EXON`/CDS) and
-aggregated across the corpus.
+Three diagnostics are emitted and aggregated across the corpus:
+
+- **Length EMD** and the **binary position-bias histograms** are computed for
+  the active evaluation scope (one positive class), kept for continuity.
+- **Per-class position bias** generalises the position histogram to *every*
+  evaluated label, normalised to each label's own span and resolved by the
+  confused partner — see [Per-Class Position Bias](#per-class-position-bias).
 
 ---
 
@@ -96,3 +101,57 @@ its dominant failure mode is missing or adding coding bases.
 - The histogram is aggregated across the corpus by element-wise sum
   (long sequences contribute more counts). This is intentional — the
   metric measures absolute error mass, not per-sequence rates.
+
+---
+
+## Per-Class Position Bias
+
+The binary histograms above answer "where does the *scope* class go wrong."
+The per-class diagnostic answers the same question **for every label at once**,
+and adds *what* each error was confused with.
+
+For each evaluated (non-background) label that appears in the GT, its own GT
+span `[min, max]` is split into 100 bins and three arrays are accumulated:
+
+- `fp` — shape `(100, P)`: predicted-as-this-label positions absent from GT
+  there (over-prediction), split by the **GT** partner label it replaced.
+- `fn` — shape `(100, P)`: GT positions of this label the prediction got wrong
+  (under-prediction), split by the **predicted** partner label it became.
+- `total` — shape `(100,)`: bin occupancy, the denominator for an error *rate*.
+
+`P` is the full partner vocabulary (`position_bias_partners`), including
+background. Predicted positions outside the label's span are clipped to the
+nearest edge bin (terminal over-extension).
+
+**Own-span normalization** is the key design choice: because each label is
+plotted on *its own* 0–100 %, boundaries align across heterogeneous transcripts
+even when introns sit at different absolute positions. Terminal errors
+(start/stop codon, splice slips, TSS/polyA trimming) concentrate into sharp
+peaks instead of smearing.
+
+### Reading the plot
+
+The plot renders one track per label, 0-centered (**FP above, FN below**), as
+an **error rate** (`fp / total`, `fn / total`) so abundant classes such as CDS
+don't dominate. All tracks share one y-scale, autoscaled to the largest rate.
+Each bar is colour-stacked by the confused partner, so a track shows *where*
+along the class, *how bad*, and *what* it was confused with at once.
+
+Typical UTR_CDS_INTRON readings:
+
+| Track / location / colour | Interpretation |
+|---|---|
+| 5′UTR FN at 100 %, coloured CDS | start codon called early (UTR tail became CDS) |
+| CDS FP at 0 %, coloured 5′UTR | CDS over-extended into the 5′UTR |
+| CDS FN/FP at 100 %, coloured 3′UTR | stop codon misplacement |
+| 3′UTR FN at 100 %, coloured background | the 3′ tail was trimmed / missed |
+| intron FP/FN at 0 % and 100 %, coloured CDS | splice-boundary slips at intron termini |
+
+In `EXON_INTRON` mode the same plot degrades gracefully to an `EXON` track
+(plus `INTRON` when an intron label is configured).
+
+### Caveats
+
+- Rates are micro-averaged: `fp`, `fn`, and `total` are summed across sequences
+  and divided once, so the rate reflects corpus-level error density.
+- A label that never appears in the GT produces no track.

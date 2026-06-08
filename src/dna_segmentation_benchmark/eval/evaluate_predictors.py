@@ -200,6 +200,9 @@ def _benchmark_chunk(
             gt_mask,
             pred_mask,
             label_config,
+            gt_labels,
+            len(grouped_gt_sections),
+            len(grouped_pred_sections),
         )
 
     if _needs_section_analysis(metrics):

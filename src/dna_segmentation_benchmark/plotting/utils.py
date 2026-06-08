@@ -75,10 +75,10 @@ def _annotate_bar_with_errorbar(
         ax.text(bar_x, height, label_text, ha="center", va="bottom", fontsize=text_fontsize)
 
 
-def _save_figure(fig: plt.Figure, save_path: Path, logger) -> None:
+def _save_figure(fig: plt.Figure, save_path: Path, logger, dpi: int = 300) -> None:
     """Save *fig* to *save_path*, creating parent dirs as needed."""
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(save_path, bbox_inches="tight", dpi=150)
+    fig.savefig(save_path, bbox_inches="tight", dpi=dpi)
     logger.info("Saved figure to %s", save_path)
 
 
@@ -93,8 +93,15 @@ def _add_icon_to_ax(
     """Place an image (icon) above *ax*."""
     try:
         icon_img = plt.imread(icon_path)
-        imagebox = OffsetImage(icon_img, zoom=zoom)
-        ab = AnnotationBbox(imagebox, (x_rel_pos, y_rel_pos), xycoords=ax.transAxes, frameon=False)
+        imagebox = OffsetImage(icon_img, zoom=zoom, interpolation="nearest")
+        ab = AnnotationBbox(
+            imagebox,
+            (x_rel_pos, y_rel_pos),
+            xycoords=ax.transAxes,
+            frameon=False,
+            annotation_clip=False,
+        )
+        ab.set_clip_on(False)
         ax.add_artist(ab)
     except FileNotFoundError:
         logger.warning("Icon not found: %s", icon_path)

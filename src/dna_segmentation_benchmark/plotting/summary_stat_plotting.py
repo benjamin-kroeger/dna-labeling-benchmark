@@ -26,7 +26,12 @@ from .config import PLOT_METADATA
 from ..label_definition import LabelConfig, EvalMetrics
 
 # --- Import from new metrics submodules ---
-from .metrics.indel import plot_individual_error_lengths_histograms, plot_stacked_indel_counts_bar
+from .metrics.indel import (
+    plot_individual_error_lengths_histograms,
+    plot_indel_counts_by_boundary,
+    plot_indel_rates_by_boundary,
+    plot_stacked_indel_counts_bar,
+)
 from .metrics.frameshift import plot_frameshift_percentage_bar
 from .metrics.ml import plot_ml_metrics_bar
 from .metrics.iou import plot_iou_metrics
@@ -126,6 +131,9 @@ def compare_multiple_predictions(
     # Collect false transition data across all methods for combined plotting
     all_false_transition_data: dict[str, dict] = {}
     all_splice_site_data: dict[str, dict] = {}
+    # INDEL is boundary-typed (a nested by_boundary dict), so it does not fit the
+    # flat long-format rows; collect it per method and plot it directly.
+    all_indel_data: dict[str, dict] = {}
     single_method_mode = len(per_method_benchmark_res) == 1
 
     for method_name, benchmark_results in per_method_benchmark_res.items():
@@ -145,6 +153,11 @@ def compare_multiple_predictions(
         for metric_group, metric_data in benchmark_results.items():
             metric_group_str = metric_group if isinstance(metric_group, str) else metric_group.name
             if metric_group_str == "metadata":
+                continue
+            # INDEL: nested by_boundary payload + opportunity denominators,
+            # plotted directly (not via the flat rows).
+            if metric_group_str == EvalMetrics.INDEL.name:
+                all_indel_data[method_name] = metric_data
                 continue
             # STRUCTURAL_COHERENCE nests chain metrics and (optionally) splice
             # sites under one group. Pull the splice sites out for their own
@@ -190,6 +203,45 @@ def compare_multiple_predictions(
         if fig_ss_pr is not None:
             figures["splice_site_pr"] = fig_ss_pr
 
+    # ---- INDEL plots (boundary-typed; plotted directly from the payloads) ----
+    if EvalMetrics.INDEL in metrics_to_eval and any(
+        isinstance(p, dict) and p.get("by_boundary") for p in all_indel_data.values()
+    ):
+        class_name = _scope_display_name(label_config, None)
+        fig = plot_stacked_indel_counts_bar(
+            all_indel_data,
+            class_name,
+            save_path=(output_dir / "indel_counts.png") if output_dir else None,
+            metadata=PLOT_METADATA.get("indel_counts"),
+        )
+        if fig is not None:
+            figures["indel_counts"] = fig
+
+        fig = plot_indel_rates_by_boundary(
+            all_indel_data,
+            class_name,
+            save_path=(output_dir / "indel_rates_by_boundary.png") if output_dir else None,
+            metadata=PLOT_METADATA.get("indel_rates_by_boundary"),
+        )
+        if fig is not None:
+            figures["indel_rates_by_boundary"] = fig
+
+        fig = plot_indel_counts_by_boundary(
+            all_indel_data,
+            class_name,
+            save_path=(output_dir / "indel_counts_by_boundary.png") if output_dir else None,
+            metadata=PLOT_METADATA.get("indel_counts_by_boundary"),
+        )
+        if fig is not None:
+            figures["indel_counts_by_boundary"] = fig
+
+        for boundary, fig in plot_individual_error_lengths_histograms(
+            all_indel_data,
+            class_name,
+            save_dir=output_dir,
+        ).items():
+            figures[f"indel_lengths_{boundary}"] = fig
+
     if not rows:
         logger.warning("No benchmark data collected — nothing to plot.")
         return figures
@@ -198,33 +250,6 @@ def compare_multiple_predictions(
         rows,
         columns=["method_name", "metric_group", "scope", "metric_key", "value"],
     )
-
-    # ---- INDEL plots ------------------------------------------------
-    if EvalMetrics.INDEL in metrics_to_eval:
-        df_indel = df[(df["metric_group"] == EvalMetrics.INDEL.name)].copy()
-
-        if not df_indel.empty:
-            default_scope = _metric_scopes(df_indel)[0]
-            for scope in _metric_scopes(df_indel):
-                df_scope = df_indel[df_indel["scope"] == scope] if scope is not None else df_indel[df_indel["scope"].isna()]
-                class_name = _scope_display_name(label_config, scope)
-                suffix = "" if scope == default_scope else f"_{scope}"
-                fig = plot_stacked_indel_counts_bar(
-                    df_scope,
-                    class_name,
-                    save_path=(output_dir / f"indel_counts{suffix}.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("indel_counts"),
-                )
-                if fig is not None:
-                    figures[_figure_key("indel_counts", scope, default_scope)] = fig
-
-                fig = plot_individual_error_lengths_histograms(
-                    df_scope,
-                    class_name,
-                    save_path=(output_dir / f"indel_lengths{suffix}.png") if output_dir else None,
-                )
-                if fig is not None:
-                    figures[_figure_key("indel_lengths", scope, default_scope)] = fig
 
     # ---- Fuzzy boundary landscape plots (from BOUNDARY_EXACTNESS) ----
     if EvalMetrics.BOUNDARY_EXACTNESS in metrics_to_eval:

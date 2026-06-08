@@ -2,7 +2,12 @@ import numpy as np
 import pytest
 
 from dna_segmentation_benchmark.eval.evaluate_predictors import EvalMetrics
-from dna_segmentation_benchmark.label_definition import LabelConfig, BEND_LABEL_CONFIG
+from dna_segmentation_benchmark.label_definition import (
+    AnnotationMode,
+    BenchmarkScope,
+    LabelConfig,
+    BEND_LABEL_CONFIG,
+)
 
 # ------------------------------------------------------------------
 # Convenience token constants
@@ -11,778 +16,336 @@ EXON, DONOR, INTRON, ACCEPTOR, NONCODING = 0, 1, 2, 3, 8
 
 # A second label set to prove label-agnosticism
 CUSTOM_CONFIG = LabelConfig(
+    annotation_mode=AnnotationMode.EXON_INTRON,
     background_label=-1,
     exon_label=5,
 )
 
+CDS_SCOPE_CONFIG = LabelConfig(
+    annotation_mode=AnnotationMode.UTR_CDS_INTRON,
+    evaluation_scope=BenchmarkScope.CDS,
+    background_label=8,
+    cds_label=0,
+    five_prime_utr_label=4,
+    three_prime_utr_label=5,
+    intron_label=2,
+    splice_donor_label=1,
+    splice_acceptor_label=3,
+)
+
+
+def _h(cells, n=100):
+    """Build a length-``n`` int list from a ``{bin: count}`` sparse spec."""
+    a = [0] * n
+    for k, v in cells.items():
+        a[k] = v
+    return a
+
 SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
-                [0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, 8],
-            ]
-        ),
+        np.array([[8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8], [0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, 8]]),
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "INDEL": {
-                "5_prime_extensions": [np.array([0, 1, 2])],
-                "3_prime_extensions": [np.array([17, 18])],
-                "whole_insertions": [np.array([8, 9, 10, 11])],
-                "5_prime_deletions": [np.array([12])],
-                "3_prime_deletions": [np.array([5, 6, 7])],
-                "whole_deletions": [np.array([19, 20])],
-                "split": [],
-                "joined": [],
-            },
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 2, "fn": 1, "fp": 1},
-                "internal_hit": {"tp": 0, "fn": 3},
-                "full_coverage_hit": {"tp": 0, "fn": 3},
-                "perfect_boundary_hit": {"tp": 0, "fn": 3, "fp": 3},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 0,
-                "last_sec_correct_5_prime_boundary": 0,
-                "iou_scores": [0.25, 0.57]
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 4, "fp": 9, "fn": 6, "tp": 6},
-            },
+            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"5_prime_extensions": [3]}, "internal_exon": {"whole_insertions": [4], "3_prime_extensions": [2], "3_prime_deletions": [3], "5_prime_deletions": [1]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 3},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 2, "fp": 1, "fn": 1, "tn": 0}, "internal_hit": {"tp": 0, "fp": 1, "fn": 3, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 1, "fn": 3, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 3, "fn": 3, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.25, 0.5714285714285714], "fuzzy_metrics": {"boundary_residuals": [(-3, -3), (1, 2)], "total_gt": 3}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 6, "fp": 9, "fn": 6, "tn": 4}},
         },
-        id="exon_all_insertions_deletions",
+        id='exon_all_insertions_deletions',
     ),
     pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
-                [8, 8, 8, 0, 2, 0, 2, 0, 2, 0, 2, 2, 0, 2, 0, 2, 0, 2, 2, 0, 0, 8, 8, 0, 8],
-            ]
-        ),
+        np.array([[8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8], [8, 8, 8, 0, 2, 0, 2, 0, 2, 0, 2, 2, 0, 2, 0, 2, 0, 2, 2, 0, 0, 8, 8, 0, 8]]),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+        {
+            "INDEL": {"by_boundary": {"internal_exon": {"whole_insertions": [1], "split": [1, 1, 1, 1]}, "single_exon_gene": {"whole_insertions": [1]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 9},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "internal_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 1, "fp": 6, "fn": 2, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 8, "fn": 2, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 1.0], "fuzzy_metrics": {"boundary_residuals": [(0, -4), (2, -2), (4, 0), (0, -4), (2, -2), (4, 0), (0, 0)], "total_gt": 3}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 8, "fp": 2, "fn": 4, "tn": 11}},
+        },
+        id='uncertain_predictions',
+    ),
+    pytest.param(
+        np.array([[8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8], [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]]),
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "INDEL": {
-                "5_prime_extensions": [],
-                "3_prime_extensions": [],
-                "whole_insertions": [np.array([9]), np.array([23])],
-                "5_prime_deletions": [],
-                "3_prime_deletions": [],
-                "whole_deletions": [],
-                "split": [np.array([4]), np.array([6]), np.array([13]), np.array(15)],
-                "joined": [],
-            },
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 3, "fn": 0, "fp": 6},
-                "internal_hit": {"tp": 3, "fn": 0, "fp": 6},
-                "full_coverage_hit": {"tp": 1, "fn": 2, "fp": 6},
-                "perfect_boundary_hit": {"tp": 1, "fn": 2, "fp": 8},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 1,
-                "last_sec_correct_5_prime_boundary": 1,
-                "iou_scores": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 1]
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 11, "fp": 2, "fn": 4, "tp": 8},
-            },
-
+            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"whole_deletions": [5]}, "internal_exon": {"whole_deletions": [5]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}, "internal_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [], "fuzzy_metrics": {"boundary_residuals": [], "total_gt": 3}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 0, "fp": 0, "fn": 12, "tn": 13}},
         },
-        id="uncertain_predictions",
+        id='empty_pred',
     ),
     pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
-                [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
-            ]
-        ),
+        np.array([[8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8], [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8]]),
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-
-            "INDEL": {
-                "5_prime_extensions": [],
-                "3_prime_extensions": [],
-                "whole_insertions": [],
-                "5_prime_deletions": [],
-                "3_prime_deletions": [],
-                "whole_deletions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
-                "split": [],
-                "joined": [],
-            },
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 0, "fn": 3, "fp": 0},
-                "internal_hit": {"tp": 0, "fn": 3},
-                "full_coverage_hit": {"tp": 0, "fn": 3},
-                "perfect_boundary_hit": {"tp": 0, "fn": 3, "fp": 0},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 0,
-                "last_sec_correct_5_prime_boundary": 0,
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 13, "fp": 0, "fn": 12, "tp": 0},
-            },
-
+            "INDEL": {"by_boundary": {"single_exon_gene": {"whole_insertions": [5, 5, 2]}}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}, "internal_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [], "fuzzy_metrics": {"boundary_residuals": [], "total_gt": 0}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 0, "fp": 12, "fn": 0, "tn": 13}},
         },
-        id="empty_pred",
+        id='empty_gt',
     ),
     pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
-                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
-            ]
-        ),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
-        {
-
-            "INDEL": {
-                "5_prime_extensions": [],
-                "3_prime_extensions": [],
-                "whole_insertions": [np.array([3, 4, 5, 6, 7]), np.array([12, 13, 14, 15, 16]), np.array([19, 20])],
-                "5_prime_deletions": [],
-                "3_prime_deletions": [],
-                "whole_deletions": [],
-                "split": [],
-                "joined": [],
-            },
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 0, "fn": 0, "fp": 3},
-                "internal_hit": {"tp": 0, "fn": 0},
-                "full_coverage_hit": {"tp": 0, "fn": 0},
-                "perfect_boundary_hit": {"tp": 0, "fn": 0, "fp": 3},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 0,
-                "last_sec_correct_5_prime_boundary": 0,
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 13, "fp": 12, "fn": 0, "tp": 0},
-            },
-
-        },
-        id="empty_gt",
-    ),
-    pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8, 8],
-                [0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8, 8, 8],
-            ]
-        ),
+        np.array([[8, 8, 8, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8, 8], [0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8, 8, 8]]),
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 4, "fn": 0, "fp": 0},
-                "internal_hit": {"tp": 1, "fn": 3},
-                "full_coverage_hit": {"tp": 4, "fn": 0},
-                "perfect_boundary_hit": {"tp": 1, "fn": 3, "fp": 3},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 1,
-                "last_sec_correct_5_prime_boundary": 1,
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 11, "fp": 6, "fn": 0, "tp": 12},
-            },
-
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 4, "fp": 0, "fn": 0, "tn": 0}, "internal_hit": {"tp": 1, "fp": 0, "fn": 3, "tn": 0}, "full_coverage_hit": {"tp": 4, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 3, "fn": 3, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [0.4, 0.7142857142857143, 1.0, 0.6666666666666666], "fuzzy_metrics": {"boundary_residuals": [(-3, 0), (-1, 1), (0, 0), (0, 1)], "total_gt": 4}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 12, "fp": 6, "fn": 0, "tn": 11}},
         },
-        id="in_depth_section_test",
+        id='in_depth_section_test',
     ),
     pytest.param(
-        np.array(
-            [
-                [0, 0, 0, 0, 2, 2, 2, 0, 0, 0],
-                [8, 8, 8, 0, 0, 0, 0, 0, 8, 8],
-            ]
-        ),
-        BEND_LABEL_CONFIG,
-
-        [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
-        {
-
-            "INDEL": {
-                "5_prime_extensions": [],
-                "3_prime_extensions": [],
-                "whole_insertions": [],
-                "5_prime_deletions": [np.array([0, 1, 2])],
-                "3_prime_deletions": [np.array([8, 9])],
-                "whole_deletions": [],
-                "split": [],
-                "joined": [np.array([4, 5, 6])],
-            },
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 1, "fn": 1, "fp": 0},
-                "internal_hit": {"tp": 0, "fn": 2},
-                "full_coverage_hit": {"tp": 0, "fn": 2},
-                "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 0,
-                "last_sec_correct_5_prime_boundary": 0,
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 0, "fp": 3, "fn": 5, "tp": 2},
-            },
-
-        },
-        id="exon_joined_with_deletions",
-    ),
-    pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
-                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8],
-            ]
-        ),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
-        {
-
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 3, "fn": 0, "fp": 0},
-                "internal_hit": {"tp": 3, "fn": 0},
-                "full_coverage_hit": {"tp": 3, "fn": 0},
-                "perfect_boundary_hit": {"tp": 3, "fn": 0, "fp": 0},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 1,
-                "last_sec_correct_5_prime_boundary": 1,
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 13, "fp": 0, "fn": 0, "tp": 12},
-            },
-
-        },
-        id="exon_fully_correct",
-    ),
-    pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2],
-                [8, 8, 8, 0, 0, 0, 0, 0, 8, 8, 8, 8],
-            ]
-        ),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
-        {
-
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 1, "fn": 0, "fp": 0},
-                "internal_hit": {"tp": 1, "fn": 0},
-                "full_coverage_hit": {"tp": 1, "fn": 0},
-                "perfect_boundary_hit": {"tp": 1, "fn": 0, "fp": 0},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 1,
-                "last_sec_correct_5_prime_boundary": 1,
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 7, "fp": 0, "fn": 0, "tp": 5},
-            },
-
-        },
-        id="exon_fully_correct_2",
-    ),
-    pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 2, 2, 2, 2, 0, 0],
-                [8, 8, 8, 0, 2, 2, 2, 8, 8, 8, 8],
-            ]
-        ),
+        np.array([[0, 0, 0, 0, 2, 2, 2, 0, 0, 0], [8, 8, 8, 0, 0, 0, 0, 0, 8, 8]]),
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-
-            "INDEL": {
-                "5_prime_extensions": [],
-                "3_prime_extensions": [],
-                "whole_insertions": [],
-                "5_prime_deletions": [],
-                "3_prime_deletions": [np.array([4])],
-                "whole_deletions": [np.array([9, 10])],
-                "split": [],
-                "joined": [],
-            },
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": 1, "fn": 1, "fp": 0},
-                "internal_hit": {"tp": 1, "fn": 1},
-                "full_coverage_hit": {"tp": 0, "fn": 2},
-                "perfect_boundary_hit": {"tp": 0, "fn": 2, "fp": 1},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": 0,
-                "last_sec_correct_5_prime_boundary": 0,
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": 7, "fp": 0, "fn": 3, "tp": 1},
-            },
-
+            "INDEL": {"by_boundary": {"internal_exon": {"joined": [3]}, "five_prime_terminal_exon": {"5_prime_deletions": [3]}, "three_prime_terminal_exon": {"3_prime_deletions": [2]}}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "internal_hit": {"tp": 0, "fp": 0, "fn": 2, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 0, "fn": 2, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.125, 0.14285714285714285], "fuzzy_metrics": {"boundary_residuals": [(3, 4), (-4, -2)], "total_gt": 2}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 2, "fp": 3, "fn": 5, "tn": 0}},
         },
-        id="exon_test2",
+        id='exon_joined_with_deletions',
     ),
     pytest.param(
-        np.array(
-            [
-                [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0],
-                [0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 8, 8],
-            ]
-        ),
+        np.array([[8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8], [8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8]]),
         BEND_LABEL_CONFIG,
+        [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+        {
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "internal_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [1.0, 1.0, 1.0], "fuzzy_metrics": {"boundary_residuals": [(0, 0), (0, 0), (0, 0)], "total_gt": 3}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 12, "fp": 0, "fn": 0, "tn": 13}},
+        },
+        id='exon_fully_correct',
+    ),
+    pytest.param(
+        np.array([[8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2], [8, 8, 8, 0, 0, 0, 0, 0, 8, 8, 8, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+        {
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "internal_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [1.0], "fuzzy_metrics": {"boundary_residuals": [(0, 0)], "total_gt": 1}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 5, "fp": 0, "fn": 0, "tn": 7}},
+        },
+        id='exon_fully_correct_2',
+    ),
+    pytest.param(
+        np.array([[8, 8, 8, 0, 0, 2, 2, 2, 2, 0, 0], [8, 8, 8, 0, 2, 2, 2, 8, 8, 8, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+        {
+            "INDEL": {"by_boundary": {"internal_exon": {"3_prime_deletions": [1]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "internal_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 0, "fn": 2, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.5], "fuzzy_metrics": {"boundary_residuals": [(0, -1)], "total_gt": 2}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 1, "fp": 0, "fn": 3, "tn": 7}},
+        },
+        id='exon_test2',
+    ),
+    pytest.param(
+        np.array([[8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0], [0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 8, 8]]),
+        CDS_SCOPE_CONFIG,
         [EvalMetrics.FRAMESHIFT],
         {
-
-            "FRAMESHIFT": {
-                "gt_frames": np.array(
-                    [np.inf] * 3 + [0, 0] + [np.inf] * 8 + [0, 0, 0, 0] + [np.inf] * 4
-                )
-            }
-
+            "FRAMESHIFT": {"gt_frames": np.array([np.inf, np.inf, np.inf, 0.0, 0.0, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, 0.0, 0.0, 0.0, 0.0, np.inf, np.inf, np.inf, np.inf])},
         },
-        id="Frameshift_test",
+        id='Frameshift_test',
     ),
-    # ---- Different label set (label-agnosticism) ----------------------
     pytest.param(
-        np.array(
-            [
-                [-1, -1, -1, 5, 5, 5, 5, 5, -1, -1, -1, -1, 5, 5, 5, 5, 5, -1, -1, 5, 5],
-                [5, 5, 5, 5, 5, -1, -1, -1, 5, 5, 5, 5, -1, 5, 5, 5, 5, 5, 5, -1, -1],
-            ]
-        ),
+        np.array([[-1, -1, -1, 5, 5, 5, 5, 5, -1, -1, -1, -1, 5, 5, 5, 5, 5, -1, -1, 5, 5], [5, 5, 5, 5, 5, -1, -1, -1, 5, 5, 5, 5, -1, 5, 5, 5, 5, 5, 5, -1, -1]]),
         CUSTOM_CONFIG,
         [EvalMetrics.INDEL],
         {
-            "INDEL": {
-                "5_prime_extensions": [np.array([0, 1, 2])],
-                "3_prime_extensions": [np.array([17, 18])],
-                "whole_insertions": [np.array([8, 9, 10, 11])],
-                "5_prime_deletions": [np.array([12])],
-                "3_prime_deletions": [np.array([5, 6, 7])],
-                "whole_deletions": [np.array([19, 20])],
-                "split": [],
-                "joined": [],
-            }
-
+            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"5_prime_extensions": [3], "5_prime_deletions": [1]}, "internal_exon": {"whole_insertions": [4], "3_prime_extensions": [2]}, "three_prime_terminal_exon": {"3_prime_deletions": [3]}, "single_exon_gene": {"whole_deletions": [2]}}},
         },
-        id="Different_label_test",
+        id='Different_label_test',
     ),
     pytest.param(
-        np.array(
-            [
-                [8, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 2, 0, 0, 8, 8],
-                [8, 0, 0, 0, 2, 2, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8],
-                [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
-            ]
-        ),
+        np.array([[8, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 2, 0, 0, 8, 8], [8, 0, 0, 0, 2, 2, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8], [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0]]),
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"tp": [1, 1], "fn": [0, 0], "fp": [0, 0]},
-                "internal_hit": {"tp": [1, 1], "fn": [0, 0]},
-                "full_coverage_hit": {"tp": [1, 1], "fn": [0, 0]},
-                "perfect_boundary_hit": {"tp": [1, 1], "fn": [0, 0], "fp": [0, 0]},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": [1, 1],
-                "last_sec_correct_5_prime_boundary": [1, 1],
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"tn": [3, 4], "fp": [0, 0], "fn": [0, 0], "tp": [3, 2]},
-            },
-
+            "REGION_DISCOVERY": {"neighborhood_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "internal_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "full_coverage_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "perfect_boundary_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}]},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": [1, 1], "last_sec_correct_5_prime_boundary": [1, 1], "iou_scores": [1.0, 1.0], "fuzzy_metrics": {"boundary_residuals": [(0, 0), (0, 0)], "total_gt": 2}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": [{"tp": 3, "fp": 0, "fn": 0, "tn": 3}, {"tp": 2, "fp": 0, "fn": 0, "tn": 4}]},
         },
-        id="mask_test",
+        id='mask_test',
     ),
 ]
-
-# ------------------------------------------------------------------
-# STRUCTURAL_COHERENCE test cases
-# ------------------------------------------------------------------
 
 STRUCTURAL_COHERENCE_TEST_CASES = [
-    # -----------------------------------------------------------------------
-    # Exon / intron chain + boundary shift test cases
-    #
-    # Intron chain uses set comparison of intron segment boundaries.
-    # Exon chain uses the same set semantics on coding segments:
-    #   exon_chain         — exact set match
-    #   exon_chain_superset — pred ⊇ GT (all GT exons found, extras ok)
-    #   exon_chain_subset   — pred ⊆ GT (all pred exons valid, may miss GT)
-    # Boundary shifts are only measured when GT and pred have equal segment counts.
-    # -----------------------------------------------------------------------
-
-    # -- Case 1: identical 3-exon chains
-    # GT/pred exons: (2,4),(7,9),(12,13)  introns: (5,6),(10,11)
-    # All exon chain tiers: TP. Boundary shifts: none.
     pytest.param(
-        np.array([
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
-        ]),
+        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8], [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8]]),
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 1, "fp": 0, "fn": 0},
-                "segment_count_delta": 0,
-                "exon_chain": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_subset": {"tp": 1, "fn": 0, "fp": 0},
-                "boundary_shift_count": 0,
-                "boundary_shift_total": 0,
-            },
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
         },
-        id="sc_exact_match",
-    ),
-    # -- Case 2: same exon count, all boundaries shifted by 1 bp
-    # GT  exons: (2,4),(7,9),(12,13)  pred exons: (1,4),(7,8),(12,14)
-    # GT introns: (5,6),(10,11); pred introns: (5,6),(9,11) → mismatch → intron_chain tp=0
-    # All exon chain tiers FP (shifted boundary ≠ exact set element; neither subset nor superset)
-    # boundary_shift_count=3 (starts/ends of 3 segments differ), total=3
-    pytest.param(
-        np.array([
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
-            [8, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0, 0, 8],
-        ]),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.STRUCTURAL_COHERENCE],
-        {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "segment_count_delta": 0,
-                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
-                "boundary_shift_count": 3,
-                "boundary_shift_total": 3,
-            },
-        },
-        id="sc_boundary_shift",
-    ),
-    # -- Case 3: pred skips the middle GT exon
-    # GT  exons: (2,4),(7,9),(12,13)  pred exons: (2,4),(12,13)
-    # GT introns: (5,6),(10,11); pred intron: (5,11) → intron_chain mismatch
-    # exon_chain_subset TP (pred ⊆ GT), exon_chain_superset FP (GT not in pred)
-    pytest.param(
-        np.array([
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
-            [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8],
-        ]),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.STRUCTURAL_COHERENCE],
-        {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "segment_count_delta": -1,
-                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset": {"tp": 1, "fn": 0, "fp": 0},
-                "boundary_shift_count": 0,
-                "boundary_shift_total": 0,
-            },
-        },
-        id="sc_missing_segments",
-    ),
-    # -- Case 4: pred inserts a middle exon not in GT
-    # GT  exons: (2,4),(12,13)  pred exons: (2,4),(7,9),(12,13)
-    # GT intron: (5,11) one intron; pred introns: (5,6),(10,11) two introns → mismatch
-    # exon_chain_superset TP (GT ⊆ pred), exon_chain_subset FP (pred has extra)
-    pytest.param(
-        np.array([
-            [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8],
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
-        ]),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.STRUCTURAL_COHERENCE],
-        {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "segment_count_delta": 1,
-                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
-                "boundary_shift_count": 0,
-                "boundary_shift_total": 0,
-            },
-        },
-        id="sc_extra_segments",
-    ),
-    # -- Case 5: completely rearranged predictions
-    # GT exons: (1,3),(6,8),(11,12)  pred exons: (4,7),(10,13)
-    # No exon boundary pairs match — all chain metrics FP.
-    pytest.param(
-        np.array([
-            [8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
-            [8, 8, 8, 8, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8],
-        ]),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.STRUCTURAL_COHERENCE],
-        {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "segment_count_delta": -1,
-                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
-                "boundary_shift_count": 0,
-                "boundary_shift_total": 0,
-            },
-        },
-        id="sc_structurally_different",
-    ),
-    # -- Case 6: GT has 2 exons, pred is all noncoding
-    # Pred empty → no exon chain TP; fp=1 (consistent with intron chain semantics).
-    pytest.param(
-        np.array([
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
-            [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
-        ]),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.STRUCTURAL_COHERENCE],
-        {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "segment_count_delta": -2,
-                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
-                "boundary_shift_count": 0,
-                "boundary_shift_total": 0,
-            },
-        },
-        id="sc_missed",
-    ),
-    # -- Case 7: all noncoding GT, pred has a spurious exon
-    # GT has no coding segments → exon chain metrics absent from output.
-    pytest.param(
-        np.array([
-            [8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
-            [8, 8, 0, 0, 0, 8, 8, 8, 8, 8],
-        ]),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.STRUCTURAL_COHERENCE],
-        {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
-            },
-        },
-        id="sc_no_gt_segments",
-    ),
-    # -- Case 8: 6 GT exons vs 5 pred exons with boundary errors
-    # GT exons: (1,2),(5,6),(9,10),(13,14),(17,18),(21,22)
-    # Pred exons: (0,2),(9,10),(13,14),(17,18),(21,22)
-    # pred_set is not a subset of gt_set ((0,2) not in gt) → all FP.
-    pytest.param(
-        np.array([
-            [8, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 8, 8],
-            [0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 8],
-        ]),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.STRUCTURAL_COHERENCE],
-        {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 1, "fn": 1},
-                "segment_count_delta": -1,
-                "exon_chain": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_superset": {"tp": 0, "fn": 1, "fp": 1},
-                "exon_chain_subset": {"tp": 0, "fn": 1, "fp": 1},
-                "boundary_shift_count": 0,
-                "boundary_shift_total": 0,
-            },
-        },
-        id="sc_six_exon_mixed_errors",
-    ),
-    # -- Case 9: single exon, identical on both sides
-    # No introns → intron_chain vacuous. Exon chain: exact TP.
-    pytest.param(
-        np.array([
-            [8, 8, 0, 0, 0, 0, 8, 8],
-            [8, 8, 0, 0, 0, 0, 8, 8],
-        ]),
-        BEND_LABEL_CONFIG,
-        [EvalMetrics.STRUCTURAL_COHERENCE],
-        {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 0, "fp": 0, "fn": 0},
-                "segment_count_delta": 0,
-                "exon_chain": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_subset": {"tp": 1, "fn": 0, "fp": 0},
-                "boundary_shift_count": 0,
-                "boundary_shift_total": 0,
-            },
-        },
-        id="sc_single_segment",
+        id='sc_exact_match',
     ),
     pytest.param(
-        np.array([
-            [8, 8, 0, 0, 1, 2, 2, 2, 2, 3, 0, 0, 8, 8],
-            [8, 8, 0, 0, 1, 2, 2, 2, 2, 3, 0, 0, 8, 8],
-        ]),
+        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8], [8, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0, 0, 8]]),
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {
-                "intron_chain": {"tp": 1, "fp": 0, "fn": 0},
-                "segment_count_delta": 0,
-                "exon_chain": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_superset": {"tp": 1, "fn": 0, "fp": 0},
-                "exon_chain_subset": {"tp": 1, "fn": 0, "fp": 0},
-                "boundary_shift_count": 0,
-                "boundary_shift_total": 0,
-            },
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 3, "boundary_shift_total": 3, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 3, "transcript_match_class": 'boundary_shift_terminal', "segment_count_delta": 0, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
         },
-        id="splice_site_confusion",
-    )
+        id='sc_boundary_shift',
+    ),
+    pytest.param(
+        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8], [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.6666666666666666, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'missing_segments', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+        },
+        id='sc_missing_segments',
+    ),
+    pytest.param(
+        np.array([[8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8], [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 1, "transcript_match_class": 'extra_segments', "segment_count_delta": 1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+        },
+        id='sc_extra_segments',
+    ),
+    pytest.param(
+        np.array([[8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8], [8, 8, 8, 8, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 2, "transcript_match_class": 'no_overlap', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+        },
+        id='sc_structurally_different',
+    ),
+    pytest.param(
+        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8], [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'missed', "segment_count_delta": -2, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+        },
+        id='sc_missed',
+    ),
+    pytest.param(
+        np.array([[8, 8, 8, 8, 8, 8, 8, 8, 8, 8], [8, 8, 0, 0, 0, 8, 8, 8, 8, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+        },
+        id='sc_no_gt_segments',
+    ),
+    pytest.param(
+        np.array([[8, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 8, 8], [0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 0, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.5, "hallucinated_exon_count_per_transcript": 2, "transcript_match_class": 'partial_overlap', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+        },
+        id='sc_six_exon_mixed_errors',
+    ),
+    pytest.param(
+        np.array([[8, 8, 0, 0, 0, 0, 8, 8], [8, 8, 0, 0, 0, 0, 8, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+        },
+        id='sc_single_segment',
+    ),
+    pytest.param(
+        np.array([[8, 8, 0, 0, 1, 2, 2, 2, 2, 3, 0, 0, 8, 8], [8, 8, 0, 0, 1, 2, 2, 2, 2, 3, 0, 0, 8, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.STRUCTURAL_COHERENCE],
+        {
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 1, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 1, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 1, "acceptor_fp": 0, "acceptor_fn": 0}},
+        },
+        id='splice_site_confusion',
+    ),
 ]
 
-# ------------------------------------------------------------------
-# DIAGNOSTIC_DEPTH test cases
-# ------------------------------------------------------------------
-
 DIAGNOSTIC_DEPTH_TEST_CASES = [
-    # -- No structural summary errors: identical 2-exon predictions
-    # Length distributions match and no unmatched segments contribute to position bias.
     pytest.param(
-        np.array([
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
-        ]),
+        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8], [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8]]),
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
             "DIAGNOSTIC_DEPTH": {
                 "gt_segment_lengths": [3, 3],
                 "pred_segment_lengths": [3, 3],
                 "length_emd": 0.0,
-                "position_bias_histogram_fn": [0] * 100,
-                "position_bias_histogram_fp": [0] * 100,
-            }
+                "position_bias_histogram_fn": _h({}),
+                "position_bias_histogram_fp": _h({}),
+            },
         },
-        id="dd_no_errors",
+        id='dd_no_errors',
     ),
-    # -- Missing middle exon: middle GT coding segment is absent from pred
-    # GT exons: (1,2), (5,6), (9,10) — pred exons: (1,2), (9,10)
-    # GT positions 5,6 are missing from pred → bins 40 and 50.
     pytest.param(
-        np.array([
-            [8, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 8],
-            [8, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 8],
-        ]),
+        np.array([[8, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 8], [8, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 8]]),
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-
             "DIAGNOSTIC_DEPTH": {
                 "gt_segment_lengths": [2, 2, 2],
                 "pred_segment_lengths": [2, 2],
                 "length_emd": 0.0,
-                "position_bias_histogram_fn": [
-                    1 if i in {40, 50} else 0
-                    for i in range(100)
-                ],
-                "position_bias_histogram_fp": [0] * 100,
+                "position_bias_histogram_fn": _h({40: 1, 50: 1}),
+                "position_bias_histogram_fp": _h({}),
             },
-
         },
-        id="dd_exon_skip",
+        id='dd_exon_skip',
     ),
-    # -- Predicted split: pred splits one GT exon into two shorter segments
-    # GT exon: (1,9) — pred exons: (1,3) and (6,9)
-    # GT positions 4,5 are missing from pred → bins 33 and 44.
     pytest.param(
-        np.array([
-            [8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8],
-            [8, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8],
-        ]),
+        np.array([[8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8], [8, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8]]),
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-
             "DIAGNOSTIC_DEPTH": {
                 "gt_segment_lengths": [9],
                 "pred_segment_lengths": [3, 4],
                 "length_emd": 5.5,
-                "position_bias_histogram_fn": [
-                    1 if i in {33, 44} else 0
-                    for i in range(100)
-                ],
-                "position_bias_histogram_fp": [0] * 100,
+                "position_bias_histogram_fn": _h({33: 1, 44: 1}),
+                "position_bias_histogram_fp": _h({}),
             },
-
         },
-        id="dd_novel_insertion",
+        id='dd_novel_insertion',
     ),
-    # -- Uniform boundary shift: 4 exons all shifted right by 1 position
-    # GT exons: (1,3),(6,8),(11,13),(16,18)
-    # Pred exons: (2,4),(7,9),(12,14),(17,19)
-    # Segment lengths unchanged. Boundary mismatches at bins 0,16,27,44,55,72,83.
     pytest.param(
-        np.array([
-            [8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8, 8],
-            [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
-        ]),
+        np.array([[8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8, 8], [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8]]),
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-
             "DIAGNOSTIC_DEPTH": {
                 "gt_segment_lengths": [3, 3, 3, 3],
                 "pred_segment_lengths": [3, 3, 3, 3],
                 "length_emd": 0.0,
-                "position_bias_histogram_fn": [
-                    1 if i in {0, 27, 55, 83} else 0
-                    for i in range(100)
-                ],
-                "position_bias_histogram_fp": [
-                    1 if i in {16, 44, 72} else 0
-                    for i in range(100)
-                ],
+                "position_bias_histogram_fn": _h({0: 1, 27: 1, 55: 1, 83: 1}),
+                "position_bias_histogram_fp": _h({16: 1, 44: 1, 72: 1}),
             },
-
         },
-        id="dd_cascade_shift",
+        id='dd_cascade_shift',
     ),
-    # -- Balanced extensions: both predicted exons are one base longer
-    # GT exons: (1,3),(7,9) — pred exons: (1,4),(6,9)
-    # Pred FP positions 4 and 6 fall within coding span → bins 33 and 55.ben
     pytest.param(
-        np.array([
-            [8, 0, 0, 0, 2, 2, 2, 0, 0, 0, 8],
-            [8, 0, 0, 0, 0, 2, 0, 0, 0, 0, 8],
-        ]),
+        np.array([[8, 0, 0, 0, 2, 2, 2, 0, 0, 0, 8], [8, 0, 0, 0, 0, 2, 0, 0, 0, 0, 8]]),
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.DIAGNOSTIC_DEPTH],
         {
-
             "DIAGNOSTIC_DEPTH": {
                 "gt_segment_lengths": [3, 3],
                 "pred_segment_lengths": [4, 4],
                 "length_emd": 1.0,
-                "position_bias_histogram_fn": [0] * 100,
-                "position_bias_histogram_fp": [
-                    1 if i in {33, 55} else 0
-                    for i in range(100)
-                ],
+                "position_bias_histogram_fn": _h({}),
+                "position_bias_histogram_fp": _h({33: 1, 55: 1}),
             },
-
         },
-        id="dd_compensating_errors",
+        id='dd_compensating_errors',
     ),
 ]
 
@@ -791,41 +354,14 @@ MULTI_SEQUENCE_TEST_CASES = [
         [np.array([8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8])],
         [np.array([8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])],
         BEND_LABEL_CONFIG,
-
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-
-            "INDEL": {
-                "5_prime_extensions": [],
-                "3_prime_extensions": [],
-                "whole_insertions": [],
-                "5_prime_deletions": [],
-                "3_prime_deletions": [],
-                "whole_deletions": [
-                    np.array([3, 4, 5, 6, 7]),
-                    np.array([12, 13, 14, 15, 16]),
-                    np.array([19, 20]),
-                ],
-                "split": [],
-                "joined": [],
-            },
-            "REGION_DISCOVERY": {
-                "neighborhood_hit": {"precision": 0, "recall": 0.0},
-                "internal_hit": {"precision": 0.0, "recall": 0.0},
-                "full_coverage_hit": {"precision": 0.0, "recall": 0.0},
-                "perfect_boundary_hit": {"precision": 0, "recall": 0.0},
-            },
-            "BOUNDARY_EXACTNESS": {
-                "first_sec_correct_3_prime_boundary": [0],
-                "last_sec_correct_5_prime_boundary": [0],
-                "iou_stats": {"mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0, "count": 0},
-            },
-            "NUCLEOTIDE_CLASSIFICATION": {
-                "nucleotide": {"precision": 0, "recall": 0.0, "f1": 0.0},
-            },
-
+            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"whole_deletions": [5]}, "internal_exon": {"whole_deletions": [5]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 0},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"precision": 0.0, "recall": 0.0}, "internal_hit": {"precision": 0.0, "recall": 0.0}, "full_coverage_hit": {"precision": 0.0, "recall": 0.0}, "perfect_boundary_hit": {"precision": 0.0, "recall": 0.0}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": [0], "last_sec_correct_5_prime_boundary": [0], "iou_scores": [], "iou_stats": {"count": 0, "mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"precision": 0.0, "recall": 0.0, "f1": 0.0}},
         },
-        id="no_nuc_positives",
+        id='no_nuc_positives',
     ),
 ]
 

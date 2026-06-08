@@ -288,3 +288,39 @@ _FULL_SWEEP_METRICS = [
     EvalMetrics.STRUCTURAL_COHERENCE,
     EvalMetrics.DIAGNOSTIC_DEPTH,
 ]
+
+
+# ---------------------------------------------------------------------------
+# Semantic boundary labels (INDEL metric)
+# ---------------------------------------------------------------------------
+
+#: Flank names that indicate a gene/sequence boundary (not an internal junction).
+_TERMINAL_FLANKS: frozenset[str] = frozenset({"NONCODING", "none"})
+
+#: Canonical display order for the four semantic exon-position categories.
+SEMANTIC_BOUNDARY_ORDER: tuple[str, ...] = (
+    "five_prime_terminal_exon",
+    "internal_exon",
+    "three_prime_terminal_exon",
+    "single_exon_gene",
+)
+
+
+def semantic_boundary_label(left: str, right: str) -> str:
+    """Map a GT flank pair to a biological exon-position category.
+
+    A flank is *terminal* when it is ``"NONCODING"`` (gene/intergenic boundary)
+    or ``"none"`` (sequence edge).  All other labels (``"INTRON"``, ``"EXON"``,
+    ``"CDS"``, UTR labels, splice-site labels) are *internal*.
+
+    Returns one of the four values in :data:`SEMANTIC_BOUNDARY_ORDER`.
+    """
+    left_terminal = left in _TERMINAL_FLANKS
+    right_terminal = right in _TERMINAL_FLANKS
+    if left_terminal and right_terminal:
+        return "single_exon_gene"
+    if left_terminal:
+        return "five_prime_terminal_exon"
+    if right_terminal:
+        return "three_prime_terminal_exon"
+    return "internal_exon"

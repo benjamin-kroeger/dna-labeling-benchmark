@@ -1,3 +1,27 @@
+"""Plots for the boundary-typed INDEL metric.
+
+Each method's INDEL payload is ``{"by_boundary": {"LEFT:RIGHT": {event_type:
+[run_length, ...]}}, "junction_opportunities": {"LEFT:RIGHT": int},
+"n_gt_segments": int, "n_pred_segments": int}`` — the boundary-typed run lengths
+plus the *opportunity* denominators needed to turn counts into rates.
+``"LEFT:RIGHT"`` is the GT label-name pair flanking a mismatch run (5'→3' order;
+``"none"`` for a sequence end).
+
+Views produced:
+
+* :func:`plot_stacked_indel_counts_bar` — per-method event counts, summed over
+  boundaries (the familiar high-level summary).
+* :func:`plot_indel_rates_by_boundary` — per-method boundary × event-type
+  **rate** heatmap (events ÷ opportunities). The comparable benchmarking view.
+* :func:`plot_indel_counts_by_boundary` — per-method boundary × event-type count
+  heatmap (log colour scale): the raw-magnitude view.
+* :func:`plot_individual_error_lengths_histograms` — a boundary × event-type
+  grid of overlaid per-method run-length distributions: *how large* the slips
+  are at each junction.
+
+Rows follow the canonical order from :data:`SEMANTIC_BOUNDARY_ORDER`.
+"""
+
 import logging
 from typing import Optional
 from pathlib import Path
@@ -6,167 +30,141 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.colors import LogNorm
 from matplotlib.ticker import MaxNLocator
 
 from ..config import ICON_MAP, DEFAULT_MULTI_PLOT_FIG_SIZE, PlotMetadata, DEFAULT_FIG_SIZE
 from ..utils import _add_icon_to_ax, _save_figure, _add_pictogram_panel
+from ...label_definition import SEMANTIC_BOUNDARY_ORDER
 
 logger = logging.getLogger(__name__)
 
+#: Canonical left-to-right ordering of the eight INDEL event types.
+_EVENT_ORDER = (
+    "5_prime_extensions",
+    "3_prime_extensions",
+    "joined",
+    "whole_insertions",
+    "5_prime_deletions",
+    "3_prime_deletions",
+    "split",
+    "whole_deletions",
+)
 
-def plot_individual_error_lengths_histograms(
-    df_indel_lengths: pd.DataFrame,
-    class_name: str,
-    save_path: Optional[Path] = None,
-) -> Optional[plt.Figure]:
-    """Histograms of INDEL error lengths (log-scaled), one subplot per type.
+#: Boundary-anchored events: rate denominator = GT junction transitions of the
+#: same ``LEFT:RIGHT`` type.
+_JUNCTION_EVENTS = frozenset(
+    {"5_prime_extensions", "3_prime_extensions", "5_prime_deletions", "3_prime_deletions"}
+)
+#: Events normalised by the number of GT coding segments.
+_GT_SEGMENT_EVENTS = frozenset({"joined", "split", "whole_deletions"})
+#: Events normalised by the number of predicted coding segments (precision-like).
+_PRED_SEGMENT_EVENTS = frozenset({"whole_insertions"})
 
-    Parameters
-    ----------
-    df_indel_lengths : pd.DataFrame
-        Long-format frame with columns ``method_name``, ``metric_key``,
-        ``value`` (lists of error arrays).
-    class_name : str
-        Human-readable class name for the title.
-    save_path : Path | None
-        If given, write the figure to this path.
 
-    Returns
-    -------
-    Figure | None
-        The matplotlib figure, or ``None`` when there is no data.
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _iter_events(all_indel_data: dict[str, dict]):
+    """Yield ``(method, boundary, event_type, lengths)`` over every payload.
+
+    ``all_indel_data`` maps method name → the full INDEL payload dict.
     """
-    if df_indel_lengths.empty:
-        logger.info("No INDEL length data for class %s.", class_name)
-        return None
+    for method, payload in all_indel_data.items():
+        if not isinstance(payload, dict):
+            continue
+        for boundary, buckets in payload.get("by_boundary", {}).items():
+            for event_type, lengths in buckets.items():
+                yield method, boundary, event_type, list(lengths)
 
-    method_error_lengths = (
-        df_indel_lengths.groupby(["method_name", "metric_key"])["value"]
-        .apply(lambda x: ([len(y) for y in x.iloc[0]] if not x.empty and isinstance(x.iloc[0], list) else []))
-        .unstack(fill_value=None)
-    )
 
-    unique_methods = method_error_lengths.index.tolist()
-    if not unique_methods:
-        return None
+def _pretty_boundary(boundary: str) -> str:
+    return boundary.replace("_", " ").title()
 
-    palette = sns.color_palette("tab10", n_colors=len(unique_methods))
-    method_colors = dict(zip(unique_methods, palette))
 
-    error_types = [c for c in ICON_MAP if c in method_error_lengths.columns]
-    if not error_types:
-        return None
+def _pretty_event(event_type: str) -> str:
+    return event_type.replace("_", " ").title()
 
-    n_cols = 4
-    n_rows = (len(error_types) + n_cols - 1) // n_cols
 
-    fig, axes = plt.subplots(
-        nrows=n_rows,
-        ncols=n_cols,
-        figsize=(DEFAULT_MULTI_PLOT_FIG_SIZE[0], n_rows * 5),
-        gridspec_kw={
-            "hspace": 0.9,
-            "wspace": 0.3,
-            "bottom": 0.12,
-            "top": 0.8,
-            "left": 0.05,
-            "right": 0.95,
-        },
-    )
-    axes = axes.flatten()
+def _present_events(all_indel_data: dict[str, dict]) -> list[str]:
+    """Event types (in canonical order) that have at least one run."""
+    seen = {event for _, _, event, lengths in _iter_events(all_indel_data) if lengths}
+    return [event for event in _EVENT_ORDER if event in seen]
 
-    for i, error_type in enumerate(error_types):
-        ax = axes[i]
-        has_data = False
 
-        for method_name in unique_methods:
-            lengths = method_error_lengths.loc[method_name, error_type]
-            if lengths and isinstance(lengths, list) and any(np.isfinite(lengths)):
-                positive = [length for length in lengths if length > 0]
-                if positive:
-                    sns.histplot(
-                        np.log10(positive),
-                        bins=30,
-                        kde=True,
-                        ax=ax,
-                        color=method_colors[method_name],
-                        label=method_name,
-                        alpha=0.7,
-                    )
-                    has_data = True
+def _present_boundaries(all_indel_data: dict[str, dict]) -> list[str]:
+    """Semantic boundary categories that have at least one run, in canonical order."""
+    seen = {boundary for _, boundary, _, lengths in _iter_events(all_indel_data) if lengths}
+    return [b for b in SEMANTIC_BOUNDARY_ORDER if b in seen]
 
-        if not has_data:
-            ax.text(
-                0.5,
-                0.5,
-                "No data",
-                ha="center",
-                va="center",
-                transform=ax.transAxes,
-            )
 
-        ax.set_title(error_type.replace("_", " ").title(), fontsize=12)
-        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+def _event_denominator(payload: dict, event_type: str, boundary: str) -> int:
+    """Opportunity count for one (event, boundary), per the §1 family rules.
 
-        log_ticks = ax.get_xticks()
-        ax.set_xticks(log_ticks)
-        ax.set_xticklabels([f"{10**x:.0f}" if np.isfinite(x) else "" for x in log_ticks])
-        ax.set_xlabel("Length (log scaled)")
+    Boundary-anchored events divide by GT junctions of the matching type; split /
+    join / whole deletions by GT segment count; whole insertions by predicted
+    segment count.
+    """
+    if event_type in _JUNCTION_EVENTS:
+        return int(payload.get("junction_opportunities", {}).get(boundary, 0))
+    if event_type in _GT_SEGMENT_EVENTS:
+        return int(payload.get("n_gt_segments", 0))
+    if event_type in _PRED_SEGMENT_EVENTS:
+        return int(payload.get("n_pred_segments", 0))
+    return 0
 
-        if error_type in ICON_MAP:
-            _add_icon_to_ax(ax, ICON_MAP[error_type], zoom=0.18, y_rel_pos=1.35, logger=logger)
 
-    for j in range(i + 1, len(axes)):
-        fig.delaxes(axes[j])
+def _count_matrix(payload: dict, boundaries: list[str], events: list[str]) -> np.ndarray:
+    """Event-count matrix (len(boundaries) × len(events)) for one method."""
+    by_boundary = payload.get("by_boundary", {})
+    mat = np.zeros((len(boundaries), len(events)), dtype=float)
+    for r, boundary in enumerate(boundaries):
+        buckets = by_boundary.get(boundary, {})
+        for c, event in enumerate(events):
+            mat[r, c] = len(buckets.get(event, []))
+    return mat
 
-    fig.suptitle(f"Length Distribution of INDELs — {class_name}", fontsize=16, y=0.98)
-    fig.supylabel("Frequency", fontsize=14, x=0.01)
 
-    # Deduplicated legend
-    handles, labels = [], []
-    for ax_ in axes:
-        for handle, label in zip(*ax_.get_legend_handles_labels()):
-            if label not in labels:
-                handles.append(handle)
-                labels.append(label)
-    if handles:
-        fig.legend(
-            handles,
-            labels,
-            loc="lower center",
-            ncol=len(unique_methods),
-            fontsize=12,
-            bbox_to_anchor=(0.5, 0.01),
-        )
+def _rate_matrix(payload: dict, boundaries: list[str], events: list[str]) -> np.ndarray:
+    """Per-(boundary, event) rate matrix; ``nan`` where the opportunity is zero."""
+    counts = _count_matrix(payload, boundaries, events)
+    rates = np.full_like(counts, np.nan)
+    for r, boundary in enumerate(boundaries):
+        for c, event in enumerate(events):
+            denom = _event_denominator(payload, event, boundary)
+            if denom > 0:
+                rates[r, c] = counts[r, c] / denom
+    return rates
 
-    if save_path is not None:
-        _save_figure(fig, save_path, logger=logger)
-    return fig
+
+# ---------------------------------------------------------------------------
+# 1. Per-method event-count summary (boundaries aggregated)
+# ---------------------------------------------------------------------------
 
 
 def plot_stacked_indel_counts_bar(
-    df_indel_counts: pd.DataFrame,
+    all_indel_data: dict[str, dict],
     class_name: str,
     save_path: Optional[Path] = None,
     metadata: PlotMetadata | None = None,
 ) -> Optional[plt.Figure]:
-    """Stacked horizontal bar chart of INDEL counts per method.
-
-    Returns
-    -------
-    Figure | None
-    """
-    if df_indel_counts.empty:
-        logger.info("No INDEL count data for class %s.", class_name)
+    """Stacked horizontal bar of INDEL event counts per method (summed over boundaries)."""
+    methods = list(all_indel_data)
+    if not methods:
+        logger.info("No INDEL data for class %s.", class_name)
         return None
 
-    counts = (
-        df_indel_counts.groupby(["method_name", "metric_key"])["value"]
-        .apply(lambda x: (len(x.iloc[0]) if not x.empty and isinstance(x.iloc[0], list) else 0))
-        .unstack(fill_value=0)
-    )
+    data = {method: dict.fromkeys(_EVENT_ORDER, 0) for method in methods}
+    for method, _boundary, event_type, lengths in _iter_events(all_indel_data):
+        if event_type in data[method]:
+            data[method][event_type] += len(lengths)
 
-    if counts.empty:
+    counts = pd.DataFrame(data).T.reindex(columns=_EVENT_ORDER)
+    counts = counts.loc[:, counts.sum(axis=0) > 0]
+    if counts.empty or counts.to_numpy().sum() == 0:
+        logger.info("No INDEL count data for class %s.", class_name)
         return None
 
     totals = counts.sum(axis=1)
@@ -176,11 +174,11 @@ def plot_stacked_indel_counts_bar(
     counts.plot(kind="barh", stacked=True, ax=ax, colormap="viridis")
 
     max_val = totals.max()
-    for i, (idx, total) in enumerate(totals.sort_values(ascending=True).items()):
+    for i, (_idx, total) in enumerate(totals.sort_values(ascending=True).items()):
         ax.text(
             total + 0.01 * max(max_val, 1),
             i,
-            str(total),
+            str(int(total)),
             va="center",
             ha="left",
             fontweight="bold",
@@ -198,3 +196,315 @@ def plot_stacked_indel_counts_bar(
     if save_path is not None:
         _save_figure(fig, save_path, logger=logger)
     return fig
+
+
+# ---------------------------------------------------------------------------
+# 2. Boundary × event-type heatmaps, one panel per method (where errors land)
+# ---------------------------------------------------------------------------
+
+
+def _per_method_boundary_heatmap(
+    all_indel_data: dict[str, dict],
+    class_name: str,
+    *,
+    matrix_fn,
+    annot_matrices: Optional[dict] = None,
+    annot_fmt: str,
+    norm=None,
+    vmax=None,
+    cbar_label: str,
+    title: str,
+    save_path: Optional[Path],
+    metadata: PlotMetadata | None,
+) -> Optional[plt.Figure]:
+    """Shared engine for the count/rate per-method boundary heatmaps.
+
+    ``matrix_fn(payload, boundaries, events) -> ndarray`` builds each method's
+    colour matrix on the shared grid; all panels share one colour scale
+    (``norm`` or ``vmax``) and one colourbar so methods are comparable.
+    ``annot_matrices`` overrides the annotation text (e.g. show raw counts on a
+    rate-coloured cell); ``nan`` cells are masked (blank).
+    """
+    boundaries = _present_boundaries(all_indel_data)
+    events = _present_events(all_indel_data)
+    methods = [m for m in all_indel_data if isinstance(all_indel_data[m], dict)]
+    if not boundaries or not events or not methods:
+        logger.info("No boundary-typed INDEL data for class %s.", class_name)
+        return None
+
+    matrices = {m: matrix_fn(all_indel_data[m], boundaries, events) for m in methods}
+    boundary_labels = [_pretty_boundary(b) for b in boundaries]
+    event_labels = [_pretty_event(e) for e in events]
+
+    panel_w = max(5.0, 1.2 * len(events))
+    height = max(5.0, 0.9 * len(boundaries) + 2.5)
+    # Note: no sharey — a shared y-axis lets a later panel's ``yticklabels=False``
+    # clear the boundary labels on panel 0.  All panels have identical row counts,
+    # so they line up without sharing.
+    fig, axes = plt.subplots(
+        1,
+        len(methods),
+        figsize=(panel_w * len(methods) + 1.5, height),
+        squeeze=False,
+    )
+    axes = axes[0]
+
+    for i, method in enumerate(methods):
+        ax = axes[i]
+        mat = matrices[method]
+        annot = annot_matrices[method] if annot_matrices is not None else True
+        sns.heatmap(
+            mat,
+            ax=ax,
+            norm=norm,
+            vmin=None if norm is not None else 0,
+            vmax=None if norm is not None else vmax,
+            annot=annot,
+            fmt="" if annot_matrices is not None else annot_fmt,
+            cmap="rocket_r",
+            cbar=False,
+            mask=np.isnan(mat),
+            linewidths=0.5,
+            linecolor="white",
+            xticklabels=event_labels,
+            yticklabels=(boundary_labels if i == 0 else False),
+        )
+        ax.set_facecolor("0.92")  # masked / no-opportunity cells render grey
+        ax.set_title(method, fontsize=13)
+        ax.set_xlabel("Event type", fontsize=11)
+        ax.set_ylabel("Exon position" if i == 0 else "", fontsize=12)
+        plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+        plt.setp(ax.get_yticklabels(), rotation=0)
+
+    # subplots_adjust instead of tight_layout: tight_layout re-expands axes after
+    # the colorbar has already stolen space, pushing the bar into the last panel.
+    fig.subplots_adjust(bottom=0.28, top=0.88)
+    fig.colorbar(axes[-1].collections[0], ax=list(axes), location="right", shrink=0.8, label=cbar_label)
+    fig.suptitle(f"{title} — {class_name}", fontsize=15)
+    _add_pictogram_panel(fig, metadata, logger=logger)
+
+    if save_path is not None:
+        _save_figure(fig, save_path, logger=logger)
+    return fig
+
+
+def plot_indel_rates_by_boundary(
+    all_indel_data: dict[str, dict],
+    class_name: str,
+    save_path: Optional[Path] = None,
+    metadata: PlotMetadata | None = None,
+) -> Optional[plt.Figure]:
+    """Per-method GT boundary × event-type **rate** heatmap (the comparable view).
+
+    Each cell is ``events ÷ opportunities`` (boundary-anchored events by GT
+    junctions of that type; split/join/whole-deletions by GT segment count;
+    whole-insertions by predicted segment count).  Colour = rate (shared linear
+scale); the cell annotation is the rate value.  Cells with no opportunity
+    or zero events are masked grey.
+    """
+    boundaries = _present_boundaries(all_indel_data)
+    events = _present_events(all_indel_data)
+    methods = [m for m in all_indel_data if isinstance(all_indel_data[m], dict)]
+    if not boundaries or not events or not methods:
+        logger.info("No boundary-typed INDEL data for class %s.", class_name)
+        return None
+
+    def _rate_masked(payload: dict, boundaries: list[str], events: list[str]) -> np.ndarray:
+        counts = _count_matrix(payload, boundaries, events)
+        rates = _rate_matrix(payload, boundaries, events)
+        rates[counts == 0] = np.nan  # gray out zero-event cells, same as count plot
+        return rates
+
+    # Annotate with the rate value; blank for no-data or zero-event cells.
+    annot_matrices: dict[str, np.ndarray] = {}
+    for m in methods:
+        rate_mat = _rate_matrix(all_indel_data[m], boundaries, events)
+        count_mat = _count_matrix(all_indel_data[m], boundaries, events)
+        annot = np.full(rate_mat.shape, "", dtype=object)
+        visible = ~np.isnan(rate_mat) & (count_mat > 0)
+        annot[visible] = [f"{v:.2f}" for v in rate_mat[visible]]
+        annot_matrices[m] = annot
+
+    rate_max = max(
+        (np.nanmax(_rate_masked(all_indel_data[m], boundaries, events)) if boundaries else 0.0) for m in methods
+    )
+    vmax = float(rate_max) if np.isfinite(rate_max) and rate_max > 0 else 1.0
+
+    return _per_method_boundary_heatmap(
+        all_indel_data,
+        class_name,
+        matrix_fn=_rate_masked,
+        annot_matrices=annot_matrices,
+        annot_fmt="",
+        norm=None,
+        vmax=vmax,
+        cbar_label="Error rate (events ÷ opportunities)",
+        title="INDEL Error Rate by GT Boundary",
+        save_path=save_path,
+        metadata=metadata,
+    )
+
+
+def plot_indel_counts_by_boundary(
+    all_indel_data: dict[str, dict],
+    class_name: str,
+    save_path: Optional[Path] = None,
+    metadata: PlotMetadata | None = None,
+) -> Optional[plt.Figure]:
+    """Per-method GT boundary × event-type **count** heatmap (log colour scale).
+
+    The raw-magnitude companion to :func:`plot_indel_rates_by_boundary`.  A log
+    colour norm keeps a single dominant cell (e.g. thousands of spurious whole
+    insertions) from washing out the tens-count boundary slips.  Zero cells are
+    masked (blank).
+    """
+
+    def _count_or_nan(payload: dict, boundaries: list[str], events: list[str]) -> np.ndarray:
+        mat = _count_matrix(payload, boundaries, events)
+        mat[mat == 0] = np.nan  # LogNorm needs positive values; blank the zeros
+        return mat
+
+    boundaries = _present_boundaries(all_indel_data)
+    events = _present_events(all_indel_data)
+    methods = [m for m in all_indel_data if isinstance(all_indel_data[m], dict)]
+    if not boundaries or not events or not methods:
+        logger.info("No boundary-typed INDEL data for class %s.", class_name)
+        return None
+
+    vmax = max((_count_matrix(all_indel_data[m], boundaries, events).max() for m in methods), default=0.0)
+    norm = LogNorm(vmin=1, vmax=max(vmax, 2))
+
+    return _per_method_boundary_heatmap(
+        all_indel_data,
+        class_name,
+        matrix_fn=_count_or_nan,
+        annot_fmt=".0f",
+        norm=norm,
+        cbar_label="Event count (log scale)",
+        title="INDEL Events by GT Boundary",
+        save_path=save_path,
+        metadata=metadata,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3. Boundary × event-type run-length distributions (how large the slips are)
+# ---------------------------------------------------------------------------
+
+
+def plot_individual_error_lengths_histograms(
+    all_indel_data: dict[str, dict],
+    class_name: str,
+    save_dir: Optional[Path] = None,
+) -> dict[str, plt.Figure]:
+    """One run-length histogram figure per exon-position category.
+
+    Each figure uses a fixed 4-col × 2-row grid: row 0 holds the four insertion
+    event types, row 1 the four deletion event types.  Empty cells show ``—``.
+    Returns ``{boundary: figure}``; saves to
+    ``save_dir/indel_lengths_{boundary}.png`` when *save_dir* is given.
+    """
+    boundaries = _present_boundaries(all_indel_data)
+    if not boundaries:
+        logger.info("No boundary-typed INDEL length data for class %s.", class_name)
+        return {}
+
+    lengths: dict[tuple[str, str], dict[str, list[int]]] = {}
+    for method, boundary, event_type, runs in _iter_events(all_indel_data):
+        if not runs:
+            continue
+        lengths.setdefault((boundary, event_type), {}).setdefault(method, []).extend(runs)
+
+    methods = list(all_indel_data)
+    palette = sns.color_palette("tab10", n_colors=max(len(methods), 1))
+    method_colors = dict(zip(methods, palette))
+
+    # Fixed grid: insertions on top row, deletions on bottom row
+    event_grid = [_EVENT_ORDER[:4], _EVENT_ORDER[4:]]
+
+    figures: dict[str, plt.Figure] = {}
+
+    for boundary in boundaries:
+        fig, axes = plt.subplots(
+            nrows=2,
+            ncols=4,
+            figsize=(14, 6.8),
+            squeeze=False,
+        )
+
+        has_any = False
+        for r, event_row in enumerate(event_grid):
+            for c, event_type in enumerate(event_row):
+                ax = axes[r][c]
+                cell = lengths.get((boundary, event_type), {})
+                has_data = False
+                for method_name, runs in cell.items():
+                    positive = [run for run in runs if run > 0]
+                    if positive:
+                        sns.histplot(
+                            np.log10(positive),
+                            bins=20,
+                            kde=False,
+                            ax=ax,
+                            color=method_colors.get(method_name),
+                            label=method_name,
+                            alpha=0.6,
+                        )
+                        has_data = True
+                        has_any = True
+
+                if not has_data:
+                    ax.text(0.5, 0.5, "—", ha="center", va="center", transform=ax.transAxes, color="0.6")
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                else:
+                    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+                    log_ticks = ax.get_xticks()
+                    ax.set_xticks(log_ticks)
+                    ax.set_xticklabels([f"{10**x:.0f}" if np.isfinite(x) else "" for x in log_ticks])
+
+                ax.set_title(_pretty_event(event_type), fontsize=11, pad=8)
+                if event_type in ICON_MAP:
+                    _add_icon_to_ax(ax, ICON_MAP[event_type], zoom=0.11, y_rel_pos=1.42, logger=logger)
+                ax.set_xlabel("Run length (nt)" if r == 1 else "", fontsize=9)
+                ax.set_ylabel("Count" if c == 0 else "", fontsize=9)
+
+        if not has_any:
+            plt.close(fig)
+            continue
+
+        handles, label_texts = [], []
+        for ax_row in axes:
+            for ax_ in ax_row:
+                for handle, label in zip(*ax_.get_legend_handles_labels()):
+                    if label not in label_texts:
+                        handles.append(handle)
+                        label_texts.append(label)
+                if ax_.get_legend() is not None:
+                    ax_.get_legend().remove()
+
+        fig.suptitle(f"{_pretty_boundary(boundary)} — {class_name}", fontsize=14, y=0.98)
+        fig.subplots_adjust(
+            left=0.055,
+            right=0.985,
+            bottom=0.16 if handles else 0.09,
+            top=0.78,
+            wspace=0.20,
+            hspace=0.85,
+        )
+        if handles:
+            fig.legend(
+                handles, label_texts,
+                loc="lower center",
+                ncol=max(len(methods), 1),
+                fontsize=11,
+                bbox_to_anchor=(0.5, 0.0),
+                bbox_transform=fig.transFigure,
+            )
+
+        if save_dir is not None:
+            _save_figure(fig, save_dir / f"indel_lengths_{boundary}.png", logger=logger)
+
+        figures[boundary] = fig
+
+    return figures
