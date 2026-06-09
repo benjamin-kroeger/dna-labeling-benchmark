@@ -63,8 +63,9 @@ def plot_frameshift_percentage_bar(
     sns.barplot(data=frame_df, y="Percentage", x="Frame", hue="method_name", ax=ax)
 
     for container in ax.containers:
-        ax.bar_label(container, label_type="edge", padding=3, fmt="%.2f%%")
+        ax.bar_label(container, label_type="edge", padding=2, fmt="%.1f%%", fontsize=6, rotation=90)
 
+    ax.set_ylim(0, 115)  # 15% headroom for rotated bar labels (fontsize=6, rotation=90, padding=2)
     ax.set_title(
         f"Codon Reading Frame Distribution — {class_name}",
         fontsize=16,
@@ -86,18 +87,19 @@ def plot_frameshift_percentage_bar(
             pct = f"{in_frame / total * 100:.0f}%" if total > 0 else "n/a"
             parts.append(f"{method}: {in_frame}/{total} boundary indels in-frame ({pct})")
         ax.annotate(
-            "  |  ".join(parts),
+            "\n".join(parts),
             xy=(0.5, -0.15),
             xycoords="axes fraction",
             ha="center",
             va="top",
-            fontsize=11,
+            fontsize=7,
             color="#333333",
-            fontweight="semibold",
             bbox=dict(boxstyle="round,pad=0.4", facecolor="#f0f0f0", edgecolor="#cccccc", linewidth=0.8),
         )
 
-    fig.tight_layout()
+    n_methods = frame_df["method_name"].nunique()
+    bottom_margin = min(0.05 + 0.03 * n_methods, 0.35)  # cap so rect bottom stays < top
+    fig.tight_layout(rect=[0, bottom_margin, 1, 1])
     _add_pictogram_panel(fig, metadata, logger=logger)
 
     if save_path is not None:
