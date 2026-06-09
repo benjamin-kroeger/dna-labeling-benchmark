@@ -223,6 +223,24 @@ def _parse_pred_feature_role_specs(
     return by_predictor
 
 
+def _resolve_pred_exon_types(
+    parsed: str | list[str] | dict[str, str | list[str]] | None,
+    pred_names: list[str],
+    default: list[str],
+) -> dict[str, list[str]]:
+    """Normalize ``--pred-exon-feature-type`` specs into per-predictor lists."""
+    if parsed is None:
+        return {name: list(default) for name in pred_names}
+    if isinstance(parsed, dict):
+        result: dict[str, list[str]] = {}
+        for name in pred_names:
+            v = parsed.get(name, default)
+            result[name] = [v] if isinstance(v, str) else list(v)
+        return result
+    types = [parsed] if isinstance(parsed, str) else list(parsed)
+    return {name: list(types) for name in pred_names}
+
+
 def _pred_role_map_for(
     pred_role_maps: dict[str, str] | dict[str, dict[str, str]] | None,
     pred_name: str,
@@ -435,11 +453,6 @@ def run(
         export_mapping_table,
         map_transcripts,
     )
-    from .pipeline import (
-        _coerce_feature_types,
-        _normalise_pred_exon_feature_types,
-    )
-
     # ------------------------------------------------------------------
     # 1. Parse inputs
     # ------------------------------------------------------------------
@@ -485,18 +498,16 @@ def run(
         gt_map_kwargs = dict(gt_feature_role_map=gt_role_map)
         pred_map_kwargs = dict(pred_feature_role_maps=pred_role_maps)
     else:
-        gt_exon_types = _coerce_feature_types(
-            list(gt_exon_feature_types),
-            arg_name="--gt-exon-feature-type",
+        gt_exon_types = list(gt_exon_feature_types)
+        pred_exon_feature_types_parsed = _parse_pred_exon_feature_specs(pred_exon_feature_specs)
+        pred_exon_types_by_name = _resolve_pred_exon_types(
+            pred_exon_feature_types_parsed, list(pred_paths.keys()), gt_exon_types
         )
-        pred_exon_feature_types = _parse_pred_exon_feature_specs(pred_exon_feature_specs)
-        pred_exon_types_by_name = _normalise_pred_exon_feature_types(
-            list(pred_paths.keys()),
-            pred_exon_feature_types,
-            default=gt_exon_types,
-        )
-        gt_map_kwargs = dict(exon_types=gt_exon_types)
-        pred_map_kwargs = dict(pred_exon_types=pred_exon_types_by_name)
+        # Convert explicit exon-type lists to role maps (new internal API).
+        gt_role_map = {ft: "exon" for ft in gt_exon_types}
+        pred_role_maps = {name: {ft: "exon" for ft in types} for name, types in pred_exon_types_by_name.items()}
+        gt_map_kwargs = dict(gt_feature_role_map=gt_role_map)
+        pred_map_kwargs = dict(pred_feature_role_maps=pred_role_maps)
 
     # ------------------------------------------------------------------
     # 2. Read GFF files once into memory
@@ -603,20 +614,7 @@ def run(
             all_results[pred_name] = per_transcript
             continue
 
-        if use_role_maps:
-            pred_role_map = _pred_role_map_for(pred_role_maps, pred_name)
-            global_map_kwargs = dict(
-                gt_exon_types=None,
-                pred_exon_types=None,
-                gt_feature_role_map=gt_role_map,
-                pred_feature_role_map=pred_role_map if pred_role_map is not None else gt_role_map,
-            )
-        else:
-            global_map_kwargs = dict(
-                gt_exon_types=gt_exon_types,
-                pred_exon_types=pred_exon_types_by_name[pred_name],
-            )
-
+        _pred_role_map = _pred_role_map_for(pred_role_maps, pred_name)
         global_result = compute_global_metrics(
             gt_df=gt_df,
             pred_df=pred_dfs[pred_name],
@@ -624,7 +622,8 @@ def run(
             predictor_name=pred_name,
             label_config=label_config,
             transcript_types=tt_list,
-            **global_map_kwargs,
+            gt_feature_role_map=gt_role_map,
+            pred_feature_role_map=_pred_role_map if _pred_role_map is not None else gt_role_map,
         )
 
         all_results[pred_name] = {
