@@ -33,7 +33,7 @@ import seaborn as sns
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import MaxNLocator
 
-from ..config import DEFAULT_MULTI_PLOT_FIG_SIZE, PlotMetadata, DEFAULT_FIG_SIZE
+from ..config import PlotMetadata, DEFAULT_FIG_SIZE
 from ..utils import _add_icon_to_ax, _save_figure, _add_pictogram_panel
 from ...label_definition import SEMANTIC_BOUNDARY_ORDER
 
@@ -238,13 +238,14 @@ def _per_method_boundary_heatmap(
 
     panel_w = max(5.0, 1.2 * len(events))
     height = max(5.0, 0.9 * len(boundaries) + 2.5)
+    fig_width = panel_w * len(methods) + 1.5
     # Note: no sharey — a shared y-axis lets a later panel's ``yticklabels=False``
     # clear the boundary labels on panel 0.  All panels have identical row counts,
     # so they line up without sharing.
     fig, axes = plt.subplots(
         1,
         len(methods),
-        figsize=(panel_w * len(methods) + 1.5, height),
+        figsize=(fig_width, height),
         squeeze=False,
     )
     axes = axes[0]

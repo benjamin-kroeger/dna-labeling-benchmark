@@ -35,7 +35,7 @@ from .chain_comparison import (
     _compute_scoped_chain_metrics,
 )
 from .frame_shift import _get_frame_shift_metrics
-from .indel_metrics import _eval_indel
+from .indel_metrics import BOUNDARY_ANCHORED_BUCKETS, _eval_indel
 from .preprocessing import (
     _infer_introns_from_coding_gaps,
     _iter_unmasked_spans,
@@ -193,8 +193,10 @@ def _benchmark_chunk(
     grouped_gt_sections = resolve_scope_sections(gt_labels, scope, label_config)
     grouped_pred_sections = resolve_scope_sections(pred_labels, scope, label_config)
 
-    if EvalMetrics.INDEL in metrics:
-        metric_results[EvalMetrics.INDEL.name] = _eval_indel(
+
+    _indel_result: dict | None = None
+    if EvalMetrics.INDEL in metrics or EvalMetrics.FRAMESHIFT in metrics:
+        _indel_result = _eval_indel(
             grouped_insertions,
             grouped_deletions,
             gt_mask,
@@ -204,6 +206,9 @@ def _benchmark_chunk(
             len(grouped_gt_sections),
             len(grouped_pred_sections),
         )
+        # only output indel if requested
+        if EvalMetrics.INDEL in metrics:
+            metric_results[EvalMetrics.INDEL.name] = _indel_result
 
     if _needs_section_analysis(metrics):
         section_data, boundary_data = _eval_sections(
@@ -230,13 +235,11 @@ def _benchmark_chunk(
                 "FRAMESHIFT is only valid in UTR_CDS_INTRON mode with "
                 "evaluation_scope='cds'."
             )
-        frameshift = _eval_frameshift(
+        metric_results[EvalMetrics.FRAMESHIFT.name] = _eval_frameshift(
             gt_mask,
             pred_mask,
+            indel_result=_indel_result,
         )
-        metric_results[EvalMetrics.FRAMESHIFT.name] = {
-            "gt_frames": np.asarray(frameshift["frames"])
-        }
 
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics:
         metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = _eval_structural(gt_labels, pred_labels, label_config)
@@ -264,12 +267,39 @@ def _eval_transitions(arr: np.ndarray, label_config: LabelConfig) -> dict:
     }
 
 
-def _eval_frameshift(gt_positive_mask: np.ndarray, pred_positive_mask: np.ndarray) -> dict:
-    """Per-position reading-frame deviation for one explicit CDS-like scope."""
-    return _get_frame_shift_metrics(
+
+
+def _eval_frameshift(
+    gt_positive_mask: np.ndarray,
+    pred_positive_mask: np.ndarray,
+    indel_result: dict | None = None,
+) -> dict:
+    """Per-position reading-frame deviation for one explicit CDS-like scope.
+
+    When *indel_result* is supplied (the INDEL metric dict for the same chunk),
+    the returned dict also carries ``boundary_indel_total`` and
+    ``boundary_indel_in_frame`` — counts of boundary-anchored indel events
+    (5'/3' extensions and deletions only) and how many of those have lengths
+    divisible by 3 (i.e. in-frame).
+    """
+    raw = _get_frame_shift_metrics(
         gt_positive_mask=gt_positive_mask,
         pred_positive_mask=pred_positive_mask,
     )
+    result: dict = {"gt_frames": np.asarray(raw["frames"])}
+
+    if indel_result is not None:
+        lengths = [
+            length
+            for buckets in indel_result.get("by_boundary", {}).values()
+            for bucket, runs in buckets.items()
+            if bucket in BOUNDARY_ANCHORED_BUCKETS
+            for length in runs
+        ]
+        result["boundary_indel_total"] = len(lengths)
+        result["boundary_indel_in_frame"] = sum(1 for length in lengths if length % 3 == 0)
+
+    return result
 
 
 def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_config: LabelConfig) -> dict:

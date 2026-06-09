@@ -281,7 +281,10 @@ class FrameshiftAccumulator:
     KEY: ClassVar[str] = "FRAMESHIFT"
 
     frames: list = field(default_factory=list)
+    boundary_indel_total: int = 0
+    boundary_indel_in_frame: int = 0
     _seen: bool = False
+    _has_indel_counts: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
@@ -289,11 +292,19 @@ class FrameshiftAccumulator:
             return
         self._seen = True
         self.frames.extend(list(payload.get("gt_frames", payload.get("frames", []))))
+        if "boundary_indel_total" in payload and "boundary_indel_in_frame" in payload:
+            self._has_indel_counts = True
+            self.boundary_indel_total += payload["boundary_indel_total"]
+            self.boundary_indel_in_frame += payload["boundary_indel_in_frame"]
 
     def _to_dict(self) -> dict:
         if not self._seen:
             return {}
-        return {self.KEY: {"gt_frames": list(self.frames)}}
+        result: dict = {"gt_frames": list(self.frames)}
+        if self._has_indel_counts:
+            result["boundary_indel_total"] = self.boundary_indel_total
+            result["boundary_indel_in_frame"] = self.boundary_indel_in_frame
+        return {self.KEY: result}
 
     def merged(self) -> dict:
         return self._to_dict()

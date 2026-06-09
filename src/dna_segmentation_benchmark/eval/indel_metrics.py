@@ -37,12 +37,16 @@ from collections import defaultdict
 import numpy as np
 
 from ..label_definition import LabelConfig, semantic_boundary_label
+from .utils import get_contiguous_groups
 
 #: Bucket names for the four classification slots, for insertion runs.
 #: Order: (5'-anchored, 3'-anchored, anchored-on-both, anchored-on-neither).
 _INSERTION_BUCKETS = ("5_prime_extensions", "3_prime_extensions", "joined", "whole_insertions")
 #: Same four slots, for deletion runs.
 _DELETION_BUCKETS = ("5_prime_deletions", "3_prime_deletions", "split", "whole_deletions")
+#: The four bucket names that are anchored at a coding-segment boundary (5′/3′
+#: extensions and deletions).  Derived from the first two slots of each tuple.
+BOUNDARY_ANCHORED_BUCKETS: frozenset[str] = frozenset(_INSERTION_BUCKETS[:2] + _DELETION_BUCKETS[:2])
 
 #: Boundary-key token for "no neighbour" (run touches a sequence end).  A name,
 #: not an integer id, so it can never collide with a real label.
@@ -86,9 +90,10 @@ def _eval_indel(
         "junction_opportunities": {"LEFT:RIGHT": int},
         "n_gt_segments": int, "n_pred_segments": int}``.
 
-        ``junction_opportunities`` counts GT label transitions ``L→R`` and is the
-        denominator for boundary-anchored events (extensions / deletions) of the
-        matching key, so a count becomes "fraction of L→R junctions that
+        ``junction_opportunities`` counts the 5'/3' edges of GT coding segments,
+        typed by their outer GT flank (array edge = ``"none"`` = terminal), and is
+        the denominator for boundary-anchored events (extensions / deletions) of
+        the matching key, so a count becomes "fraction of that boundary type that
         suffered this error".
     """
     # _classify_mismatches looks one position before/after each group in the
@@ -108,30 +113,41 @@ def _eval_indel(
 
     return {
         "by_boundary": {boundary: dict(buckets) for boundary, buckets in by_boundary.items()},
-        "junction_opportunities": _junction_opportunities(gt_labels, label_config),
+        "junction_opportunities": _junction_opportunities(gt_positive_mask, gt_labels, label_config),
         "n_gt_segments": int(n_gt_segments),
         "n_pred_segments": int(n_pred_segments),
     }
 
 
-def _junction_opportunities(gt_labels: np.ndarray, label_config: LabelConfig) -> dict[str, int]:
-    """Count GT label transitions ``L→R`` as ``"LEFT:RIGHT"`` name keys.
+def _junction_opportunities(
+    gt_positive_mask: np.ndarray, gt_labels: np.ndarray, label_config: LabelConfig
+) -> dict[str, int]:
+    """Count per-boundary opportunities for boundary-anchored slips.
 
-    These are the *opportunities* for boundary-anchored errors: the denominator
-    for the extension/deletion rate at each junction type.  Keys match those
-    produced for boundary-anchored runs, so a count divided by its opportunity
-    is the per-junction error rate.
+    Each GT coding segment contributes two opportunities — its 5' edge and its
+    3' edge — typed by the GT flank just *outside* the segment, read with the
+    same :func:`_flank_name` rule the mismatch classifier uses.  A flank off the
+    array end is therefore ``"none"`` (terminal), so a coding segment touching a
+    sequence/window edge is counted as a terminal-exon boundary, not an absent
+    one.  This keeps the denominator consistent with the numerator: under
+    per-transcript windowing the gene boundary coincides with the array edge,
+    which a plain label-transition count would miss entirely.
+
+    Keys match those produced for boundary-anchored runs, so a run count divided
+    by its opportunity is the per-junction error rate.
     """
-    if gt_labels.size < 2:
-        return {}
-    change_idx = np.where(gt_labels[:-1] != gt_labels[1:])[0]
     opportunities: dict[str, int] = {}
-    for i in change_idx:
-        key = semantic_boundary_label(
-            label_config.name_of(int(gt_labels[i])),
-            label_config.name_of(int(gt_labels[i + 1])),
-        )
-        opportunities[key] = opportunities.get(key, 0) + 1
+    for segment in get_contiguous_groups(np.where(gt_positive_mask)[0]):
+        if segment.size == 0:
+            continue
+        start = int(segment[0])
+        end = int(segment[-1])
+        start_name = label_config.name_of(int(gt_labels[start]))
+        end_name = label_config.name_of(int(gt_labels[end]))
+        key_5 = semantic_boundary_label(_flank_name(gt_labels, start - 1, label_config), start_name)
+        key_3 = semantic_boundary_label(end_name, _flank_name(gt_labels, end + 1, label_config))
+        opportunities[key_5] = opportunities.get(key_5, 0) + 1
+        opportunities[key_3] = opportunities.get(key_3, 0) + 1
     return opportunities
 
 

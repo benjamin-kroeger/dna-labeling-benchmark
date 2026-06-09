@@ -73,6 +73,30 @@ def plot_frameshift_percentage_bar(
     ax.set_ylabel("Percentage of Codons", fontsize=12)
     ax.legend(title="Method Name", loc="upper right", fontsize=9)
 
+    # Build per-method boundary-indel mod-3 note, if the counts were computed.
+    indel_rows = df_frameshift_metrics[
+        df_frameshift_metrics["metric_key"].isin(("boundary_indel_total", "boundary_indel_in_frame"))
+    ]
+    if not indel_rows.empty:
+        pivoted = indel_rows.pivot_table(index="method_name", columns="metric_key", values="value", aggfunc="first")
+        parts = []
+        for method, row in pivoted.iterrows():
+            total = int(row.get("boundary_indel_total", 0))
+            in_frame = int(row.get("boundary_indel_in_frame", 0))
+            pct = f"{in_frame / total * 100:.0f}%" if total > 0 else "n/a"
+            parts.append(f"{method}: {in_frame}/{total} boundary indels in-frame ({pct})")
+        ax.annotate(
+            "  |  ".join(parts),
+            xy=(0.5, -0.15),
+            xycoords="axes fraction",
+            ha="center",
+            va="top",
+            fontsize=11,
+            color="#333333",
+            fontweight="semibold",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="#f0f0f0", edgecolor="#cccccc", linewidth=0.8),
+        )
+
     fig.tight_layout()
     _add_pictogram_panel(fig, metadata, logger=logger)
 
