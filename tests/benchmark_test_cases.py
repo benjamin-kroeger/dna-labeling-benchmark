@@ -157,6 +157,103 @@ SINGLE_SEQUENCE_TEST_CASES = [
         id='Frameshift_test',
     ),
     pytest.param(
+        # Perfect prediction: GT == pred, every overlap position has frame 0.
+        np.array([[0, 0, 0, 8, 8, 8, 0, 0, 0], [0, 0, 0, 8, 8, 8, 0, 0, 0]]),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.FRAMESHIFT],
+        {
+            "FRAMESHIFT": {"gt_frames": np.array([0., 0., 0., np.inf, np.inf, np.inf, 0., 0., 0.])},
+        },
+        id='frameshift_perfect_prediction',
+    ),
+    pytest.param(
+        # Pred is shifted 1 position to the right: one leading background in pred,
+        # one trailing background in GT. The single-base lag creates a persistent
+        # frame offset of 1 at every overlap position (mod-3 arithmetic: |pred_cumsum
+        # - gt_cumsum| = 1 at all overlap sites).
+        np.array([[0, 0, 0, 0, 0, 0, 8], [8, 0, 0, 0, 0, 0, 0]]),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.FRAMESHIFT],
+        {
+            "FRAMESHIFT": {"gt_frames": np.array([np.inf, 1., 1., 1., 1., 1., np.inf])},
+        },
+        id='frameshift_persistent_plus1',
+    ),
+    pytest.param(
+        # Pred is shifted 2 positions to the right: cumsum difference is 2 at every
+        # overlap position.
+        np.array([[0, 0, 0, 0, 0, 0, 8, 8], [8, 8, 0, 0, 0, 0, 0, 0]]),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.FRAMESHIFT],
+        {
+            "FRAMESHIFT": {"gt_frames": np.array([np.inf, np.inf, 2., 2., 2., 2., np.inf, np.inf])},
+        },
+        id='frameshift_persistent_plus2',
+    ),
+    pytest.param(
+        # GT and pred CDS regions are completely non-overlapping: valid_mask is all
+        # False so every position stays at inf.
+        np.array([[0, 0, 0, 8, 8, 8], [8, 8, 8, 0, 0, 0]]),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.FRAMESHIFT],
+        {
+            "FRAMESHIFT": {"gt_frames": np.array([np.inf, np.inf, np.inf, np.inf, np.inf, np.inf])},
+        },
+        id='frameshift_no_overlap',
+    ),
+    pytest.param(
+        # Frame escalates 0→1→2 inside a single exon. GT has 9 consecutive CDS
+        # bases; pred drops every 3rd one (positions 2, 5, 8). At each gap the
+        # cumsum difference increases by 1, shifting the frame up one step.
+        np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 8], [0, 0, 8, 0, 0, 8, 0, 0, 8, 8]]),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.FRAMESHIFT],
+        {
+            "FRAMESHIFT": {"gt_frames": np.array([0., 0., np.inf, 1., 1., np.inf, 2., 2., np.inf, np.inf])},
+        },
+        id='frameshift_escalating_within_exon',
+    ),
+    pytest.param(
+        # Cyclic 0→1→2→0→1→2 across 6 sparse CDS positions. GT has CDS only at
+        # every 3rd position (0,3,6,9,12,15); pred inserts one extra CDS between
+        # each GT CDS site. The cumsum difference grows by 1 per site and wraps mod
+        # 3 to produce the repeating cycle.
+        np.array(
+            [
+                [0, 8, 8, 0, 8, 8, 0, 8, 8, 0, 8, 8, 0, 8, 8, 0],
+                [0, 8, 0, 0, 8, 0, 0, 8, 0, 0, 8, 0, 0, 8, 0, 0],
+            ]
+        ),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.FRAMESHIFT],
+        {
+            "FRAMESHIFT": {"gt_frames": np.array([0., np.inf, np.inf, 1., np.inf, np.inf, 2., np.inf, np.inf, 0., np.inf, np.inf, 1., np.inf, np.inf, 2.])},
+        },
+        id='frameshift_cyclic_012',
+    ),
+    pytest.param(
+        # GT CDS count (4) is not divisible by 3: the metric skips the sequence and
+        # returns an empty frame list.
+        np.array([[0, 0, 0, 0, 8, 8, 8], [0, 0, 0, 0, 0, 0, 0]]),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.FRAMESHIFT],
+        {
+            "FRAMESHIFT": {"gt_frames": np.array([])},
+        },
+        id='frameshift_gt_cds_not_mod3',
+    ),
+    pytest.param(
+        # Pred has only 1 CDS base (< 3): the metric returns an empty frame list
+        # without attempting computation.
+        np.array([[0, 0, 0, 8, 0, 0, 0], [8, 0, 8, 8, 8, 8, 8]]),
+        CDS_SCOPE_CONFIG,
+        [EvalMetrics.FRAMESHIFT],
+        {
+            "FRAMESHIFT": {"gt_frames": np.array([])},
+        },
+        id='frameshift_pred_too_few_cds',
+    ),
+    pytest.param(
         np.array([[-1, -1, -1, 5, 5, 5, 5, 5, -1, -1, -1, -1, 5, 5, 5, 5, 5, -1, -1, 5, 5], [5, 5, 5, 5, 5, -1, -1, -1, 5, 5, 5, 5, -1, 5, 5, 5, 5, 5, 5, -1, -1]]),
         CUSTOM_CONFIG,
         [EvalMetrics.INDEL],
@@ -175,6 +272,22 @@ SINGLE_SEQUENCE_TEST_CASES = [
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": [{"tp": 3, "fp": 0, "fn": 0, "tn": 3}, {"tp": 2, "fp": 0, "fn": 0, "tn": 4}]},
         },
         id='mask_test',
+    ),
+    pytest.param(
+        # Coding segments touch BOTH array edges (per-transcript windowing): the
+        # 5' edge of seg A and the 3' edge of seg B are gene boundaries that
+        # coincide with the array end, so their flank is "none" (terminal).  Both
+        # the numerator (5'/3' deletion runs) and the denominator
+        # (junction_opportunities) must type these as terminal-exon boundaries.
+        # A plain label-transition count would miss the two edge boundaries and
+        # report only 1 opportunity each instead of 2.
+        np.array([[0, 0, 0, 0, 8, 8, 0, 0, 0, 0], [8, 8, 0, 0, 8, 8, 0, 0, 0, 8]]),
+        BEND_LABEL_CONFIG,
+        [EvalMetrics.INDEL],
+        {
+            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"5_prime_deletions": [2]}, "three_prime_terminal_exon": {"3_prime_deletions": [1]}}, "junction_opportunities": {"five_prime_terminal_exon": 2, "three_prime_terminal_exon": 2}, "n_gt_segments": 2, "n_pred_segments": 2},
+        },
+        id='indel_window_edge_terminal_exon',
     ),
 ]
 

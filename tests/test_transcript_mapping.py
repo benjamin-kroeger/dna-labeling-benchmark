@@ -17,8 +17,6 @@ from dna_segmentation_benchmark.io_utils import collect_gff
 from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
 from dna_segmentation_benchmark.transcript_mapping import (
     MatchClass,
-    PredictionMatch,
-    TranscriptMapping,
     _TranscriptInfo,
     _base_overlap,
     _classify_pair,
