@@ -46,6 +46,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
+from scipy.optimize import linear_sum_assignment
 
 from .feature_roles import (
     FeatureRoleMap,
@@ -62,7 +63,6 @@ logger = logging.getLogger(__name__)
 
 # Sentinel prefix for synthetic GT entries created for unmatched predictions.
 _UNMATCHED_PRED_PREFIX = "__unmatched_pred__"
-
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +374,15 @@ def _compute_assignment_score(gt: _TranscriptInfo, pred: _TranscriptInfo) -> flo
     Hungarian algorithm to find globally optimal assignments, where even a
     cluster of moderate-F1 pairs beats one perfect pair leaving the rest
     unmatched.
+
+    Hard-zero caveat: a multi-exon prediction that overlaps a GT transcript
+    spatially but shares **no** splice junctions scores exactly 0.0 (the
+    single-exon overlap fallback is deliberately not applied) and is left
+    unmatched — pairing structurally incompatible transcripts would produce
+    misleading per-transcript metrics.  Downstream consequence: in
+    ``BEST_PER_LOCUS`` mode, if no prediction shares a junction with the best
+    GT transcript the locus contributes no pair at all, not even a
+    degraded-quality match.
     """
     overlap = _base_overlap(gt.start, gt.end, pred.start, pred.end)
     if overlap == 0:
@@ -430,8 +439,6 @@ def _assign_optimal_locus(
     dict[str, PredictionMatch]
         ``{gt_id: PredictionMatch}`` for every accepted pairing.
     """
-    from scipy.optimize import linear_sum_assignment
-
     n = len(gt_locus)
     m = len(pred_locus)
 
@@ -604,14 +611,12 @@ def _process_single_seqid(
     seqid: str,
     gt_df: pd.DataFrame,
     pred_dfs: dict[str, pd.DataFrame],
-    label_config: LabelConfig,
     transcript_types: list[str],
     gt_feature_role_map: FeatureRoleMap,
     mode: LocusMatchingMode,
     pred_feature_role_maps: dict[str, FeatureRoleMap],
 ) -> list[TranscriptMapping]:
     """Build intron-chain indexes for one chromosome, then map per strand."""
-    del label_config  # reserved for future mode-specific mapping validation
     gt_chain_index = _build_intron_chain_index(gt_df, seqid, exonic_feature_types(gt_feature_role_map))
     pred_chain_indices = {
         name: _build_intron_chain_index(df, seqid, exonic_feature_types(pred_feature_role_maps[name]))
@@ -693,6 +698,14 @@ def map_transcripts(
         unmatched) plus sentinel entries for unmatched predictions.
         In BEST_PER_LOCUS mode: only matched pairs are returned.
     """
+    if locus_matching_mode == LocusMatchingMode.BEST_PER_LOCUS:
+        logger.warning(
+            "BEST_PER_LOCUS mode: GT transcripts with no matching prediction "
+            "are excluded from the output (no null-array FN pairs). Downstream "
+            "precision/recall are therefore inflated relative to FULL_DISCOVERY "
+            "and the two modes are not directly comparable."
+        )
+
     if label_config is None:
         label_config = LabelConfig(
             annotation_mode=AnnotationMode.EXON_INTRON,
@@ -737,7 +750,6 @@ def map_transcripts(
                 seqid,
                 gt_df,
                 pred_dfs,
-                label_config,
                 transcript_types,
                 gt_feature_role_map,
                 locus_matching_mode,

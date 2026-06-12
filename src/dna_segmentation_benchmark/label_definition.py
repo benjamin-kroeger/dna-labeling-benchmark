@@ -260,8 +260,10 @@ class EvalMetrics(Enum):
       Scope-aware IoU stats, bias/reliability landscape, and boundary flags.
     * ``NUCLEOTIDE_CLASSIFICATION`` – *"Per-base, how accurate is it?"*
       Binary or multiclass outputs depending on annotation mode and scope.
-    * ``FRAMESHIFT`` – *"Is the reading frame preserved?"*
-      CDS-only per-position reading-frame deviation.
+    * ``PHASE_DRIFT`` – *"Is the CDS reading phase preserved?"*
+      CDS-only per-position reading-phase deviation.  Measures relative
+      CDS-base count drift between GT and prediction; it is a structural
+      comparison signal, not a biological frameshift-mutation detector.
     * ``STRUCTURAL_COHERENCE`` – *"Is the segment chain correct as a whole?"*
       Scope-aware chain comparison, transcript classification, and segment
       count diagnostics.
@@ -273,7 +275,7 @@ class EvalMetrics(Enum):
     REGION_DISCOVERY = 1
     BOUNDARY_EXACTNESS = 2
     NUCLEOTIDE_CLASSIFICATION = 3
-    FRAMESHIFT = 4
+    PHASE_DRIFT = 4
     STRUCTURAL_COHERENCE = 5
     DIAGNOSTIC_DEPTH = 6
 
@@ -289,7 +291,7 @@ _FULL_SWEEP_METRICS = [
     EvalMetrics.REGION_DISCOVERY,
     EvalMetrics.BOUNDARY_EXACTNESS,
     EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
-    EvalMetrics.FRAMESHIFT,
+    EvalMetrics.PHASE_DRIFT,
     EvalMetrics.STRUCTURAL_COHERENCE,
     EvalMetrics.DIAGNOSTIC_DEPTH,
 ]

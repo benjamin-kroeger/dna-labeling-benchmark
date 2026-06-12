@@ -60,7 +60,7 @@ _GROUP_DISPLAY_NAMES = {
     "BOUNDARY_EXACTNESS": "boundary_exactness",
     "NUCLEOTIDE_CLASSIFICATION": "nucleotide_classification",
     "INDEL": "indel",
-    "FRAMESHIFT": "frameshift",
+    "PHASE_DRIFT": "phase_drift",
     "STRUCTURAL_COHERENCE": "struct_coherence",
     "DIAGNOSTIC_DEPTH": "diagnostic_depth",
 }
@@ -208,10 +208,10 @@ def _flatten_selected_scalars(
     return flat
 
 
-def _unwrap_per_transcript_results(results: dict) -> dict:
+def _unwrap_aggregated_results(results: dict) -> dict:
     """Accept either a raw benchmark result or a pipeline wrapper dict."""
-    if set(results.keys()) == {"per_transcript", "global"}:
-        return results["per_transcript"]
+    if set(results.keys()) == {"aggregated", "global"}:
+        return results["aggregated"]
     return results
 
 
@@ -232,13 +232,13 @@ def _render_benchmark_media_figures(
     label_config: LabelConfig,
 ) -> dict[str, Any]:
     """Render the benchmark media figures for one aggregated result dict."""
-    per_transcript_results = _unwrap_per_transcript_results(results)
-    metrics_to_eval = _infer_metrics_from_results(per_transcript_results)
-    if not metrics_to_eval and "transition_failures" not in per_transcript_results:
+    inner_results = _unwrap_aggregated_results(results)
+    metrics_to_eval = _infer_metrics_from_results(inner_results)
+    if not metrics_to_eval and "transition_failures" not in inner_results:
         return {}
 
     return compare_multiple_predictions(
-        per_method_benchmark_res={_INTERNAL_METHOD_LABEL: per_transcript_results},
+        per_method_benchmark_res={_INTERNAL_METHOD_LABEL: inner_results},
         label_config=label_config,
         metrics_to_eval=metrics_to_eval,
     )
@@ -384,7 +384,7 @@ def log_benchmark_all_scalars(
     ----------
     results : dict
         Aggregated result dict from :func:`benchmark_gt_vs_pred_multiple`.
-        Pipeline wrapper ``{"per_transcript": ..., "global": ...}`` is also
+        Pipeline wrapper ``{"aggregated": ..., "global": ...}`` is also
         accepted.
     label_config : LabelConfig
         Currently unused; kept for API compatibility.
@@ -400,7 +400,7 @@ def log_benchmark_all_scalars(
     """
     wandb = _require_wandb()
 
-    inner = _unwrap_per_transcript_results(results)
+    inner = _unwrap_aggregated_results(results)
     flat = _flatten_all_scalars(inner, prefix="")
     if method_prefix:
         flat = {f"{method_prefix}/{k}": v for k, v in flat.items()}
@@ -433,7 +433,7 @@ def log_benchmark_media(
     results : dict
         Aggregated benchmark result dict from
         :func:`benchmark_gt_vs_pred_multiple`. A pipeline-style wrapper
-        ``{"per_transcript": ..., "global": ...}`` is also accepted.
+        ``{"aggregated": ..., "global": ...}`` is also accepted.
     label_config : LabelConfig
         Label semantics for plot labelling.
     step : int, optional

@@ -97,6 +97,15 @@ def compute_intron_chain_metrics(
     splice-site labels are defined), then performs the same strict / subset /
     superset set comparison as the exon chain metrics.
 
+    Scoring is **transcript-level (whole-chain)**: this pair contributes
+    ``tp=1`` only when the entire GT intron set equals the predicted set,
+    otherwise ``fp=1, fn=1``.  When :func:`summarise_counts` aggregates these
+    across transcripts, the resulting precision/recall is the *fraction of
+    transcripts with an exact intron-chain match* — **not** the fraction of
+    individual introns correctly predicted.  For an intron-level gradation of
+    "nearly right" chains, see the per-transcript soft-exon scalars in
+    :func:`_compute_per_transcript_exon_soft_metrics`.
+
     Returns
     -------
     dict

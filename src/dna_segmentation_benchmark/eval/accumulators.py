@@ -242,7 +242,7 @@ class BoundaryExactnessAccumulator:
         self.first.append(payload.get("first_sec_correct_3_prime_boundary", 0))
         self.last.append(payload.get("last_sec_correct_5_prime_boundary", 0))
         self.iou.extend(payload.get("iou_scores", []))
-        self.residuals.extend(fuzzy_metrics.get("boundary_residuals", []))
+        self.residuals.extend(fuzzy_metrics.get("boundary_offsets", []))
         self.total_gt += fuzzy_metrics.get("total_gt", 0)
 
     def merged(self) -> dict:
@@ -254,7 +254,7 @@ class BoundaryExactnessAccumulator:
                 "last_sec_correct_5_prime_boundary": list(self.last),
                 "iou_scores": list(self.iou),
                 "fuzzy_metrics": {
-                    "boundary_residuals": list(self.residuals),
+                    "boundary_offsets": list(self.residuals),
                     "total_gt": self.total_gt,
                 },
             }
@@ -308,10 +308,10 @@ class NucleotideAccumulator:
 
 
 @dataclass
-class FrameshiftAccumulator:
+class PhaseDriftAccumulator:
     """Concatenates coding-phase drift values across sequences."""
 
-    KEY: ClassVar[str] = "FRAMESHIFT"
+    KEY: ClassVar[str] = "PHASE_DRIFT"
 
     frames: list = field(default_factory=list)
     boundary_indel_total: int = 0
@@ -492,45 +492,6 @@ class StructuralAccumulator:
 
 
 @dataclass
-class SpliceSiteAccumulator:
-    """Public legacy splice-site accumulator used by direct unit tests."""
-
-    KEY: ClassVar[str] = "splice_sites"
-    FIELDS: ClassVar[tuple] = StructuralAccumulator.SPLICE_FIELDS
-
-    sums: dict = field(default_factory=dict)
-    _seen: bool = False
-
-    def add(self, fragment: dict) -> None:
-        payload = fragment.get(self.KEY)
-        if not isinstance(payload, dict):
-            return
-        self._seen = True
-        for key in self.FIELDS:
-            self.sums[key] = self.sums.get(key, 0) + payload.get(key, 0)
-
-    def _summary(self) -> dict:
-        ss = {key: self.sums.get(key, 0) for key in self.FIELDS}
-        d_tp, d_fp, d_fn = ss["donor_tp"], ss["donor_fp"], ss["donor_fn"]
-        a_tp, a_fp, a_fn = ss["acceptor_tp"], ss["acceptor_fp"], ss["acceptor_fn"]
-        ss["donor_precision"] = d_tp / (d_tp + d_fp) if (d_tp + d_fp) > 0 else 0.0
-        ss["donor_recall"] = d_tp / (d_tp + d_fn) if (d_tp + d_fn) > 0 else 0.0
-        ss["acceptor_precision"] = a_tp / (a_tp + a_fp) if (a_tp + a_fp) > 0 else 0.0
-        ss["acceptor_recall"] = a_tp / (a_tp + a_fn) if (a_tp + a_fn) > 0 else 0.0
-        return ss
-
-    def merged(self) -> dict:
-        if not self._seen:
-            return {}
-        return {self.KEY: {key: self.sums.get(key, 0) for key in self.FIELDS}}
-
-    def summarise(self) -> dict:
-        if not self._seen:
-            return {}
-        return {self.KEY: self._summary()}
-
-
-@dataclass
 class DiagnosticDepthAccumulator:
     """Concatenates segment lengths, EMDs and bias histograms."""
 
@@ -590,8 +551,7 @@ class BenchmarkAccumulator:
             RegionDiscoveryAccumulator(),
             BoundaryExactnessAccumulator(),
             NucleotideAccumulator(),
-            FrameshiftAccumulator(),
-            SpliceSiteAccumulator(),
+            PhaseDriftAccumulator(),
             StructuralAccumulator(),
             DiagnosticDepthAccumulator(),
         ]

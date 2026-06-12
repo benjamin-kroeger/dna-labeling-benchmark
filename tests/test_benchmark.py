@@ -337,10 +337,10 @@ chr1\tPred\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=pred_u3;Parent=pred_tx1
         },
     )
 
-    per_transcript = results["pred"]["per_transcript"]
-    assert per_transcript["metadata"]["annotation_mode"] == "UTR_CDS_INTRON"
-    assert per_transcript["metadata"]["evaluation_scope"] == "cds"
-    assert per_transcript["REGION_DISCOVERY"]["perfect_boundary_hit"]["precision"] == 0.0
+    aggregated = results["pred"]["aggregated"]
+    assert aggregated["metadata"]["annotation_mode"] == "UTR_CDS_INTRON"
+    assert aggregated["metadata"]["evaluation_scope"] == "cds"
+    assert aggregated["REGION_DISCOVERY"]["perfect_boundary_hit"]["precision"] == 0.0
 
 # ------------------------------------------------------------------
 # Metric evaluation helpers
@@ -594,7 +594,7 @@ _METRIC_EVAL_DISPATCH = {
     EvalMetrics.REGION_DISCOVERY: _eval_region_discovery,
     EvalMetrics.BOUNDARY_EXACTNESS: _eval_boundary_exactness,
     EvalMetrics.NUCLEOTIDE_CLASSIFICATION: _eval_nucleotide_classification,
-    EvalMetrics.FRAMESHIFT: _eval_frameshift_metrics,
+    EvalMetrics.PHASE_DRIFT: _eval_frameshift_metrics,
     EvalMetrics.STRUCTURAL_COHERENCE: _eval_structural_coherence,
     EvalMetrics.DIAGNOSTIC_DEPTH: _eval_diagnostic_depth,
 }

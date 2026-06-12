@@ -137,8 +137,8 @@ def compare_multiple_predictions(
     single_method_mode = len(per_method_benchmark_res) == 1
 
     for method_name, benchmark_results in per_method_benchmark_res.items():
-        if set(benchmark_results.keys()) == {"per_transcript", "global"}:
-            benchmark_results = benchmark_results["per_transcript"]
+        if set(benchmark_results.keys()) == {"aggregated", "global"}:
+            benchmark_results = benchmark_results["aggregated"]
 
         benchmark_results = dict(benchmark_results)
 
@@ -340,8 +340,8 @@ def compare_multiple_predictions(
                     figures[_figure_key(f"nucleotide_classification_{level}", scope, default_scope)] = fig
 
     # ---- Frameshift plots -------------------------------------------
-    if EvalMetrics.FRAMESHIFT in metrics_to_eval:
-        df_fs = df[(df["metric_group"] == EvalMetrics.FRAMESHIFT.name)].copy()
+    if EvalMetrics.PHASE_DRIFT in metrics_to_eval:
+        df_fs = df[(df["metric_group"] == EvalMetrics.PHASE_DRIFT.name)].copy()
 
         if not df_fs.empty:
             default_scope = _metric_scopes(df_fs)[0]

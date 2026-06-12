@@ -600,7 +600,7 @@ def run(
             f"pred_features={pred_feature_desc}"
         )
 
-        per_transcript = benchmark_gt_vs_pred_multiple(
+        aggregated = benchmark_gt_vs_pred_multiple(
             gt_labels=gt_labels,
             pred_labels=pred_labels,
             label_config=label_config,
@@ -611,7 +611,7 @@ def run(
 
         # Individual mode returns a list, not a dict — skip global aggregation.
         if individual:
-            all_results[pred_name] = per_transcript
+            all_results[pred_name] = aggregated
             continue
 
         _pred_role_map = _pred_role_map_for(pred_role_maps, pred_name)
@@ -627,7 +627,7 @@ def run(
         )
 
         all_results[pred_name] = {
-            "per_transcript": per_transcript,
+            "aggregated": aggregated,
             "global": global_result,
         }
 
@@ -684,7 +684,7 @@ _TEMPLATE_HINTS = {
     ),
     "utr_cds_intron": (
         "# Distinct 5' UTR / CDS / 3' UTR classes; enables CDS-scoped metrics\n"
-        "# and FRAMESHIFT. Map GFF/GTF feature names to roles with CLI flags:\n"
+        "# and PHASE_DRIFT. Map GFF/GTF feature names to roles with CLI flags:\n"
         "#   --gt-feature-role five_prime_UTR:five_prime_utr\n"
         "#   --gt-feature-role CDS:cds\n"
         "#   --gt-feature-role three_prime_UTR:three_prime_utr\n"

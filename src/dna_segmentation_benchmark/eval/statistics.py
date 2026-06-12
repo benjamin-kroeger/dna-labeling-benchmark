@@ -91,13 +91,7 @@ def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
     if not values:
         return {"count": 0, "mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}
 
-    # Handle tuples if any (though IoU is scalar)
-    if values and isinstance(values[0], (tuple, list)):
-        flattened = [item for sublist in values for item in sublist]
-    else:
-        flattened = values
-
-    arr = np.array(flattened, dtype=float)
+    arr = np.array(values, dtype=float)
 
     return {
         "count": len(arr),

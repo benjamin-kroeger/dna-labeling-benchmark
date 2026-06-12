@@ -79,7 +79,11 @@ def benchmark_from_gff(
         Token-to-name mapping and semantic label roles.
     metrics : list[EvalMetrics] | None
         Metric groups to compute.  Defaults to
-        ``[REGION_DISCOVERY, NUCLEOTIDE_CLASSIFICATION]``.
+        ``[REGION_DISCOVERY, NUCLEOTIDE_CLASSIFICATION]``.  Note this differs
+        from :func:`benchmark_gt_vs_pred_single` /
+        :func:`benchmark_gt_vs_pred_multiple`, whose ``metrics=None`` default
+        also includes ``BOUNDARY_EXACTNESS``; pass an explicit list to align
+        them.
     gt_feature_role_map : dict[str, str] | None
         Maps GT GFF/GTF feature types to benchmark roles.  When ``None``,
         the mode-specific default is used.
@@ -108,7 +112,27 @@ def benchmark_from_gff(
     Returns
     -------
     dict[str, dict]
-        ``{predictor_name: {"per_transcript": ..., "global": ...}}``
+        ``{predictor_name: {"aggregated": ..., "global": ...}}`` where
+        ``aggregated`` is the corpus-level micro-averaged summary returned by
+        :func:`benchmark_gt_vs_pred_multiple` (not a per-transcript list).
+
+    See Also
+    --------
+    compare_multiple_predictions :
+        Renders comparison plots from these results.  Feed it the per-method
+        ``aggregated`` payloads, e.g.::
+
+            results = benchmark_from_gff(...)
+            figures = compare_multiple_predictions(
+                per_method_benchmark_res={
+                    name: r["aggregated"] for name, r in results.items()
+                },
+                label_config=label_config,
+                metrics_to_eval=metrics,
+            )
+
+        (It also accepts the full ``{"aggregated": ..., "global": ...}``
+        wrapper per method and unwraps it automatically.)
     """
     exclude_features = exclude_features or []
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
@@ -187,7 +211,7 @@ def benchmark_from_gff(
             logger.warning("No mapped transcripts for '%s', skipping.", pred_name)
             continue
 
-        per_transcript = benchmark_gt_vs_pred_multiple(
+        aggregated = benchmark_gt_vs_pred_multiple(
             gt_labels=gt_labels,
             pred_labels=pred_labels,
             label_config=label_config,
@@ -210,7 +234,7 @@ def benchmark_from_gff(
         )
 
         all_results[pred_name] = {
-            "per_transcript": per_transcript,
+            "aggregated": aggregated,
             "global": global_result,
         }
 

@@ -83,6 +83,13 @@ def _analyze_section_overlap_and_boundaries(
     "3'" = higher index).  They do not account for biological strand —
     on the minus strand the array-5' end corresponds to the biological
     3' end of the transcript.
+
+    The collected ``boundary_offsets`` are signed ``(left, right)`` tuples
+    of ``pred_edge - gt_edge``: a positive offset means the prediction's
+    edge lies to the right (3', higher index) of the matching GT edge, a
+    negative offset to the left (5').  A systematically positive mean
+    left-offset therefore indicates a consistent 3'-shift of predicted
+    starts.  The IoU scores stored alongside are unsigned.
     """
     total_gt = len(grouped_gt_section_indices)
     total_pred = len(grouped_pred_section_indices)
@@ -91,7 +98,7 @@ def _analyze_section_overlap_and_boundaries(
     gt_hit_strict = np.zeros(total_gt, dtype=bool)
     pred_hit_strict = np.zeros(total_pred, dtype=bool)
 
-    boundary_residuals: list[tuple[int, int]] = []
+    boundary_offsets: list[tuple[int, int]] = []
     iou_scores: list[float] = []
 
     first_sec_correct_3_prime = 0
@@ -126,8 +133,10 @@ def _analyze_section_overlap_and_boundaries(
                 # --- A. Overlap (Any contact) ---
                 if not (p_max < gt_min or p_min > gt_max):
                     if need_boundary_stats:
-                        # Boundary residuals + IoU for every overlapping pair
-                        boundary_residuals.append((p_min - gt_min, p_max - gt_max))
+                        # Signed boundary offsets + IoU for every overlapping pair.
+                        # Offset = pred_edge - gt_edge, so a positive value means the
+                        # prediction's edge sits to the right (3') of the GT edge.
+                        boundary_offsets.append((p_min - gt_min, p_max - gt_max))
                         iou_scores.append(
                             _compute_intersection_over_union_score(
                                 gt_start=gt_min,
@@ -154,19 +163,9 @@ def _analyze_section_overlap_and_boundaries(
                     if g_idx == total_gt - 1 and p_min == gt_min:
                         last_sec_correct_5_prime = 1
 
-    if need_region_discovery and boundary_residuals:
-        return _summarise_region_discovery(
-            candidates=candidates,
-            grouped_gt_section_indices=grouped_gt_section_indices,
-            grouped_pred_section_indices=grouped_pred_section_indices,
-            total_gt=total_gt,
-            total_pred=total_pred,
-            gt_hit_strict=gt_hit_strict,
-            pred_hit_strict=pred_hit_strict,
-        ), {"first_sec_correct_3_prime_boundary": first_sec_correct_3_prime, "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
-            "iou_scores": iou_scores, "fuzzy_metrics": {"boundary_residuals": boundary_residuals, "total_gt": total_gt}}
+    region_data: dict | None = None
     if need_region_discovery:
-        return _summarise_region_discovery(
+        region_data = _summarise_region_discovery(
             candidates=candidates,
             grouped_gt_section_indices=grouped_gt_section_indices,
             grouped_pred_section_indices=grouped_pred_section_indices,
@@ -174,20 +173,24 @@ def _analyze_section_overlap_and_boundaries(
             total_pred=total_pred,
             gt_hit_strict=gt_hit_strict,
             pred_hit_strict=pred_hit_strict,
-        ), {
+        )
+
+    boundary_data: dict | None = None
+    if need_boundary_stats:
+        boundary_data = {
             "first_sec_correct_3_prime_boundary": first_sec_correct_3_prime,
             "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
             "iou_scores": iou_scores,
             "fuzzy_metrics": {
-                "boundary_residuals": boundary_residuals,
+                "boundary_offsets": boundary_offsets,
                 "total_gt": total_gt,
             },
-        } if need_boundary_stats else None
-    if need_boundary_stats:
-        return None, {"first_sec_correct_3_prime_boundary": first_sec_correct_3_prime, "last_sec_correct_5_prime_boundary": last_sec_correct_5_prime,
-                      "iou_scores": iou_scores, "fuzzy_metrics": {"boundary_residuals": boundary_residuals, "total_gt": total_gt}}
+        }
 
-    raise ValueError("At least one of need_region_discovery or need_boundary_stats must be True.")
+    if region_data is None and boundary_data is None:
+        raise ValueError("At least one of need_region_discovery or need_boundary_stats must be True.")
+
+    return region_data, boundary_data
 
 
 def _summarise_region_discovery(
@@ -205,6 +208,15 @@ def _summarise_region_discovery(
     paired with its best fit; unmatched predictions become false positives.
     ``perfect_boundary_hit`` is taken from the strict-match sweep instead and
     does not depend on the 1:1 assignment.
+
+    Note on matching guarantees: this section-level matching is **greedy**,
+    whereas the transcript-level assignment in
+    :func:`~dna_segmentation_benchmark.transcript_mapping._assign_optimal_locus`
+    is **optimal** (Hungarian).  The two layers therefore use different
+    guarantees by design.  Within a single transcript window the candidate
+    sections are few enough that greedy and optimal almost always coincide, so
+    the simpler greedy pass is used here; the optimal solver is reserved for
+    the multi-isoform transcript layer where it matters.
     """
     candidates.sort(key=lambda x: x[0], reverse=True)
 

@@ -7,10 +7,15 @@ annotations with predictions and dispatch to the per-metric modules:
 * **INDEL** — :mod:`indel_metrics`
 * **REGION_DISCOVERY / BOUNDARY_EXACTNESS** — :mod:`section_metrics`
 * **NUCLEOTIDE_CLASSIFICATION** — local confusion counts
-* **FRAMESHIFT** — :mod:`frame_shift`
+* **PHASE_DRIFT** — :mod:`frame_shift`
 * **STRUCTURAL_COHERENCE** — :mod:`chain_comparison`, :mod:`structure`,
   :mod:`splice_sites`
 * **DIAGNOSTIC_DEPTH** — :mod:`structural_summary`
+
+The state-transition diagnostics (``transition_failures`` /
+``false_transitions``) are **always computed**, independently of the requested
+``metrics`` frozenset — they back the transition-matrix plots that frame every
+other metric.  Every other metric group is opt-in via ``metrics``.
 
 Input preprocessing (intron inference, mask splitting) lives in
 :mod:`preprocessing`; cross-sequence accumulation and reduction live in
@@ -23,7 +28,6 @@ from __future__ import annotations
 import dataclasses
 import warnings
 from collections.abc import Iterator
-from typing import Optional
 from typing import Iterable
 import numpy as np
 from tqdm import tqdm
@@ -67,6 +71,19 @@ def _needs_section_analysis(metrics: Iterable[EvalMetrics]) -> bool:
     return bool(_SECTION_DEPENDENT_GROUPS & set(metrics))
 
 
+def _validate_metric_config(metrics: Iterable[EvalMetrics], label_config: LabelConfig) -> None:
+    """Reject metric/config combinations that are invalid before any work begins.
+
+    Called once at each public entry point so misconfigurations surface
+    immediately instead of after some sequences have already been processed.
+    """
+    if EvalMetrics.PHASE_DRIFT in metrics and not label_config.supports_frameshift:
+        raise ValueError(
+            "PHASE_DRIFT is only valid in UTR_CDS_INTRON mode with "
+            "evaluation_scope='cds'."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Single-sequence benchmark
 # ---------------------------------------------------------------------------
@@ -76,8 +93,8 @@ def benchmark_gt_vs_pred_single(
     gt_labels: np.ndarray,
     pred_labels: np.ndarray,
     label_config: LabelConfig,
-    metrics: Optional[list[EvalMetrics]] = None,
-    mask_labels: Optional[np.ndarray] = None,
+    metrics: list[EvalMetrics] | None = None,
+    mask_labels: np.ndarray | None = None,
     infer_introns: bool = False,
 ) -> dict[str, dict]:
     """Compare a single ground-truth sequence against a single prediction.
@@ -102,16 +119,46 @@ def benchmark_gt_vs_pred_single(
     Returns
     -------
     dict
-        Dict keyed directly by metric group name plus the transition
-        analysis keys ``"transition_failures"`` and
-        ``"false_transitions"``. When ``STRUCTURAL_COHERENCE`` is
-        requested, the ``STRUCTURAL_COHERENCE`` entry contains:
+        Result keyed by metric-group name — the ``.name`` string of each
+        requested :class:`EvalMetrics` member (e.g.
+        ``EvalMetrics.PHASE_DRIFT`` → ``"PHASE_DRIFT"``) — plus the always-on
+        transition keys ``"transition_failures"`` and ``"false_transitions"``
+        (see :func:`_eval_transitions`) and a ``"metadata"`` entry.
+
+        This single-sequence entry point returns the **raw per-sequence
+        fragment**; the aggregating :func:`benchmark_gt_vs_pred_multiple`
+        path reduces these to precision/recall and distribution statistics.
+        Per group (raw fragment → aggregated form):
+
+        * ``REGION_DISCOVERY`` — ``neighborhood_hit`` and
+          ``perfect_boundary_hit`` (``tp/fp/fn`` bundles →
+          ``precision``/``recall``/``*_stderr``) and ``containment``
+          (``matched``/``internal``/``full_coverage`` counts →
+          ``internal_rate``/``full_coverage_rate``).
+        * ``BOUNDARY_EXACTNESS`` — ``first_sec_correct_3_prime_boundary``,
+          ``last_sec_correct_5_prime_boundary``, ``iou_scores``
+          (→ ``iou_stats``) and ``fuzzy_metrics`` (signed
+          ``boundary_offsets`` → a boundary-precision landscape).
+        * ``NUCLEOTIDE_CLASSIFICATION`` — ``nucleotide`` ``tp/fp/fn/tn``
+          (→ ``precision``/``recall``/``f1``).
+        * ``PHASE_DRIFT`` — ``gt_frames`` per-position phase array plus
+          ``n_skipped_*`` (and optional ``boundary_indel_*``) counts.
+        * ``DIAGNOSTIC_DEPTH`` — segment-length lists, ``length_emd`` and
+          position-bias histograms.
+
+        When ``STRUCTURAL_COHERENCE`` is requested, its entry contains:
 
         * ``intron_chain`` / ``intron_chain_subset`` / ``intron_chain_superset``
-          — binary TP/FP/FN comparing the intron segment boundary sets,
-          aggregated to corpus precision/recall across sequences.
+          — **whole-chain** (transcript-level) TP/FP/FN comparing the intron
+          segment boundary *sets*: a transcript scores ``tp=1`` only if its
+          entire intron set matches exactly, else ``fp=1, fn=1``.  Aggregated
+          precision/recall is therefore the *fraction of transcripts with an
+          exact chain match*, **not** the fraction of individual introns
+          recovered.  A tool that recovers 9 of 10 introns in every transcript
+          scores 0 here.  (For intron-level gradation use the per-transcript
+          soft-exon scalars below.)
         * ``exon_chain`` / ``exon_chain_subset`` / ``exon_chain_superset``
-          — same set semantics applied to coding (exon) segments.
+          — same whole-chain set semantics applied to coding (exon) segments.
           Subset: pred ⊆ GT (all pred exons are real, may miss some GT).
           Superset: pred ⊇ GT (every GT exon found, may have extras).
         * ``exon_recall_per_transcript`` — float in [0, 1]: fraction of
@@ -127,6 +174,7 @@ def benchmark_gt_vs_pred_single(
     if metrics is None:
         metrics = _DEFAULT_METRICS
     metrics = frozenset(metrics)
+    _validate_metric_config(metrics, label_config)
 
     if infer_introns:
         gt_labels = _infer_introns_from_coding_gaps(gt_labels, label_config)
@@ -148,7 +196,7 @@ def _iter_sequence_fragments(
     pred_labels: np.ndarray,
     label_config: LabelConfig,
     metrics: frozenset,
-    mask_labels: Optional[np.ndarray],
+    mask_labels: np.ndarray | None,
     infer_introns: bool,
 ) -> Iterator[dict]:
     """Yield the raw per-chunk fragment(s) for one sequence.
@@ -182,6 +230,7 @@ def _benchmark_chunk(
     arr = np.stack((gt_labels, pred_labels), axis=0)
 
     metric_results: dict[str, dict] = {}
+    # Transition diagnostics are always-on (not gated on `metrics`); see module docstring.
     metric_results.update(_eval_transitions(arr, label_config))
 
     scope = label_config.evaluation_scope
@@ -194,7 +243,7 @@ def _benchmark_chunk(
 
 
     _indel_result: dict | None = None
-    if EvalMetrics.INDEL in metrics or EvalMetrics.FRAMESHIFT in metrics:
+    if EvalMetrics.INDEL in metrics or EvalMetrics.PHASE_DRIFT in metrics:
         _indel_result = eval_indel(
             grouped_insertions,
             grouped_deletions,
@@ -228,13 +277,9 @@ def _benchmark_chunk(
             )
         }
 
-    if EvalMetrics.FRAMESHIFT in metrics:
-        if not label_config.supports_frameshift:
-            raise ValueError(
-                "FRAMESHIFT is only valid in UTR_CDS_INTRON mode with "
-                "evaluation_scope='cds'."
-            )
-        metric_results[EvalMetrics.FRAMESHIFT.name] = _eval_frameshift(
+    if EvalMetrics.PHASE_DRIFT in metrics:
+        # Validity is checked up-front at the public entry points.
+        metric_results[EvalMetrics.PHASE_DRIFT.name] = _eval_frameshift(
             gt_mask,
             pred_mask,
             indel_result=_indel_result,
@@ -311,14 +356,14 @@ def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_confi
     pred_struct = extract_structure(pred_labels, label_config)
     scope = label_config.evaluation_scope
 
-    structural_coherance_results = compute_scoped_chain_metrics(
+    structural_coherence_results = compute_scoped_chain_metrics(
         gt_struct,
         pred_struct,
         label_config,
         scope,
     )
     if label_config.intron_label is not None:
-        structural_coherance_results.update(compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
+        structural_coherence_results.update(compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
     if (
         label_config.intron_label is not None
         and label_config.splice_donor_label is not None
@@ -326,9 +371,9 @@ def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_confi
     ):
         splice_confusion = eval_splice_site_junctions(gt_struct, pred_struct, label_config)
         splice_site_result = dataclasses.asdict(splice_confusion)
-        structural_coherance_results["splice_site_results"] = splice_site_result
+        structural_coherence_results["splice_site_results"] = splice_site_result
 
-    return structural_coherance_results
+    return structural_coherence_results
 
 
 def _compute_nucleotide_level_confusion(
@@ -352,9 +397,9 @@ def benchmark_gt_vs_pred_multiple(
     gt_labels: list[np.ndarray],
     pred_labels: list[np.ndarray],
     label_config: LabelConfig,
-    metrics: Optional[list[EvalMetrics]] = None,
+    metrics: list[EvalMetrics] | None = None,
     return_individual_results: bool = False,
-    mask_labels: Optional[list[np.ndarray]] = None,
+    mask_labels: list[np.ndarray] | None = None,
     infer_introns: bool = False,
 ) -> dict | list[dict]:
     """Run :func:`benchmark_gt_vs_pred_single` over paired GT/pred lists.
@@ -387,10 +432,11 @@ def benchmark_gt_vs_pred_multiple(
         raise ValueError(f"Mask list length ({len(mask_labels)}) must match GT list length ({len(gt_labels)}).")
 
     metrics = list(metrics) if metrics is not None else list(_DEFAULT_METRICS)
+    _validate_metric_config(metrics, label_config)
 
-    if EvalMetrics.FRAMESHIFT in metrics:
+    if EvalMetrics.PHASE_DRIFT in metrics:
         warnings.warn(
-            "The FRAMESHIFT metric should only be used when you are certain "
+            "The PHASE_DRIFT metric should only be used when you are certain "
             "that the transcript contains all annotated exons.  Otherwise "
             "the results will be misleading.",
             stacklevel=2,
