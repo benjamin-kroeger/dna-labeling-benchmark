@@ -245,22 +245,10 @@ def _summarise_region_discovery(
             matched_full_coverage += 1
 
     return {
-        # 1:1-matched discovery metrics
+        # 1:1-matched detection contingency table
         "neighborhood_hit": Counts(
             tp=matched_neighborhood,
             fn=total_gt - matched_neighborhood,
-            fp=num_unmatched_pred,
-        ),
-        # Forgives under-prediction (matched prediction is inside GT).
-        "internal_hit": Counts(
-            tp=matched_internal,
-            fn=total_gt - matched_internal,
-            fp=num_unmatched_pred,
-        ),
-        # Forgives over-prediction (matched prediction covers GT).
-        "full_coverage_hit": Counts(
-            tp=matched_full_coverage,
-            fn=total_gt - matched_full_coverage,
             fp=num_unmatched_pred,
         ),
         # Sweep-based (no 1:1 matching) — handles fragmented predictions well
@@ -269,4 +257,13 @@ def _summarise_region_discovery(
             fn=int(total_gt - np.sum(gt_hit_strict)),
             fp=int(total_pred - np.sum(pred_hit_strict)),
         ),
+        # Conditional containment counts among matched pairs (not P/R).
+        # internal: prediction is entirely inside GT boundary.
+        # full_coverage: prediction fully covers GT boundary.
+        # Denominatr is matched (= neighborhood TP); rates are computed at summarise time.
+        "containment": {
+            "matched": matched_neighborhood,
+            "internal": matched_internal,
+            "full_coverage": matched_full_coverage,
+        },
     }

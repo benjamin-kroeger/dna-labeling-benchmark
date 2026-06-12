@@ -145,17 +145,24 @@ class IndelAccumulator:
 
 @dataclass
 class RegionDiscoveryAccumulator:
-    """Collects Counts per strictness level; summarises to P/R."""
+    """Collects region-discovery Counts and containment integers; summarises to P/R and conditional rates.
+
+    ``neighborhood_hit`` and ``perfect_boundary_hit`` are coherent detection
+    contingency tables reported as precision/recall.  ``containment`` tracks
+    how often matched predictions are spatially contained in (or fully covering)
+    the GT, expressed as conditional rates over matched pairs — not P/R.
+    """
 
     KEY: ClassVar[str] = "REGION_DISCOVERY"
     LEVELS: ClassVar[tuple] = (
         "neighborhood_hit",
-        "internal_hit",
-        "full_coverage_hit",
         "perfect_boundary_hit",
     )
 
     levels: dict = field(default_factory=lambda: defaultdict(list))
+    _containment_matched: list = field(default_factory=list)
+    _containment_internal: list = field(default_factory=list)
+    _containment_full_coverage: list = field(default_factory=list)
     _seen: bool = False
 
     def add(self, fragment: dict) -> None:
@@ -165,24 +172,50 @@ class RegionDiscoveryAccumulator:
         self._seen = True
         for level in self.LEVELS:
             self.levels[level].append(_coerce_counts(payload[level]))
+        containment = payload.get("containment")
+        if containment is not None:
+            if isinstance(containment, list):
+                for c in containment:
+                    self._containment_matched.append(int(c.get("matched", 0)))
+                    self._containment_internal.append(int(c.get("internal", 0)))
+                    self._containment_full_coverage.append(int(c.get("full_coverage", 0)))
+            else:
+                self._containment_matched.append(int(containment.get("matched", 0)))
+                self._containment_internal.append(int(containment.get("internal", 0)))
+                self._containment_full_coverage.append(int(containment.get("full_coverage", 0)))
 
     def merged(self) -> dict:
         if not self._seen:
             return {}
+        containment_list = [
+            {"matched": m, "internal": i, "full_coverage": f}
+            for m, i, f in zip(
+                self._containment_matched,
+                self._containment_internal,
+                self._containment_full_coverage,
+            )
+        ]
         return {
             self.KEY: {
-                level: list(self.levels[level])
-                for level in self.LEVELS
+                **{level: list(self.levels[level]) for level in self.LEVELS},
+                "containment": containment_list,
             }
         }
 
     def summarise(self) -> dict:
         if not self._seen:
             return {}
+        total_matched = sum(self._containment_matched)
+        total_internal = sum(self._containment_internal)
+        total_full_coverage = sum(self._containment_full_coverage)
+        containment = {
+            "internal_rate": total_internal / total_matched if total_matched > 0 else None,
+            "full_coverage_rate": total_full_coverage / total_matched if total_matched > 0 else None,
+        }
         return {
             self.KEY: {
-                level: summarise_counts(self.levels[level]).to_dict()
-                for level in self.LEVELS
+                **{level: summarise_counts(self.levels[level]).to_dict() for level in self.LEVELS},
+                "containment": containment,
             }
         }
 

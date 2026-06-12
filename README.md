@@ -111,16 +111,20 @@ Per-base TP/TN/FP/FN with precision, recall, and F1. The most basic metric -- tr
 
 ---
 
-### Region Discovery (4-level Precision/Recall)
+### Region Discovery
 
-Evaluates section matching at increasing strictness using 1:1 greedy matching by overlap length:
+Evaluates section-level detection and boundary quality using greedy 1:1 matching by overlap length:
 
-| Level | TP condition | What it forgives |
-|-------|-------------|-----------------|
-| `neighborhood_hit` | Any overlap | Over- and under-prediction |
-| `internal_hit` | Prediction inside GT | Over-prediction |
-| `full_coverage_hit` | Prediction covers GT | Under-prediction |
-| `perfect_boundary_hit` | Exact match (sweep-based) | Nothing |
+| Output | Type | Meaning |
+|--------|------|---------|
+| `neighborhood_hit` | precision / recall | Detected the region at all (any overlap) |
+| `perfect_boundary_hit` | precision / recall | Exact boundary match (sweep-based, no 1:1 constraint) |
+| `containment.internal_rate` | conditional rate | Among matched pairs, fraction where prediction lies inside GT |
+| `containment.full_coverage_rate` | conditional rate | Among matched pairs, fraction where prediction fully covers GT |
+
+`neighborhood_hit` and `perfect_boundary_hit` are coherent confusion tables.
+The containment rates are conditional on detection (denominator = `neighborhood_hit` TP)
+and are explicitly rates, not precision/recall.
 
 ![Region discovery - neighborhood](docs/images/region_discovery_neighborhood_hit.png)
 

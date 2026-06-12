@@ -250,7 +250,12 @@ class EvalMetrics(Enum):
     * ``INDEL`` – *"What structural errors exist?"*
       5'/3' extensions/deletions, whole insertions/deletions, splits/joins.
     * ``REGION_DISCOVERY`` – *"Did we find the right regions?"*
-      Scope-aware precision & recall at four overlap strictness levels.
+      Two coherent detection P/R tiers (``neighborhood_hit``, ``perfect_boundary_hit``)
+      plus conditional containment rates among matched pairs
+      (``containment.internal_rate``, ``containment.full_coverage_rate``).
+      Containment rates answer "when we detected a region, how often was the
+      prediction spatially contained in / covering the GT?" — they are rates
+      with a stated denominator, not precision/recall.
     * ``BOUNDARY_EXACTNESS`` – *"How precise are the boundaries?"*
       Scope-aware IoU stats, bias/reliability landscape, and boundary flags.
     * ``NUCLEOTIDE_CLASSIFICATION`` – *"Per-base, how accurate is it?"*

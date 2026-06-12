@@ -115,27 +115,15 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="Predicted section not matched to any GT section",
         fn_definition="GT section not matched to any prediction",
     ),
-    "internal_hit": PlotMetadata(
-        display_name="Internal Hit Metrics",
+    "containment": PlotMetadata(
+        display_name="Containment Rates (among matched pairs)",
         icon_path=ICON_PATH / "internal.png",
-        description="Is the matched prediction contained within the GT boundaries? "
-        "Forgiving to under-prediction. Uses 1:1 matching.",
-        show_tp_tn_fp_fn=True,
-        tp_definition="Matched prediction is completely contained within its GT section",
-        tn_definition="N/A",
-        fp_definition="Predicted section not matched to any GT section",
-        fn_definition="GT section's matched prediction exceeds its boundaries (or is unmatched)",
-    ),
-    "full_coverage_hit": PlotMetadata(
-        display_name="Full Coverage Hit Metrics",
-        icon_path=ICON_PATH / "full_coverage.png",
-        description="Does the matched prediction fully cover the GT section? "
-        "Forgiving to over-prediction. Uses 1:1 matching.",
-        show_tp_tn_fp_fn=True,
-        tp_definition="Matched prediction fully covers its GT section",
-        tn_definition="N/A",
-        fp_definition="Predicted section not matched to any GT section",
-        fn_definition="GT section is not fully covered by its matched prediction (or is unmatched)",
+        description="Among neighborhood-matched pairs, what fraction meet stricter spatial criteria? "
+        "These are conditional rates over matched pairs, NOT precision/recall. "
+        "Denominator = neighborhood_hit TP. "
+        "internal_rate: prediction is entirely inside the GT boundary. "
+        "full_coverage_rate: prediction fully covers the GT boundary.",
+        show_tp_tn_fp_fn=False,
     ),
     "perfect_boundary_hit": PlotMetadata(
         display_name="Perfect Boundary Hit Metrics",
