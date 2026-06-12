@@ -297,7 +297,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_exact_match',
     ),
@@ -306,7 +306,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 3, "boundary_shift_total": 3, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 3, "transcript_match_class": 'boundary_shift_terminal', "segment_count_delta": 0, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 3, "boundary_shift_total": 3, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 3, "transcript_match_class": 'boundary_shift_terminal', "segment_count_delta": 0, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_boundary_shift',
     ),
@@ -315,7 +315,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.6666666666666666, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'missing_segments', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.6666666666666666, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'missing_segments', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_missing_segments',
     ),
@@ -324,7 +324,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 1, "transcript_match_class": 'extra_segments', "segment_count_delta": 1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 1, "transcript_match_class": 'extra_segments', "segment_count_delta": 1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_extra_segments',
     ),
@@ -333,7 +333,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 2, "transcript_match_class": 'no_overlap', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 2, "transcript_match_class": 'no_overlap', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_structurally_different',
     ),
@@ -342,7 +342,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'missed', "segment_count_delta": -2, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'missed', "segment_count_delta": -2, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_missed',
     ),
@@ -351,7 +351,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_no_gt_segments',
     ),
@@ -360,7 +360,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.5, "hallucinated_exon_count_per_transcript": 2, "transcript_match_class": 'partial_overlap', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "exon_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 0.5, "hallucinated_exon_count_per_transcript": 2, "transcript_match_class": 'partial_overlap', "segment_count_delta": -1, "intron_chain": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 1, "fn": 1, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_six_exon_mixed_errors',
     ),
@@ -369,7 +369,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 0, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 0, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 0, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='sc_single_segment',
     ),
@@ -378,7 +378,7 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
-            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 1, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 1, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 1, "acceptor_fp": 0, "acceptor_fn": 0}},
+            "STRUCTURAL_COHERENCE": {"exon_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "exon_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "boundary_shift_count": 0, "boundary_shift_total": 0, "exon_recall_per_transcript": 1.0, "hallucinated_exon_count_per_transcript": 0, "transcript_match_class": 'exact', "segment_count_delta": 0, "intron_chain": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_subset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "intron_chain_superset": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "splice_site_results": {"both_correct": 1, "donor_only": 0, "acceptor_only": 0, "neither": 0, "donor_tp": 1, "donor_fp": 0, "donor_fn": 0, "acceptor_tp": 1, "acceptor_fp": 0, "acceptor_fn": 0, "gt_malformed_junctions": 0, "pred_malformed_junctions": 0}},
         },
         id='splice_site_confusion',
     ),

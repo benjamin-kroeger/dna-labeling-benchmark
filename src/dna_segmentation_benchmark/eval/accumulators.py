@@ -381,6 +381,8 @@ class StructuralAccumulator:
         "acceptor_tp",
         "acceptor_fp",
         "acceptor_fn",
+        "gt_malformed_junctions",
+        "pred_malformed_junctions",
     )
 
     exon_chains: dict = field(default_factory=lambda: defaultdict(list))
