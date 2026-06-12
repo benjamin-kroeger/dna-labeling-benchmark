@@ -19,14 +19,14 @@ def plot_frameshift_percentage_bar(
     save_path: Optional[Path] = None,
     metadata: PlotMetadata | None = None,
 ) -> Optional[plt.Figure]:
-    """Bar chart of codon reading-frame distribution per method.
+    """Bar chart of coding-phase drift distribution per method.
 
     Returns
     -------
     Figure | None
     """
     if df_frameshift_metrics.empty:
-        logger.info("No frameshift data for class %s.", class_name)
+        logger.info("No coding-phase drift data for class %s.", class_name)
         return None
 
     only_frames = df_frameshift_metrics[df_frameshift_metrics["metric_key"] == "gt_frames"]
@@ -38,7 +38,7 @@ def plot_frameshift_percentage_bar(
         if not isinstance(frame_list, list) or not frame_list:
             return pd.DataFrame(
                 {
-                    "Frame": ["Ground Truth (0)", "Shift 1 (1)", "Shift 2 (2)"],
+                    "Phase Offset": ["In-phase (0)", "Offset +1", "Offset +2"],
                     "Percentage": [0.0, 0.0, 0.0],
                 }
             )
@@ -49,7 +49,7 @@ def plot_frameshift_percentage_bar(
         pcts = (counts / total * 100) if total > 0 else np.zeros(3)
         return pd.DataFrame(
             {
-                "Frame": ["Ground Truth (0)", "Shift 1 (1)", "Shift 2 (2)"],
+                "Phase Offset": ["In-phase (0)", "Offset +1", "Offset +2"],
                 "Percentage": pcts,
             }
         )
@@ -60,35 +60,51 @@ def plot_frameshift_percentage_bar(
         return None
 
     fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-    sns.barplot(data=frame_df, y="Percentage", x="Frame", hue="method_name", ax=ax)
+    sns.barplot(data=frame_df, y="Percentage", x="Phase Offset", hue="method_name", ax=ax)
 
     for container in ax.containers:
         ax.bar_label(container, label_type="edge", padding=2, fmt="%.1f%%", fontsize=6, rotation=90)
 
     ax.set_ylim(0, 115)  # 15% headroom for rotated bar labels (fontsize=6, rotation=90, padding=2)
     ax.set_title(
-        f"Codon Reading Frame Distribution — {class_name}",
+        f"Coding-Phase Drift Distribution — {class_name}",
         fontsize=16,
     )
-    ax.set_xlabel("Reading Frame", fontsize=12)
-    ax.set_ylabel("Percentage of Codons", fontsize=12)
+    ax.set_xlabel("Phase Offset (relative coding-base drift mod 3)", fontsize=12)
+    ax.set_ylabel("Percentage of Co-CDS Positions", fontsize=12)
     ax.legend(title="Method Name", loc="upper right", fontsize=9)
 
-    # Build per-method boundary-indel mod-3 note, if the counts were computed.
+    # Annotation lines: skip counts + boundary-indel in-frame rate
+    annotation_parts = []
+
+    skip_rows = df_frameshift_metrics[
+        df_frameshift_metrics["metric_key"].isin(("n_skipped_non_divisible", "n_skipped_short"))
+    ]
+    if not skip_rows.empty:
+        skip_pivoted = skip_rows.pivot_table(index="method_name", columns="metric_key", values="value", aggfunc="first")
+        for method, row in skip_pivoted.iterrows():
+            non_div = int(row.get("n_skipped_non_divisible", 0))
+            short = int(row.get("n_skipped_short", 0))
+            if non_div > 0 or short > 0:
+                annotation_parts.append(
+                    f"{method}: {non_div} skipped (non-divisible GT), {short} skipped (pred < 3 CDS bases)"
+                )
+
     indel_rows = df_frameshift_metrics[
         df_frameshift_metrics["metric_key"].isin(("boundary_indel_total", "boundary_indel_in_frame"))
     ]
     if not indel_rows.empty:
-        pivoted = indel_rows.pivot_table(index="method_name", columns="metric_key", values="value", aggfunc="first")
-        parts = []
-        for method, row in pivoted.iterrows():
+        indel_pivoted = indel_rows.pivot_table(index="method_name", columns="metric_key", values="value", aggfunc="first")
+        for method, row in indel_pivoted.iterrows():
             total = int(row.get("boundary_indel_total", 0))
             in_frame = int(row.get("boundary_indel_in_frame", 0))
             pct = f"{in_frame / total * 100:.0f}%" if total > 0 else "n/a"
-            parts.append(f"{method}: {in_frame}/{total} boundary indels in-frame ({pct})")
+            annotation_parts.append(f"{method}: {in_frame}/{total} boundary indels in-frame ({pct})")
+
+    if annotation_parts:
         ax.annotate(
-            "\n".join(parts),
-            xy=(0.5, -0.15),
+            "\n".join(annotation_parts),
+            xy=(0.5, -0.08),
             xycoords="axes fraction",
             ha="center",
             va="top",
@@ -97,8 +113,8 @@ def plot_frameshift_percentage_bar(
             bbox=dict(boxstyle="round,pad=0.4", facecolor="#f0f0f0", edgecolor="#cccccc", linewidth=0.8),
         )
 
-    n_methods = frame_df["method_name"].nunique()
-    bottom_margin = min(0.05 + 0.03 * n_methods, 0.35)  # cap so rect bottom stays < top
+    # Reserve bottom margin only for the lines actually rendered in the annotation box.
+    bottom_margin = min(0.04 + 0.016 * len(annotation_parts), 0.30) if annotation_parts else 0.02
     fig.tight_layout(rect=[0, bottom_margin, 1, 1])
     _add_pictogram_panel(fig, metadata, logger=logger)
 

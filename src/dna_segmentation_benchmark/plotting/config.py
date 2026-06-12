@@ -167,11 +167,20 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Right: cumulative recall surface across increasing total tolerance budgets on both boundaries",
         ),
     ),
-    # Frameshift
+    # Coding-phase drift (formerly "frameshift")
     "frameshift": PlotMetadata(
-        display_name="Frameshift Distribution",
-        description="Reading frame deviation (mod-3) between GT and predicted coding exons.",
-        caveat="Only valid on single-transcript sequences with a coding label configured.",
+        display_name="Coding-Phase Drift",
+        description="Relative coding-phase drift (mod 3) between GT and predicted CDS at each co-CDS position. "
+        "A value of 0 means the two annotations are in lockstep by CDS-base count; "
+        "1 or 2 means one annotation is ahead by that many bases at that position. "
+        "This is a structural comparison signal, not an absolute reading-frame computation.",
+        bullet_points=(
+            "In-phase (0): pred and GT CDS-base counts agree mod 3 at this position",
+            "Offset +1 / +2: one annotation is 1 or 2 bases ahead of the other",
+            "Boundary indels in-frame: boundary indels whose length ≡ 0 (mod 3) — a direct frame-breaking signal",
+        ),
+        caveat="Requires complete, in-frame CDS-only masks. Sequences with GT CDS length not divisible by 3 "
+        "are excluded and reported as n_skipped_non_divisible. Only valid in UTR_CDS_INTRON mode.",
     ),
     # --- Structural Coherence ---
     "boundary_shift_distribution": PlotMetadata(

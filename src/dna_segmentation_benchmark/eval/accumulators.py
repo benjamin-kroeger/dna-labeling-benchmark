@@ -276,13 +276,15 @@ class NucleotideAccumulator:
 
 @dataclass
 class FrameshiftAccumulator:
-    """Concatenates frame-drift values."""
+    """Concatenates coding-phase drift values across sequences."""
 
     KEY: ClassVar[str] = "FRAMESHIFT"
 
     frames: list = field(default_factory=list)
     boundary_indel_total: int = 0
     boundary_indel_in_frame: int = 0
+    n_skipped_non_divisible: int = 0
+    n_skipped_short: int = 0
     _seen: bool = False
     _has_indel_counts: bool = False
 
@@ -296,11 +298,17 @@ class FrameshiftAccumulator:
             self._has_indel_counts = True
             self.boundary_indel_total += payload["boundary_indel_total"]
             self.boundary_indel_in_frame += payload["boundary_indel_in_frame"]
+        self.n_skipped_non_divisible += payload.get("n_skipped_non_divisible", 0)
+        self.n_skipped_short += payload.get("n_skipped_short", 0)
 
     def _to_dict(self) -> dict:
         if not self._seen:
             return {}
-        result: dict = {"gt_frames": list(self.frames)}
+        result: dict = {
+            "gt_frames": list(self.frames),
+            "n_skipped_non_divisible": self.n_skipped_non_divisible,
+            "n_skipped_short": self.n_skipped_short,
+        }
         if self._has_indel_counts:
             result["boundary_indel_total"] = self.boundary_indel_total
             result["boundary_indel_in_frame"] = self.boundary_indel_in_frame

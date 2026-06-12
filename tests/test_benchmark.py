@@ -408,7 +408,7 @@ def _eval_frameshift_metrics(expected_frameshift, computed_frameshift):
     if "scopes" in computed_frameshift and "scopes" not in expected_frameshift:
         scope_payload = _single_scope_payload(computed_frameshift)
         computed_frameshift = {"gt_frames": np.asarray(scope_payload["frames"])}
-    _OPTIONAL_FRAMESHIFT_KEYS = {"boundary_indel_total", "boundary_indel_in_frame"}
+    _OPTIONAL_FRAMESHIFT_KEYS = {"boundary_indel_total", "boundary_indel_in_frame", "n_skipped_non_divisible", "n_skipped_short"}
     unexpected = set(computed_frameshift.keys()) - set(expected_frameshift.keys()) - _OPTIONAL_FRAMESHIFT_KEYS
     assert not unexpected, f"Unexpected keys in computed frameshift: {unexpected}"
     assert set(expected_frameshift.keys()) <= set(computed_frameshift.keys()), (
