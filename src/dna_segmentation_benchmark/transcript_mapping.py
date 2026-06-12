@@ -868,6 +868,12 @@ def build_paired_arrays(
             # Predictor has no match for this GT → null pred array (FN/FP).
             pred_arrays[pred_name] = null_array.copy()
 
+    # Normalise to biological 5'→3' order.  Painting uses genomic left-to-right
+    # coordinates; for minus-strand transcripts that is biologically reversed.
+    if mapping.strand == "-":
+        gt_array = np.ascontiguousarray(gt_array[::-1])
+        pred_arrays = {k: np.ascontiguousarray(v[::-1]) for k, v in pred_arrays.items()}
+
     return gt_array, pred_arrays
 
 

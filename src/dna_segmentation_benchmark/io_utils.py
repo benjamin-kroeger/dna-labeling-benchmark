@@ -264,12 +264,16 @@ def read_gff_to_arrays(
         # Left here only for clipping diagnostics; actual painting is done
         # after all children for one transcript have been selected.
 
-    for transcript_id, (t_start, _, arr) in transcript_lookup.items():
+    for transcript_id, (t_start, strand, arr) in transcript_lookup.items():
         children = child_df[
             (child_df["parent"].astype(str) == transcript_id)
             & (child_df["start"].notna())
             & (child_df["end"].notna())
         ][["type", "start", "end"]]
         paint_feature_rows(arr, children, t_start, feature_role_map, label_config)
+        # Normalise to biological 5'→3': painting is genomic left-to-right, so
+        # minus-strand arrays are biologically reversed until flipped here.
+        if strand == "-":
+            annotations[f"{transcript_id}_{strand}"] = np.ascontiguousarray(arr[::-1])
 
     return annotations

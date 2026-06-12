@@ -632,6 +632,43 @@ class TestBuildPairedArrays:
         np.testing.assert_array_equal(pred_arr[0:20], np.full(20, 4))
         np.testing.assert_array_equal(pred_arr[20:30], np.full(10, 5))
 
+    def test_minus_strand_arrays_are_biologically_oriented(
+        self, gt_gff, pred_a_gff, simple_label_config,
+    ):
+        """Minus-strand arrays are in biological 5'→3' order.
+
+        mRNA2: chr1, -, 200-400 (length 201).  GT CDS at 250-300 (genomic).
+        Biological 5' = genomic 400 → index 0.
+        After reversal the CDS lands at biological indices 100-150, not 50-100.
+        """
+        mappings = map_transcripts(
+            gt_path=gt_gff,
+            pred_paths={"PredA": pred_a_gff},
+            exclude_features=["gene"],
+        )
+        mRNA2_mapping = next(m for m in mappings if m.gt_id == "mRNA2")
+        gt_df, pred_dfs = self._get_dfs(gt_gff, {"PredA": pred_a_gff})
+
+        gt_arr, pred_arrs = build_paired_arrays(
+            mapping=mRNA2_mapping,
+            gt_df=gt_df,
+            pred_dfs=pred_dfs,
+            label_config=simple_label_config,
+        )
+
+        assert len(gt_arr) == 201
+        # Biological layout: [bg*100][CDS*51][bg*50]
+        np.testing.assert_array_equal(gt_arr[0:100], np.full(100, 1))
+        np.testing.assert_array_equal(gt_arr[100:151], np.full(51, 0))
+        np.testing.assert_array_equal(gt_arr[151:], np.full(50, 1))
+
+        # predA_t2 CDS at 260-290 (genomic) → biological indices 110-140
+        pred_arr = pred_arrs["PredA"]
+        assert len(pred_arr) == 201
+        np.testing.assert_array_equal(pred_arr[0:110], np.full(110, 1))
+        np.testing.assert_array_equal(pred_arr[110:141], np.full(31, 0))
+        np.testing.assert_array_equal(pred_arr[141:], np.full(60, 1))
+
 
 # ------------------------------------------------------------------
 # Tests: export_mapping_table

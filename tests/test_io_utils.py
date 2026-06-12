@@ -129,7 +129,7 @@ def test_per_transcript_arrays(hierarchical_gff, simple_config):
 
 
 def test_minus_strand_coordinates(hierarchical_gff, simple_config):
-    """Minus-strand arrays use genomic (left-to-right) coordinates."""
+    """Minus-strand arrays are in biological 5'→3' order (genomic right-to-left)."""
     arrays = read_gff_to_arrays(
         hierarchical_gff,
         simple_config,
@@ -140,10 +140,11 @@ def test_minus_strand_coordinates(hierarchical_gff, simple_config):
     arr2 = arrays["mRNA2_-"]
     assert len(arr2) == 31
 
-    # CDS 55-65 maps to local indices 5-15 (coding)
-    np.testing.assert_array_equal(arr2[0:5], np.full(5, 1))
-    np.testing.assert_array_equal(arr2[5:16], np.full(11, 0))
-    np.testing.assert_array_equal(arr2[16:31], np.full(15, 1))
+    # CDS 55-65 (genomic) = old local 5-15.  After biological reversal those
+    # bases land at new indices 15-25: [bg*15, CDS*11, bg*5].
+    np.testing.assert_array_equal(arr2[0:15], np.full(15, 1))
+    np.testing.assert_array_equal(arr2[15:26], np.full(11, 0))
+    np.testing.assert_array_equal(arr2[26:31], np.full(5, 1))
 
 
 def test_exclude_features(hierarchical_gff, simple_config):
@@ -183,9 +184,9 @@ def test_strand_isolation(hierarchical_gff, simple_config):
     assert arr_plus[0] == 0
     assert arr_plus[19] == 0
 
-    # Minus array has coding at positions 5-15
+    # Minus array: biological 5' end at index 0; CDS at biological indices 15-25
     arr_minus = arrays["mRNA2_-"]
-    assert arr_minus[5] == 0
+    assert arr_minus[15] == 0
     assert arr_minus[0] == 1
 
 
