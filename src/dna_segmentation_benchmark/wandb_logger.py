@@ -79,6 +79,11 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "containment/internal_rate": ("containment", "internal_rate"),
         "containment/full_coverage_rate": ("containment", "full_coverage_rate"),
     },
+    "NUCLEOTIDE_CLASSIFICATION": {
+        "nucleotide/precision": ("nucleotide", "precision"),
+        "nucleotide/recall": ("nucleotide", "recall"),
+        "nucleotide/f1": ("nucleotide", "f1"),
+    },
     "STRUCTURAL_COHERENCE": {
         "intron_chain/precision": ("intron_chain", "precision"),
         "intron_chain/recall": ("intron_chain", "recall"),
@@ -89,16 +94,29 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "exon_recall_per_transcript/mean": ("exon_recall_per_transcript",),
         "hallucinated_exon_count_per_transcript/mean": ("hallucinated_exon_count_per_transcript",),
         "exact_match_rate": ("exact_match_rate",),
+        "splice_site_results/donor_precision": ("splice_site_results", "donor_precision"),
+        "splice_site_results/donor_recall": ("splice_site_results", "donor_recall"),
+        "splice_site_results/acceptor_precision": ("splice_site_results", "acceptor_precision"),
+        "splice_site_results/acceptor_recall": ("splice_site_results", "acceptor_recall"),
+    },
+    "DIAGNOSTIC_DEPTH": {
+        "length_emd/mean": ("length_emd", "mean"),
+        "length_emd/mae": ("length_emd", "mae"),
     },
 }
 
-_MEDIA_FIGURE_KEYS = {
-    "boundary_landscape": "boundary_landscape",
-    "position_bias": "position_bias",
-    "transition_matrices": "transition_matrices",
-    "false_transitions": "false_transitions",
-    "transcript_match": "transcript_match",
-}
+# Figures to buffer for per-epoch GIF videos. Only short, informative plots
+# are included — heavy multi-panel plots (indel histograms, splice-site CMs)
+# grow too large to animate usefully.
+_VIDEO_BUFFER_FIGURE_KEYS = frozenset({
+    "boundary_landscape",
+    "position_bias",
+    "transition_matrices",
+    "false_transitions",
+    "transcript_match",
+    "segment_count_delta",
+    "frameshift",
+})
 
 # Internal label used as the single-method key when feeding the multi-method
 # plotting orchestrator. Surfaces in plot legends only.
@@ -257,13 +275,12 @@ def _buffer_media_frames(
     *,
     method_prefix: str | None,
 ) -> None:
-    """Append the current media figures to the internal video-frame buffer."""
-    for fig_name, plot_name in _MEDIA_FIGURE_KEYS.items():
-        fig = figures.get(fig_name)
-        if fig is None:
+    """Append figures in _VIDEO_BUFFER_FIGURE_KEYS to the internal video-frame buffer."""
+    for fig_name, fig in figures.items():
+        if fig_name not in _VIDEO_BUFFER_FIGURE_KEYS:
             continue
         buffer_key = _build_buffered_video_key(
-            plot_name=plot_name,
+            plot_name=fig_name,
             method_prefix=method_prefix,
         )
         _BUFFERED_MEDIA_FRAMES.setdefault(buffer_key, []).append(_figure_to_rgb_frame(fig))
@@ -288,7 +305,7 @@ def _flatten_all_scalars(
     flat: dict[str, float] = {}
 
     for group_key, group_data in results.items():
-        if group_key in ("transition_failures", "false_transitions"):
+        if group_key in ("transition_failures", "false_transitions", "metadata"):
             continue
         if not isinstance(group_data, dict):
             continue
@@ -350,22 +367,66 @@ def log_benchmark_scalars(
     return flat
 
 
+def log_benchmark_all_scalars(
+    results: dict,
+    label_config: LabelConfig,
+    step: Optional[int] = None,
+    method_prefix: Optional[str] = None,
+) -> dict[str, float]:
+    """Log every numeric scalar in the benchmark result to an active W&B run.
+
+    Unlike :func:`log_benchmark_scalars` (which logs a curated high-signal
+    subset), this function flattens the entire result dict recursively.
+    Suitable for final evaluation runs or post-training analysis where
+    logging cost is not a concern.
+
+    Parameters
+    ----------
+    results : dict
+        Aggregated result dict from :func:`benchmark_gt_vs_pred_multiple`.
+        Pipeline wrapper ``{"per_transcript": ..., "global": ...}`` is also
+        accepted.
+    label_config : LabelConfig
+        Currently unused; kept for API compatibility.
+    step : int, optional
+        Training step or epoch number.
+    method_prefix : str, optional
+        Optional prefix to namespace the metrics (e.g., ``"final"``).
+
+    Returns
+    -------
+    dict[str, float]
+        The flat dict that was logged.
+    """
+    wandb = _require_wandb()
+
+    inner = _unwrap_per_transcript_results(results)
+    flat = _flatten_all_scalars(inner, prefix="")
+    if method_prefix:
+        flat = {f"{method_prefix}/{k}": v for k, v in flat.items()}
+
+    log_kwargs: dict[str, Any] = {"data": flat}
+    if step is not None:
+        log_kwargs["step"] = step
+
+    wandb.log(**log_kwargs)
+
+    logger.info("Logged %d scalar metrics to W&B (step=%s).", len(flat), step)
+    return flat
+
+
 def log_benchmark_media(
     results: dict,
     label_config: LabelConfig,
     step: Optional[int] = None,
     method_prefix: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Log key diagnostic plots to W&B as stepwise media history.
+    """Log all diagnostic plots to W&B as stepwise media history.
 
-    The helper accepts one aggregated benchmark result dict and logs a
-    focused set of high-value diagnostic plots:
-
-    * boundary bias and cumulative reliability landscape
-    * error location bias
-    * GT transition confusion matrices
-    * false transitions at GT-stable positions
-    * transcript match classification distribution
+    Renders every figure produced by the benchmark plotting layer and logs
+    them all as W&B Image panels.  A focused subset of high-value figures
+    (listed in :data:`_VIDEO_BUFFER_FIGURE_KEYS`) is also buffered for later
+    animation via :func:`log_benchmark_media_videos`.
 
     Parameters
     ----------
@@ -383,18 +444,15 @@ def log_benchmark_media(
     Returns
     -------
     dict[str, Any]
-        The logged W&B media payload.
+        The logged W&B media payload (keys are W&B panel paths).
     """
     wandb = _require_wandb()
 
     figures = _render_benchmark_media_figures(results, label_config)
     try:
         media_payload: dict[str, Any] = {}
-        for fig_name, target_name in _MEDIA_FIGURE_KEYS.items():
-            fig = figures.get(fig_name)
-            if fig is None:
-                continue
-            key = f"plots/{target_name}"
+        for fig_name, fig in figures.items():
+            key = f"plots/{fig_name}"
             if method_prefix:
                 key = f"{method_prefix}/{key}"
             media_payload[key] = wandb.Image(fig)
@@ -499,7 +557,7 @@ def init_wandb_with_presets(
         wandb.define_metric(f"{group_display}/*")
         wandb.define_metric(f"val/{group_display}/*")
 
-    # Validation-prefixed metrics (for online logging with method_prefix="val")
+    wandb.define_metric("plots/*")
     wandb.define_metric("val/*")
     wandb.define_metric("val/plots/*")
 

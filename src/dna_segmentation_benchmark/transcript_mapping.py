@@ -916,43 +916,6 @@ def _build_annotation_array_from_df(
     return arr
 
 
-def _build_region_annotation_array(
-    df: pd.DataFrame,
-    seqid: str,
-    strand: str,
-    region_start: int,
-    array_length: int,
-    label_config: LabelConfig,
-    transcript_types: list[str],
-    feature_role_map: FeatureRoleMap | None = None,
-) -> np.ndarray:
-    """Build a 1-D annotation array from all features in a genomic region.
-
-    Kept for use by :mod:`~dna_segmentation_benchmark.eval.global_metrics`
-    which needs union-of-exons arrays for nucleotide-level global metrics.
-    Not used by :func:`build_paired_arrays` (which is transcript-specific).
-    """
-    bg_val = label_config.background_label
-    arr = np.full(array_length, bg_val, dtype=np.int32)
-    feature_role_map = normalize_feature_role_map(
-        feature_role_map,
-        label_config,
-        arg_name="feature_role_map",
-    )
-
-    region_end = region_start + array_length - 1
-    mask = (
-        (df["seqid"] == seqid)
-        & (df["strand"] == strand)
-        & df["parent"].notna()
-        & (df["start"] <= region_end)
-        & (df["end"] >= region_start)
-    )
-    children = df[mask & ~df["type"].isin(transcript_types)][["type", "start", "end"]]
-    paint_feature_rows(arr, children, region_start, feature_role_map, label_config)
-    return arr
-
-
 # ---------------------------------------------------------------------------
 # Public: debug export
 # ---------------------------------------------------------------------------

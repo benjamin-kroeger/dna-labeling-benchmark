@@ -32,7 +32,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def _get_frame_shift_metrics(
+def get_frame_shift_metrics(
     gt_positive_mask: np.ndarray,
     pred_positive_mask: np.ndarray,
 ) -> dict:

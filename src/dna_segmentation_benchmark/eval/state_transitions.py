@@ -71,7 +71,7 @@ class TransitionAnalysis:
     stable_position_counts: dict[int, int]
 
 
-def _compute_state_change_errors(
+def compute_state_change_errors(
     gt_pred_arr: np.ndarray,
     label_config: LabelConfig,
 ) -> TransitionAnalysis:

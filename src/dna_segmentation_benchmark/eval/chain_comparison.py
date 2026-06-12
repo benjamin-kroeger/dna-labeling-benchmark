@@ -34,60 +34,6 @@ from ..label_definition import BenchmarkScope
 # ---------------------------------------------------------------------------
 
 
-def _compute_chain_metrics(
-        gt_structure: ExtractedStructure,
-        pred_structure: ExtractedStructure,
-        label: int,
-        metric_prefix: str,
-) -> dict:
-    """Compare segment boundary sets for one label class.
-
-    Filters both structures to segments matching *label*, converts each to a
-    ``frozenset`` of ``(start, end)`` pairs, and scores three binary metrics
-    via set comparison.
-
-    Parameters
-    ----------
-    gt_structure, pred_structure : ExtractedStructure
-        Structures extracted from the GT and predicted arrays.
-    label : int
-        Which label class to evaluate.
-    metric_prefix : str
-        Prefix for the three output keys.  For introns use ``"intron_chain"``,
-        for exons use ``"exon_chain"``.
-
-    Returns
-    -------
-    dict
-        Three sibling dicts, each with ``tp``, ``fp``, ``fn`` counts:
-
-        * ``{metric_prefix}`` — all-or-nothing exact match.
-        * ``{metric_prefix}_subset`` — 1 iff pred ⊆ GT (all predicted segments
-          are real; may miss some GT segments).
-        * ``{metric_prefix}_superset`` — 1 iff pred ⊇ GT (every GT segment was
-          found; may contain extra spurious ones).
-    """
-    gt_segs: set[tuple[int, int]] = {(s.start, s.end) for s in gt_structure.filter_by_label(label)}
-    pred_segs: set[tuple[int, int]] = {(s.start, s.end) for s in pred_structure.filter_by_label(label)}
-
-    if len(gt_segs) == 0:
-        return {
-            metric_prefix: Counts(),
-            f"{metric_prefix}_subset": Counts(),
-            f"{metric_prefix}_superset": Counts(),
-        }
-
-    exact = gt_segs == pred_segs
-    subset = bool(pred_segs) and pred_segs <= gt_segs
-    superset = bool(pred_segs) and pred_segs >= gt_segs
-
-    return {
-        metric_prefix: Counts(tp=1) if exact else Counts(fp=1, fn=1),
-        f"{metric_prefix}_subset": Counts(tp=1) if subset else Counts(fp=1, fn=1),
-        f"{metric_prefix}_superset": Counts(tp=1) if superset else Counts(fp=1, fn=1),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Intron chain
 # ---------------------------------------------------------------------------
@@ -139,7 +85,7 @@ def _extract_logical_intron_spans(
     return spans
 
 
-def _compute_intron_chain_metrics(
+def compute_intron_chain_metrics(
         gt_structure: ExtractedStructure,
         pred_structure: ExtractedStructure,
         label_config: LabelConfig,
@@ -149,7 +95,7 @@ def _compute_intron_chain_metrics(
     Extracts logical intron spans via :func:`_extract_logical_intron_spans`
     (which groups ``DONOR + INTRON* + ACCEPTOR`` into a single span when
     splice-site labels are defined), then performs the same strict / subset /
-    superset set comparison as :func:`_compute_chain_metrics`.
+    superset set comparison as the exon chain metrics.
 
     Returns
     -------
@@ -194,7 +140,7 @@ def _segments_for_scope(
     return extract_scoped_segments(structure, label_config.scope_tokens(scope))
 
 
-def _compute_scoped_chain_metrics(
+def compute_scoped_chain_metrics(
         gt_structure: ExtractedStructure,
         pred_structure: ExtractedStructure,
         label_config: LabelConfig,
@@ -237,32 +183,6 @@ def _compute_scoped_chain_metrics(
 # ---------------------------------------------------------------------------
 # Boundary shift (per-transcript, separate from chain PR)
 # ---------------------------------------------------------------------------
-
-
-def _compute_boundary_shift_metrics(
-        gt_structure: ExtractedStructure,
-        pred_structure: ExtractedStructure,
-        label: int,
-) -> dict:
-    """Count shifted boundary positions for equal-count segment pairs.
-
-    Only meaningful when GT and pred have the same number of segments.  If the
-    counts differ, both values are 0.  Used as a per-transcript diagnostic
-    complement to the chain set-comparison metrics.
-
-    Returns
-    -------
-    dict
-        ``{"boundary_shift_count": int, "boundary_shift_total": int}``
-    """
-    gt_segs = gt_structure.filter_by_label(label)
-    pred_segs = pred_structure.filter_by_label(label)
-
-    if len(gt_segs) == 0 or len(gt_segs) != len(pred_segs):
-        return {"boundary_shift_count": 0, "boundary_shift_total": 0}
-
-    count, total = _measure_shifted_boundaries(gt_segs, pred_segs)
-    return {"boundary_shift_count": count, "boundary_shift_total": total}
 
 
 def _compute_boundary_shift_from_segments(

@@ -15,7 +15,7 @@ from .statistics import Counts
 from ..label_definition import EvalMetrics
 
 
-def _eval_sections(
+def eval_sections(
         grouped_gt_sections: list[np.ndarray],
         grouped_pred_sections: list[np.ndarray],
         metrics: frozenset[EvalMetrics],

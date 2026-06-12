@@ -23,7 +23,6 @@ from __future__ import annotations
 import dataclasses
 import warnings
 from collections.abc import Iterator
-from copy import deepcopy
 from typing import Optional
 from typing import Iterable
 import numpy as np
@@ -31,22 +30,22 @@ from tqdm import tqdm
 
 from .accumulators import BenchmarkAccumulator
 from .chain_comparison import (
-    _compute_intron_chain_metrics,
-    _compute_scoped_chain_metrics,
+    compute_intron_chain_metrics,
+    compute_scoped_chain_metrics,
 )
-from .frame_shift import _get_frame_shift_metrics
-from .indel_metrics import BOUNDARY_ANCHORED_BUCKETS, _eval_indel
+from .frame_shift import get_frame_shift_metrics
+from .indel_metrics import BOUNDARY_ANCHORED_BUCKETS, eval_indel
 from .preprocessing import (
     _infer_introns_from_coding_gaps,
     _iter_unmasked_spans,
     resolve_scope_mask,
     resolve_scope_sections,
 )
-from .section_metrics import _eval_sections
-from .state_transitions import _compute_state_change_errors
+from .section_metrics import eval_sections
+from .state_transitions import compute_state_change_errors
 from .statistics import Counts
 from .structure import extract_structure
-from .structural_summary import _compute_structural_summary
+from .structural_summary import compute_structural_summary
 from .utils import get_contiguous_groups
 from .splice_sites import eval_splice_site_junctions
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
@@ -196,7 +195,7 @@ def _benchmark_chunk(
 
     _indel_result: dict | None = None
     if EvalMetrics.INDEL in metrics or EvalMetrics.FRAMESHIFT in metrics:
-        _indel_result = _eval_indel(
+        _indel_result = eval_indel(
             grouped_insertions,
             grouped_deletions,
             gt_mask,
@@ -211,7 +210,7 @@ def _benchmark_chunk(
             metric_results[EvalMetrics.INDEL.name] = _indel_result
 
     if _needs_section_analysis(metrics):
-        section_data, boundary_data = _eval_sections(
+        section_data, boundary_data = eval_sections(
             grouped_gt_sections,
             grouped_pred_sections,
             metrics,
@@ -245,7 +244,7 @@ def _benchmark_chunk(
         metric_results[EvalMetrics.STRUCTURAL_COHERENCE.name] = _eval_structural(gt_labels, pred_labels, label_config)
 
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics:
-        metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = _compute_structural_summary(
+        metric_results[EvalMetrics.DIAGNOSTIC_DEPTH.name] = compute_structural_summary(
             grouped_gt_sections,
             grouped_pred_sections,
         )
@@ -255,7 +254,7 @@ def _benchmark_chunk(
 
 def _eval_transitions(arr: np.ndarray, label_config: LabelConfig) -> dict:
     """Return the always-on state-transition diagnostic fragments."""
-    transition_analysis = _compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
+    transition_analysis = compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
     return {
         "transition_failures": transition_analysis.gt_transition_matrices,
         "false_transitions": {
@@ -282,7 +281,7 @@ def _eval_frameshift(
     (5'/3' extensions and deletions only) and how many of those have lengths
     divisible by 3 (i.e. in-frame).
     """
-    raw = _get_frame_shift_metrics(
+    raw = get_frame_shift_metrics(
         gt_positive_mask=gt_positive_mask,
         pred_positive_mask=pred_positive_mask,
     )
@@ -312,14 +311,14 @@ def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_confi
     pred_struct = extract_structure(pred_labels, label_config)
     scope = label_config.evaluation_scope
 
-    structural_coherance_results = _compute_scoped_chain_metrics(
+    structural_coherance_results = compute_scoped_chain_metrics(
         gt_struct,
         pred_struct,
         label_config,
         scope,
     )
     if label_config.intron_label is not None:
-        structural_coherance_results.update(_compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
+        structural_coherance_results.update(compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
     if (
         label_config.intron_label is not None
         and label_config.splice_donor_label is not None
@@ -387,7 +386,7 @@ def benchmark_gt_vs_pred_multiple(
     if mask_labels is not None and len(mask_labels) != len(gt_labels):
         raise ValueError(f"Mask list length ({len(mask_labels)}) must match GT list length ({len(gt_labels)}).")
 
-    metrics = deepcopy(metrics) if metrics is not None else list(_DEFAULT_METRICS)
+    metrics = list(metrics) if metrics is not None else list(_DEFAULT_METRICS)
 
     if EvalMetrics.FRAMESHIFT in metrics:
         warnings.warn(

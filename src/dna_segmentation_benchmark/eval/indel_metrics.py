@@ -53,7 +53,7 @@ BOUNDARY_ANCHORED_BUCKETS: frozenset[str] = frozenset(_INSERTION_BUCKETS[:2] + _
 _NO_NEIGHBOUR = "none"
 
 
-def _eval_indel(
+def eval_indel(
     grouped_insertions: list[np.ndarray],
     grouped_deletions: list[np.ndarray],
     gt_positive_mask: np.ndarray,

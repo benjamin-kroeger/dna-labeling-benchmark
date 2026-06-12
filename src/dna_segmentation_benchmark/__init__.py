@@ -11,6 +11,7 @@ Public API
 .. autofunction:: benchmark_from_gff
 .. autofunction:: compare_multiple_predictions
 .. autofunction:: log_benchmark_scalars
+.. autofunction:: log_benchmark_all_scalars
 .. autofunction:: log_benchmark_media
 .. autofunction:: log_benchmark_media_videos
 .. autofunction:: clear_benchmark_media_video_buffer
@@ -32,6 +33,7 @@ from .plotting.summary_stat_plotting import compare_multiple_predictions
 from .wandb_logger import (
     clear_benchmark_media_video_buffer,
     log_benchmark_scalars,
+    log_benchmark_all_scalars,
     log_benchmark_media,
     log_benchmark_media_videos,
     init_wandb_with_presets,
@@ -52,6 +54,7 @@ __all__ = [
     "compare_multiple_predictions",
     "clear_benchmark_media_video_buffer",
     "log_benchmark_scalars",
+    "log_benchmark_all_scalars",
     "log_benchmark_media",
     "log_benchmark_media_videos",
     "init_wandb_with_presets",

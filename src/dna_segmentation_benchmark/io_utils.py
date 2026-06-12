@@ -231,39 +231,6 @@ def read_gff_to_arrays(
         annotations[key] = arr
         transcript_lookup[str(t_id)] = (t_start, strand, arr)
 
-    for row in child_df.itertuples(index=False):
-        parent_id = row.parent
-        c_start = row.start
-        c_end = row.end
-
-        if pd.isna(parent_id) or pd.isna(c_start) or pd.isna(c_end):
-            continue
-
-        parent_id = str(parent_id)
-        if parent_id not in transcript_lookup:
-            continue
-
-        t_start, _, arr = transcript_lookup[parent_id]
-        c_start = int(c_start)
-        c_end = int(c_end)
-
-        local_start = max(0, c_start - t_start)
-        local_end = min(len(arr), c_end - t_start + 1)
-
-        if c_start < t_start or c_end > t_start + len(arr) - 1:
-            logger.debug(
-                "Child feature of %s extends outside transcript boundaries "
-                "(child: %d-%d, transcript: %d-%d). Clipping to transcript span.",
-                parent_id,
-                c_start,
-                c_end,
-                t_start,
-                t_start + len(arr) - 1,
-            )
-
-        # Left here only for clipping diagnostics; actual painting is done
-        # after all children for one transcript have been selected.
-
     for transcript_id, (t_start, strand, arr) in transcript_lookup.items():
         children = child_df[
             (child_df["parent"].astype(str) == transcript_id)
