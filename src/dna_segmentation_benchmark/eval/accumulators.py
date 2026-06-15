@@ -393,6 +393,7 @@ class StructuralAccumulator:
     transcript_match_class: list = field(default_factory=list)
     boundary_shift_count: list = field(default_factory=list)
     boundary_shift_total: list = field(default_factory=list)
+    boundary_shift_offsets: list = field(default_factory=list)
     splice_sums: dict = field(default_factory=dict)
     _seen: bool = False
     _splice_seen: bool = False
@@ -417,6 +418,10 @@ class StructuralAccumulator:
             self.boundary_shift_count.append(group["boundary_shift_count"])
         if "boundary_shift_total" in group:
             self.boundary_shift_total.append(group["boundary_shift_total"])
+        # Per-boundary records are concatenated into one flat pool (one entry
+        # per shifted boundary, not per transcript) for the distribution plots.
+        if "boundary_shift_offsets" in group:
+            self.boundary_shift_offsets.extend(group["boundary_shift_offsets"])
 
         for key in self.INTRON_CHAIN_KEYS:
             if key in group:
@@ -439,6 +444,8 @@ class StructuralAccumulator:
             payload["boundary_shift_count"] = list(self.boundary_shift_count)
         if self.boundary_shift_total:
             payload["boundary_shift_total"] = list(self.boundary_shift_total)
+        if self.boundary_shift_offsets:
+            payload["boundary_shift_offsets"] = list(self.boundary_shift_offsets)
 
     def _splice_summary(self) -> dict:
         ss = dict(self.splice_sums)

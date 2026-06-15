@@ -15,7 +15,11 @@ Metrics
 * **Exon chain (strict / subset / superset)** — same set semantics applied to
   coding segments, directly comparable to intron chain.
 * **Boundary shift** — per-transcript count and total bp offset of shifted
-  segment boundaries (only for equal-count pairs).
+  segment boundaries (only for equal-count pairs), plus the signed,
+  position-tagged per-boundary offsets that drive the shift-distribution
+  plots.  Reported only when GT and prediction have the same segment count
+  (i.e. the chain topology is correct), so the offsets describe junction
+  placement *conditioned on* getting the exon count right.
 * **Per-transcript exon recall** — fraction of GT exons exactly recovered.
 * **Per-transcript hallucinated exon count** — predicted exons absent from GT.
 """
@@ -198,12 +202,36 @@ def _compute_boundary_shift_from_segments(
         gt_segs: tuple[Segment, ...],
         pred_segs: tuple[Segment, ...],
 ) -> dict:
-    """Count shifted boundaries for a pre-selected scope segment chain."""
-    if len(gt_segs) == 0 or len(gt_segs) != len(pred_segs):
-        return {"boundary_shift_count": 0, "boundary_shift_total": 0}
+    """Count and characterise shifted boundaries for a scope segment chain.
 
-    count, total = _measure_shifted_boundaries(gt_segs, pred_segs)
-    return {"boundary_shift_count": count, "boundary_shift_total": total}
+    Returns the per-transcript scalar summary (``boundary_shift_count``,
+    ``boundary_shift_total``) together with ``boundary_shift_offsets`` — the
+    list of signed, position-tagged per-boundary records that drives the
+    boundary-shift distribution plots.  All three are empty/zero unless the
+    two chains have matching, non-zero length (correct exon-count topology)
+    *and* every predicted segment overlaps its positional GT counterpart.
+    Boundaries can only be paired position-by-position when the counts agree,
+    and the offsets are only meaningful when the paired segments genuinely
+    correspond — a relocated/substituted exon is not a "shifted boundary" and
+    would otherwise inject a spurious large offset into the distribution.
+    """
+    if (
+        len(gt_segs) == 0
+        or len(gt_segs) != len(pred_segs)
+        or not all(g.overlaps(p) for g, p in zip(gt_segs, pred_segs))
+    ):
+        return {
+            "boundary_shift_count": 0,
+            "boundary_shift_total": 0,
+            "boundary_shift_offsets": [],
+        }
+
+    count, total, offsets = _measure_shifted_boundaries(gt_segs, pred_segs)
+    return {
+        "boundary_shift_count": count,
+        "boundary_shift_total": total,
+        "boundary_shift_offsets": offsets,
+    }
 
 
 def _raise_if_introns_missing_but_inferable(
@@ -286,30 +314,67 @@ def _compute_soft_metrics_from_segments(
 def _measure_shifted_boundaries(
         gt_segs: tuple[Segment, ...],
         pred_segs: tuple[Segment, ...],
-) -> tuple[int, int]:
-    """Count and sum all shifted boundary positions across every segment pair.
+) -> tuple[int, int, list[dict]]:
+    """Measure every shifted boundary position across a segment chain.
+
+    The two chains are compared position-by-position (they must have equal
+    length); each boundary whose predicted coordinate differs from the
+    ground-truth coordinate is both counted and recorded individually.
 
     Parameters
     ----------
     gt_segs, pred_segs : tuple[Segment, ...]
-        Segment chains of equal length.
+        Segment chains of equal length, ordered by array position.
 
     Returns
     -------
-    (count, total) : tuple[int, int]
+    (count, total, offsets) : tuple[int, int, list[dict]]
         *count* — number of boundary positions that differ.
         *total* — sum of absolute position offsets across those boundaries (bp).
+        *offsets* — one record per **shifted** boundary, each a dict with keys
+
+        ``offset``
+            Signed offset ``pred_edge - gt_edge`` in array coordinates.  A
+            positive value means the predicted edge lies to the right (higher
+            index, array-3') of the matching GT edge.  The sign therefore
+            follows the same array-orientation convention as the boundary
+            precision landscape and is **not** strand-resolved — a biological
+            donor/acceptor split is intentionally deferred until minus-strand
+            arrays are reverse-complemented upstream.
+        ``position``
+            ``"terminal"`` for the chain's outer start/end (the transcript
+            TSS/TES in array orientation), ``"internal"`` for every interior
+            splice-site boundary.  This separates inherently fuzzy transcript
+            ends from precisely defined splice junctions.
+
+        Only boundaries that actually differ are recorded, so the distribution
+        describes the *conditional* shift magnitude ("given a junction is
+        misplaced, by how much") rather than overall recall.
     """
     if not gt_segs:
-        return 0, 0
+        return 0, 0, []
     count = 0
     total = 0
-    for g, p in zip(gt_segs, pred_segs):
+    offsets: list[dict] = []
+    last_index = len(gt_segs) - 1
+    for index, (g, p) in enumerate(zip(gt_segs, pred_segs)):
         if g.start != p.start:
             count += 1
             total += abs(g.start - p.start)
+            offsets.append(
+                {
+                    "offset": p.start - g.start,
+                    "position": "terminal" if index == 0 else "internal",
+                }
+            )
         if g.end != p.end:
             count += 1
             total += abs(g.end - p.end)
-    return count, total
+            offsets.append(
+                {
+                    "offset": p.end - g.end,
+                    "position": "terminal" if index == last_index else "internal",
+                }
+            )
+    return count, total, offsets
 

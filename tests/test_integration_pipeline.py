@@ -338,3 +338,46 @@ def test_minus_strand_orientation_symmetry(exon_intron_config, tmp_path):
     assert plus_nuc["precision"] == pytest.approx(minus_nuc["precision"])
     # The 5' exon (1/3 of the coding bases) is missed on both strands.
     assert minus_nuc["recall"] == pytest.approx(2 / 3)
+
+
+def test_minus_strand_structural_and_indel_symmetry(exon_intron_config, tmp_path):
+    """STRUCTURAL_COHERENCE and INDEL are strand-invariant for a 5'-terminal error.
+
+    Extends the orientation guard to the structural / INDEL metrics (the
+    existing symmetry test only covered NUCLEOTIDE + REGION_DISCOVERY). Both
+    genes share a symmetric genomic exon structure; the prediction truncates
+    the *biological 5'* terminal exon by 10 bp at its outer boundary — the
+    lowest-coordinate exon start on the + strand, the highest-coordinate exon
+    end on the - strand. Because ``build_paired_arrays`` normalises both to
+    5'→3' order, the boundary-shift *position* labels and the INDEL 5'/3'
+    classification must be identical (a regression would mislabel the minus
+    strand's 5' error as a 3' error).
+    """
+    exons = [(100, 200), (300, 400), (500, 600)]  # symmetric spacing
+
+    gt_plus = _strand_gene(tmp_path / "gt_plus.gff3", "+", exons, "gp")
+    gt_minus = _strand_gene(tmp_path / "gt_minus.gff3", "-", exons, "gm")
+    # Truncate the biological 5' exon's outer boundary by 10 bp on each strand.
+    pred_plus = _strand_gene(tmp_path / "pred_plus.gff3", "+", [(110, 200), (300, 400), (500, 600)], "pp")
+    pred_minus = _strand_gene(tmp_path / "pred_minus.gff3", "-", [(100, 200), (300, 400), (500, 590)], "pm")
+
+    metrics = [EvalMetrics.STRUCTURAL_COHERENCE, EvalMetrics.INDEL]
+    plus = benchmark_from_gff(gt_path=gt_plus, pred_paths={"x": pred_plus},
+                              label_config=exon_intron_config, metrics=metrics, infer_introns=True)
+    minus = benchmark_from_gff(gt_path=gt_minus, pred_paths={"x": pred_minus},
+                               label_config=exon_intron_config, metrics=metrics, infer_introns=True)
+
+    sc_p = plus["x"]["aggregated"]["STRUCTURAL_COHERENCE"]
+    sc_m = minus["x"]["aggregated"]["STRUCTURAL_COHERENCE"]
+    assert sc_p["transcript_match_distribution"] == sc_m["transcript_match_distribution"]
+    assert sc_p["transcript_match_distribution"] == {"boundary_shift_terminal": 1}
+    assert sc_p["boundary_shift_offsets"] == sc_m["boundary_shift_offsets"]
+    assert sc_p["boundary_shift_offsets"] == [{"offset": 10, "position": "terminal"}]
+    assert sc_p["exact_match_rate"] == pytest.approx(sc_m["exact_match_rate"])
+
+    indel_p = plus["x"]["aggregated"]["INDEL"]
+    indel_m = minus["x"]["aggregated"]["INDEL"]
+    # The 5' truncation must be classed as a 5' deletion on the 5' terminal exon
+    # on BOTH strands — not mirrored to the 3' end on the minus strand.
+    assert indel_p["by_boundary"] == indel_m["by_boundary"]
+    assert indel_p["by_boundary"]["five_prime_terminal_exon"] == {"5_prime_deletions": [10]}

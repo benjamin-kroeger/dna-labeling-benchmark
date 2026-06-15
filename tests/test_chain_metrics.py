@@ -6,7 +6,10 @@ import math
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.eval.chain_comparison import _compute_per_transcript_exon_soft_metrics
+from dna_segmentation_benchmark.eval.chain_comparison import (
+    _compute_per_transcript_exon_soft_metrics,
+    compute_scoped_chain_metrics,
+)
 from dna_segmentation_benchmark.eval.evaluate_predictors import (
     EvalMetrics,
     benchmark_gt_vs_pred_single,
@@ -45,6 +48,17 @@ def _run(gt_exons: list[tuple[int, int]], pred_exons: list[tuple[int, int]], len
     gt_struct = extract_structure(gt_arr, BEND_LABEL_CONFIG)
     pred_struct = extract_structure(pred_arr, BEND_LABEL_CONFIG)
     return _compute_per_transcript_exon_soft_metrics(gt_struct, pred_struct, BEND_LABEL_CONFIG)
+
+
+def _chain(gt_exons: list[tuple[int, int]], pred_exons: list[tuple[int, int]], length: int = 500) -> dict:
+    """Run the full scoped-chain comparison and return its metric dict."""
+    gt_arr = _build_array(gt_exons, length)
+    pred_arr = _build_array(pred_exons, length)
+    gt_struct = extract_structure(gt_arr, BEND_LABEL_CONFIG)
+    pred_struct = extract_structure(pred_arr, BEND_LABEL_CONFIG)
+    return compute_scoped_chain_metrics(
+        gt_struct, pred_struct, BEND_LABEL_CONFIG, BEND_LABEL_CONFIG.evaluation_scope,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +115,33 @@ def test_single_exon_transcript_is_supported():
     res = _run([(10, 99)], [(10, 99)], length=200)
     assert res["exon_recall_per_transcript"] == 1.0
     assert res["hallucinated_exon_count_per_transcript"] == 0
+
+
+def test_boundary_shift_not_contaminated_by_equal_count_substitution():
+    """An equal-count pair with a relocated middle exon is NOT a boundary shift.
+
+    The pairwise-overlap guard must keep the relocated exon out of the
+    boundary-shift distribution (otherwise its large offset would pollute the
+    plot and the metric).
+    """
+    gt = [(10, 19), (100, 119), (200, 219)]
+    pred = [(10, 19), (150, 169), (200, 219)]  # middle exon relocated, no overlap
+    res = _chain(gt, pred)
+
+    assert res["boundary_shift_count"] == 0
+    assert res["boundary_shift_total"] == 0
+    assert res["transcript_match_class"] == "partial_overlap"
+
+
+def test_boundary_shift_counted_for_genuine_internal_shift():
+    """A true internal splice shift (all pairs overlap) is counted."""
+    gt = [(10, 19), (100, 119), (200, 219)]
+    pred = [(10, 19), (104, 119), (200, 219)]  # middle exon start shifted, still overlaps
+    res = _chain(gt, pred)
+
+    assert res["boundary_shift_count"] == 1
+    assert res["boundary_shift_total"] == 4
+    assert res["transcript_match_class"] == "boundary_shift_internal"
 
 
 def test_intron_chain_fails_when_introns_are_inferable_but_missing():

@@ -32,6 +32,30 @@ def spezi_palette(n: int | None = None) -> list[tuple[float, float, float]]:
     return sns.color_palette(ordered)
 
 
+def severity_palette(n: int) -> list[tuple[float, float, float]]:
+    """Return *n* colours along a green→red ramp (best → worst).
+
+    Index 0 is green (good), index ``n-1`` is red (bad). Use for ordinal
+    categories such as the transcript match classes, so a stacked bar reads as
+    a quality gradient rather than arbitrary categorical hues.
+    """
+    cmap = plt.get_cmap("RdYlGn_r")
+    if n <= 1:
+        return [tuple(cmap(0.0)[:3])]
+    return [tuple(cmap(x)[:3]) for x in np.linspace(0.0, 1.0, n)]
+
+
+def text_color_for_bg(rgb: tuple[float, float, float]) -> str:
+    """Pick ``"black"`` or ``"white"`` for legible text on background *rgb*.
+
+    Uses relative luminance so annotations stay readable on both light and
+    dark bar sections.
+    """
+    r, g, b = rgb[:3]
+    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return "black" if luminance > 0.6 else "white"
+
+
 def _annotate_bar_with_errorbar(
     ax: plt.Axes,
     patch,

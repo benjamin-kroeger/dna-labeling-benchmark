@@ -170,6 +170,10 @@ def benchmark_gt_vs_pred_single(
         * ``boundary_shift_count`` / ``boundary_shift_total`` — number
           of shifted boundary positions and their summed absolute offset
           in bp across transcripts where GT and pred segment counts match.
+        * ``boundary_shift_offsets`` — one record per shifted boundary
+          (``{offset, position}``): the signed array-coordinate offset and an
+          ``internal`` (splice junction) / ``terminal`` (TSS/TES) tag, used by
+          the boundary-shift distribution plots.
     """
     if metrics is None:
         metrics = _DEFAULT_METRICS

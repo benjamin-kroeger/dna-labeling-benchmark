@@ -18,13 +18,21 @@ import seaborn as sns
 
 from ...eval.transcript_classification import TranscriptMatchClass
 from ..config import DEFAULT_FIG_SIZE, PlotMetadata
-from ..utils import _save_figure, _add_pictogram_panel, spezi_palette
+from ..utils import (
+    _save_figure,
+    _add_pictogram_panel,
+    severity_palette,
+    spezi_palette,
+    text_color_for_bg,
+)
 
 logger = logging.getLogger(__name__)
 
+# Enum declaration order is the severity order (EXACT → … → MISSED), so a
+# green→red ramp makes the stacked bar read as a quality gradient.
 _MATCH_CLASS_ORDER = [c.value for c in TranscriptMatchClass]
 MATCH_CLASS_COLORS: dict[str, tuple[float, float, float]] = dict(
-    zip(_MATCH_CLASS_ORDER, spezi_palette(len(_MATCH_CLASS_ORDER)))
+    zip(_MATCH_CLASS_ORDER, severity_palette(len(_MATCH_CLASS_ORDER)))
 )
 
 # ---------------------------------------------------------------------------
@@ -89,8 +97,11 @@ def plot_transcript_match_distribution(
     bar_colors = [MATCH_CLASS_COLORS.get(c, "#888888") for c in norm_pivot.columns]
     norm_pivot.plot(kind="bar", stacked=True, ax=ax, color=bar_colors)
 
-    # Annotate each bar section with its raw count
+    # Annotate each bar section with its raw count, in a colour that stays
+    # legible against the section's (green→red) background.
     for container, col_name in zip(ax.containers, norm_pivot.columns):
+        section_color = MATCH_CLASS_COLORS.get(col_name, (0.5, 0.5, 0.5))
+        label_color = text_color_for_bg(section_color)
         for bar_idx, patch in enumerate(container.patches):
             height = patch.get_height()
             if height < 0.02:
@@ -113,8 +124,23 @@ def plot_transcript_match_distribution(
                 va="center",
                 fontsize=8,
                 fontweight="bold",
-                color="white",
+                color=label_color,
             )
+
+    # Per-method N above each bar — fractions are uninterpretable without the
+    # denominator, which differs across methods.
+    method_totals = raw_pivot.sum(axis=1)
+    for bar_idx, method in enumerate(norm_pivot.index):
+        ax.text(
+            bar_idx,
+            1.01,
+            f"n={int(method_totals.loc[method])}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            fontweight="bold",
+        )
+    ax.set_ylim(0, 1.08)
 
     ax.set_title(f"{class_name} — Transcript Match Classification")
     ax.set_xlabel("Method")
@@ -203,7 +229,7 @@ def plot_segment_count_delta(
 
 
 # ---------------------------------------------------------------------------
-# Boundary shift distribution (histograms + scatter)
+# Boundary shift distribution (per-boundary offset distributions)
 # ---------------------------------------------------------------------------
 
 
@@ -213,21 +239,40 @@ def plot_boundary_shift_distribution(
     save_path: Optional[Path] = None,
     metadata: Optional[PlotMetadata] = None,
 ) -> Optional[plt.Figure]:
-    """Three-panel distribution figure for BOUNDARY_SHIFT transcripts.
+    """Per-boundary offset distributions for topology-correct transcripts.
 
-    Only transcripts classified as BOUNDARY_SHIFT (non-zero count) are
-    included.
+    Consumes the ``boundary_shift_offsets`` records (one per *shifted*
+    boundary, see
+    :func:`~dna_segmentation_benchmark.eval.chain_comparison._measure_shifted_boundaries`)
+    pooled across every transcript whose predicted exon count matches the
+    ground truth.  Each record carries a signed array-coordinate ``offset``
+    (positive = predicted edge shifted to the right / array-3') and a
+    ``position`` tag (``internal`` splice junction vs ``terminal`` TSS/TES).
+
+    The view is deliberately complementary to the boundary-precision
+    *landscape* (``eval/boundary_precision.py``): the landscape pools every
+    overlapping section pair globally, whereas this figure is **conditioned on
+    correct chain topology** and resolves each individual junction, so it
+    answers "given the model got the exon count right, how precisely are the
+    junctions placed, and is precision worse at the fuzzy transcript ends?".
 
     Panels
     ------
-    Left   : histogram of shifted boundary count per transcript.
-    Middle : histogram of total bp offset per transcript.
-    Right  : scatter of count vs total bp offset.
+    Left   : ECDF of ``|offset|`` per method (log x).  Reads directly as
+             "fraction of misplaced junctions within *k* bp"; per-method
+             headline stats (median ``|offset|`` and % within ±2 bp) are
+             annotated.
+    Middle : density histogram of the **signed** offset over a robust window,
+             exposing the ±1/±2 bp spike and any directional (5'/3') bias.
+    Right  : ``|offset|`` split by internal vs terminal boundary (log y),
+             separating precise splice junctions from inherently fuzzy
+             transcript ends.
 
     Parameters
     ----------
     df_sc : pd.DataFrame
-        Long-format DataFrame filtered to STRUCTURAL_COHERENCE rows.
+        Long-format DataFrame filtered to STRUCTURAL_COHERENCE rows.  Rows with
+        ``metric_key == "boundary_shift_offsets"`` carry the pooled record list.
     class_name : str
         Human-readable class name.
     save_path, metadata : optional
@@ -236,108 +281,129 @@ def plot_boundary_shift_distribution(
     Returns
     -------
     Figure | None
+        ``None`` when no shifted boundaries were recorded for any method.
     """
-    # Collect per-method lists keyed by boundary_shift_count / boundary_shift_total
-    raw: dict[str, dict[str, list]] = {}
+    # Pool per-boundary records per method (records already flattened upstream).
+    records: list[dict] = []
     for _, row in df_sc.iterrows():
-        key = row["metric_key"]
-        val = row["value"]
-        method = row["method_name"]
-        if key not in ("boundary_shift_count", "boundary_shift_total"):
+        if row["metric_key"] != "boundary_shift_offsets":
             continue
-        if not isinstance(val, list):
+        value = row["value"]
+        if not isinstance(value, list):
             continue
-        raw.setdefault(method, {})[key] = val
+        for rec in value:
+            offset = rec["offset"]
+            records.append(
+                {
+                    "method": row["method_name"],
+                    "offset": offset,
+                    "abs_offset": abs(offset),
+                    "position": rec["position"],
+                }
+            )
 
-    if not raw:
+    if not records:
         return None
 
-    # Filter to BOUNDARY_SHIFT transcripts only (count > 0)
-    filtered: dict[str, dict[str, list]] = {}
-    for method, data in raw.items():
-        counts = data.get("boundary_shift_count", [])
-        totals = data.get("boundary_shift_total", [])
-        if not counts:
-            continue
-        pairs = [(c, t) for c, t in zip(counts, totals) if c > 0]
-        if pairs:
-            filtered[method] = {
-                "count": [c for c, _ in pairs],
-                "total": [t for _, t in pairs],
-            }
+    df = pd.DataFrame(records)
 
-    if not filtered:
-        return None
-
-    # Build long-format rows
-    hist_rows: list[dict] = []
-    scatter_rows: list[dict] = []
-    for method, data in filtered.items():
-        for c, t in zip(data["count"], data["total"]):
-            hist_rows.append({"method": method, "count": c, "total": t})
-            scatter_rows.append({"method": method, "count": c, "total": t})
-
-    df_hist = pd.DataFrame(hist_rows)
-    df_scatter = pd.DataFrame(scatter_rows)
+    methods = sorted(df["method"].unique())
+    palette = dict(zip(methods, spezi_palette(len(methods))))
 
     fig, axes = plt.subplots(1, 3, figsize=(21, 6), constrained_layout=True)
 
-    # Panel 1 — count histogram (discrete bins, overlayed)
-    max_count = int(df_hist["count"].max())
-    bins_count = np.arange(0.5, max_count + 1.5, 1)
-    sns.histplot(
-        data=df_hist,
-        x="count",
+    # --- Panel 1 — ECDF of |offset| with headline stats ---------------------
+    sns.ecdfplot(
+        data=df,
+        x="abs_offset",
         hue="method",
-        bins=bins_count,
-        multiple="layer",
-        element="step",
-        alpha=0.4,
+        hue_order=methods,
+        palette=palette,
+        legend=False,
         ax=axes[0],
     )
-    axes[0].set_xlabel("Shifted boundary positions per transcript", labelpad=8)
-    axes[0].set_ylabel("Transcripts")
-    axes[0].set_title("Shifted Boundary Count", pad=10)
-    axes[0].xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    axes[0].set_xscale("log")
+    axes[0].axvline(2, color="grey", linestyle=":", linewidth=1)
+    axes[0].set_xlabel("|boundary offset| (bp, log scale)", labelpad=8)
+    axes[0].set_ylabel("Cumulative fraction of shifted boundaries")
+    axes[0].set_title("Offset ECDF — junction placement precision", pad=10)
+    # Per-method headline stats, colour-matched, stacked in the empty corner.
+    for idx, method in enumerate(methods):
+        abs_off = df.loc[df["method"] == method, "abs_offset"]
+        within_2 = (abs_off <= 2).mean() * 100
+        axes[0].text(
+            0.98,
+            0.02 + idx * 0.06,
+            f"{method}: median {abs_off.median():.0f} bp · {within_2:.0f}% ≤2 bp",
+            transform=axes[0].transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=8,
+            color=palette[method],
+        )
 
-    # Panel 2 — total bp offset histogram (overlayed)
-    max_total = float(df_hist["total"].max())
-    bins_total = np.linspace(0, max_total, 31)
+    # --- Panel 2 — signed offset density over a robust window ---------------
+    window = int(np.ceil(df["abs_offset"].quantile(0.98)))
+    window = max(5, min(window, 60))
+    bins_signed = np.arange(-window - 0.5, window + 1.5, 1.0)
     sns.histplot(
-        data=df_hist,
-        x="total",
+        data=df,
+        x="offset",
         hue="method",
-        bins=bins_total,
-        multiple="layer",
+        hue_order=methods,
+        palette=palette,
+        bins=bins_signed,
         element="step",
-        alpha=0.4,
+        stat="density",
+        common_norm=False,
+        alpha=0.35,
         ax=axes[1],
     )
-    axes[1].set_xlabel("Total bp offset across shifted boundaries", labelpad=8)
-    axes[1].set_ylabel("Transcripts")
-    axes[1].set_title("Total Boundary Shift (bp)", pad=10)
+    axes[1].axvline(0, color="grey", linestyle="--", linewidth=1)
+    axes[1].set_xlim(-window - 0.5, window + 0.5)
+    axes[1].set_xlabel("Signed boundary offset (bp, pred − GT, array-3' positive)", labelpad=8)
+    axes[1].set_ylabel("Density")
+    axes[1].set_title("Signed Offset — directional bias & small-shift spike", pad=10)
+    frac_clipped = (df["abs_offset"] > window).mean()
+    if frac_clipped > 0:
+        axes[1].text(
+            0.99,
+            0.97,
+            f"{frac_clipped * 100:.1f}% beyond ±{window} bp (clipped)",
+            transform=axes[1].transAxes,
+            ha="right",
+            va="top",
+            fontsize=8,
+            style="italic",
+            color="#555555",
+        )
 
-    # Panel 3 — scatter: count vs total (log y, integer x ticks at unit interval)
-    sns.scatterplot(
-        data=df_scatter,
-        x="count",
-        y="total",
+    # --- Panel 3 — internal vs terminal |offset| ----------------------------
+    positions = [p for p in ("internal", "terminal") if p in set(df["position"])]
+    sns.boxplot(
+        data=df,
+        x="position",
+        y="abs_offset",
         hue="method",
-        alpha=0.65,
-        s=40,
+        order=positions,
+        hue_order=methods,
+        palette=palette,
+        fliersize=2,
         ax=axes[2],
     )
-    axes[2].set_xlabel("Shifted boundary count", labelpad=8)
-    axes[2].set_ylabel("Total bp offset (log scale)")
-    axes[2].set_title("Count vs Total bp Offset", pad=10)
     axes[2].set_yscale("log")
-    max_scatter_count = int(df_scatter["count"].max())
-    axes[2].set_xticks(np.arange(1, max_scatter_count + 1, 1))
+    axes[2].set_xlabel("Boundary type", labelpad=8)
+    axes[2].set_ylabel("|boundary offset| (bp, log scale)")
+    axes[2].set_title("Internal splice vs terminal (TSS/TES) precision", pad=10)
+    axes[2].legend(title="Method", fontsize=8)
 
     fig.suptitle(
-        f"{class_name} — Boundary Shift Distribution  (BOUNDARY_SHIFT transcripts only)",
+        f"{class_name} — Boundary Shift Distribution  "
+        f"(topology-correct transcripts · n={len(df)} shifted boundaries)",
         fontsize=13,
     )
+
+    _add_pictogram_panel(fig, metadata, logger)
 
     if save_path:
         _save_figure(fig, save_path, logger)
@@ -464,68 +530,6 @@ def plot_per_transcript_soft_exon_metrics(
         f"{class_name} — Per-transcript Soft Exon Metrics",
         fontsize=13,
     )
-
-    _add_pictogram_panel(fig, metadata, logger)
-
-    if save_path:
-        _save_figure(fig, save_path, logger)
-
-    return fig
-
-
-# ---------------------------------------------------------------------------
-# Gap chain metrics grouped bar (kept for backwards compatibility)
-# ---------------------------------------------------------------------------
-
-
-def plot_intron_chain_metrics(
-    df_sc: pd.DataFrame,
-    class_name: str,
-    save_path: Optional[Path] = None,
-    metadata: Optional[PlotMetadata] = None,
-) -> Optional[plt.Figure]:
-    """Grouped bar chart of intron chain precision and recall per method.
-
-    Parameters
-    ----------
-    df_sc : pd.DataFrame
-        Long-format DataFrame filtered to STRUCTURAL_COHERENCE rows.
-    class_name : str
-        Human-readable class name.
-    save_path : Path | None
-        If provided, the figure is saved to this path.
-    metadata : PlotMetadata | None
-        If provided, a pictogram panel is added to the figure.
-
-    Returns
-    -------
-    Figure | None
-    """
-    rows = []
-
-    for _, row in df_sc.iterrows():
-        method = row["method_name"]
-        key = row["metric_key"]
-        val = row["value"]
-
-        if key == "intron_precision" and isinstance(val, dict):
-            rows.append({"method_name": method, "metric": "intron_precision", "value": val.get("mean", 0.0)})
-        elif key == "intron_recall" and isinstance(val, dict):
-            rows.append({"method_name": method, "metric": "intron_recall", "value": val.get("mean", 0.0)})
-
-    if not rows:
-        return None
-
-    plot_df = pd.DataFrame(rows)
-
-    fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-    sns.barplot(data=plot_df, x="metric", y="value", hue="method_name", ax=ax)
-    ax.set_title(f"{class_name} — Intron Chain Metrics")
-    ax.set_xlabel("Metric")
-    ax.set_ylabel("Rate / Ratio")
-    ax.set_ylim(0, 1.05)
-    ax.legend(title="Method", loc="lower right", fontsize=9)
-    fig.tight_layout()
 
     _add_pictogram_panel(fig, metadata, logger)
 

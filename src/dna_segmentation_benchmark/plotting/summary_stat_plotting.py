@@ -374,11 +374,14 @@ def compare_multiple_predictions(
             # Combined precision / recall overview — one figure per measure,
             # reusing plot_ml_metrics_bar (x = metric, hue = method).
             _PR_KEYS = ("intron_chain", "intron_chain_subset", "intron_chain_superset", "exon_chain", "exon_chain_superset", "exon_chain_subset")
+            # These are whole-chain, all-or-nothing rates (fraction of transcripts
+            # whose entire chain matches), NOT per-junction Sn/Sp — the "rate"
+            # wording keeps that distinction explicit.
             _PR_DISPLAY = {
-                "intron_chain": "Exact intron chain",
+                "intron_chain": "Exact intron-chain rate",
                 "intron_chain_subset": "Intron Subset",
                 "intron_chain_superset": "Intron Superset",
-                "exon_chain": "Exact exon chain",
+                "exon_chain": "Exact exon-chain rate",
                 "exon_chain_superset": "Exon Superset",
                 "exon_chain_subset": "Exon Subset",
             }

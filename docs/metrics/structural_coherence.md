@@ -66,12 +66,13 @@ summarises how the predicted transcript structure relates to the ground truth.
 | Class | Description |
 |---|---|
 | `exact` | Identical sets of `(start, end)` coding segments. |
-| `boundary_shift_internal` | Same segment count and outer locus boundaries match, but one or more internal splice-site boundaries differ. |
-| `boundary_shift_terminal` | Same segment count but one or both terminal (gene-locus start/end) boundaries differ. |
+| `boundary_shift_internal` | Same segment count **and** every predicted segment overlaps its positional GT counterpart; outer locus boundaries match, but one or more internal splice-site boundaries differ. |
+| `boundary_shift_terminal` | Same segment count and full pairwise overlap, but one or both terminal (gene-locus start/end) boundaries differ. |
 | `missing_segments` | Every predicted segment exists in GT (pred ⊂ GT) but some GT segments are absent — under-calling. |
 | `extra_segments` | Every GT segment is found in the prediction (GT ⊂ pred) but the prediction adds novel segments — over-calling. |
-| `partial_overlap` | At least one `(start, end)` pair is shared but the sets are neither equal nor in a subset relationship. Captures collapsed or heavily altered structures. |
-| `no_overlap` | No `(start, end)` pair is shared between GT and prediction. |
+| `partial_overlap` | At least one `(start, end)` pair is shared exactly but the sets are neither equal nor in a subset relationship. Captures collapsed or heavily altered structures. |
+| `substitution` | No `(start, end)` pair is shared exactly, yet at least one predicted segment overlaps a GT segment in base coordinates — relocated or substituted exons. |
+| `no_overlap` | No segment is shared exactly **and** no base-coordinate overlap exists between GT and prediction. |
 | `missed` | The prediction contains no segments for this transcript (and GT does have segments). |
 
 If GT itself has no segments of this class the transcript is excluded
@@ -122,31 +123,53 @@ errors.
 
 For transcripts where GT and prediction have the same number of segments (i.e.
 transcripts classified as `boundary_shift_internal` or
-`boundary_shift_terminal`), the benchmark records two per-transcript values:
+`boundary_shift_terminal`), the benchmark records both a per-transcript summary
+and the individual per-boundary offsets:
 
 - `boundary_shift_count` — the number of individual boundary positions
   (segment starts and ends) that differ between GT and prediction.
 - `boundary_shift_total` — the cumulative base-pair offset summed across all
   shifted boundaries in that transcript.
+- `boundary_shift_offsets` — one record per **shifted** boundary, carrying its
+  signed `offset` (`pred − gt` in array coordinates; positive means the edge
+  moved to the right / array-3') and a `position` tag of `internal` (an interior
+  splice junction) or `terminal` (the transcript's outer start/end, i.e.
+  TSS/TES in array orientation).
 
-These are only meaningful when segment counts match; if they differ both values
-are reported as 0 and the transcript is excluded from the distribution plots.
+These are only meaningful when segment counts match; if they differ all three
+are empty/zero and the transcript is excluded from the distribution plots. Note
+the conditioning: this view only describes transcripts whose **chain topology is
+already correct**, so it isolates junction-placement precision from the separate
+question of recovering the right exons. That makes it complementary to — not a
+duplicate of — the global [boundary precision landscape](boundary_exactness.md),
+which pools every overlapping section pair regardless of topology.
 
 ![Boundary shift distribution](../images/boundary_shift_dist.png)
 
 The three sub-panels show:
 
-- **Shifted Boundary Count** — how many boundary positions per transcript are
-  displaced. A value of 1 means only one splice site is off; higher values
-  indicate widespread boundary inaccuracy within an otherwise correctly-counted
-  transcript.
-- **Total Boundary Shift (bp)** — the total nucleotide offset across all
-  shifted boundaries. A transcript with a small count but large total shift has
-  a single severely displaced boundary; a large count with a small total shift
-  has many minor displacements.
-- **Count vs Total bp Offset** (log scale) — the joint distribution, useful for
-  separating methods that produce many small shifts from those that produce few
-  large ones.
+- **Offset ECDF** (log x) — the cumulative distribution of `|offset|` per
+  method, read directly as "fraction of misplaced junctions within *k* bp". The
+  per-method median offset and the percentage of boundaries within ±2 bp are
+  annotated. Because it is a cumulative *fraction*, methods with very different
+  numbers of shifted boundaries remain directly comparable. The dotted line
+  marks the ±2 bp reference.
+- **Signed Offset** density — the signed offset over a robust window
+  (the central ~98 % of the data; the clipped tail fraction is annotated). It
+  exposes the heavy ±1/±2 bp spike typical of off-by-one splice-site errors and
+  any directional bias: a histogram skewed right of zero indicates predicted
+  edges systematically shifted toward array-3'.
+- **Internal vs Terminal** (log y) — `|offset|` split by boundary type.
+  Internal splice junctions are precisely defined (GT–AG dinucleotides) and
+  should be tight; terminal TSS/TES boundaries are inherently fuzzy. Separating
+  them prevents transcript-end uncertainty from masking (or being mistaken for)
+  genuine splice-site imprecision.
+
+> **Strand note.** Offsets use array orientation (lower index = array-5'), not
+> biological strand, so on the minus strand array-5'/3' correspond to the
+> biological 3'/5' ends. A biological donor/acceptor decomposition is therefore
+> deferred until minus-strand arrays are reverse-complemented upstream; the
+> internal/terminal split above is strand-agnostic and unaffected.
 
 ---
 
@@ -209,10 +232,86 @@ additional ones (high hallucination count).
 
 ---
 
+## Splice-Site Junctions
+
+The chain and boundary-shift metrics above treat each intron junction as a
+single boundary pair. The splice-site metrics instead split every junction into
+its two halves — the **donor** (5′ splice site) and the **acceptor** (3′ splice
+site) — and score them independently. This isolates whether a predictor tends to
+place one end of a junction correctly while missing the other.
+
+This block (`splice_site_results`) is only emitted when the label scheme defines
+all three of `intron_label`, `splice_donor_label`, and `splice_acceptor_label`.
+Without them the key is absent and the plots below are skipped.
+
+### Junction pairing
+
+GT junctions are reconstructed by walking the segment chain in order: a valid
+junction is a donor segment, followed by zero or more intron segments, followed
+by an acceptor segment. Each such donor/acceptor pair becomes one scored
+junction. A donor that is never closed by an acceptor, or an acceptor with no
+preceding donor, is *malformed* — counted separately (see below) rather than
+scored.
+
+A predicted donor or acceptor counts as a hit only when it matches the GT
+segment exactly — identical `(start, end)` span. This is the same exact-match
+philosophy as the strict chain score, applied to individual splice sites.
+
+### Donor/acceptor confusion
+
+For every valid GT junction the benchmark records whether each half was
+recovered, yielding a 2×2 outcome:
+
+| Outcome | Donor | Acceptor |
+|---|---|---|
+| `both_correct` | hit | hit |
+| `donor_only` | hit | miss |
+| `acceptor_only` | miss | hit |
+| `neither` | miss | miss |
+
+![Splice-site junction confusion](../images/splice_site_confusion.png)
+
+Mass concentrated in `both_correct` means whole junctions are reproduced; weight
+in `donor_only` or `acceptor_only` exposes a 5′/3′ asymmetry where one splice
+site is systematically harder to place than the other.
+
+### Precision and recall
+
+The two halves are also scored as independent detection problems. Per GT
+junction a recovered donor is a true positive and a missed donor a false
+negative; any predicted donor that does not match the donor of a valid GT
+junction is a false positive (acceptors likewise). Aggregation sums these counts
+across the corpus and derives:
+
+- `donor_precision`, `donor_recall`
+- `acceptor_precision`, `acceptor_recall`
+
+![Splice-site precision & recall](../images/splice_site_pr.png)
+
+Precision penalises hallucinated splice sites; recall penalises missed ones.
+Contrasting donor against acceptor precision/recall surfaces the same 5′/3′
+asymmetry as the confusion view, on a 0–1 scale that stays comparable across
+datasets with different junction counts.
+
+### Malformed junctions
+
+`gt_malformed_junctions` and `pred_malformed_junctions` count donor/acceptor
+labels that never form a valid donor → intron\* → acceptor pairing. GT malformed
+junctions are dropped from the pair list, so they contribute no donor/acceptor
+true positives or false negatives; both counts are reported as data-quality
+diagnostics and emit a warning when non-zero. A persistently high malformed
+count usually points to a label-scheme or post-processing problem rather than a
+biological splicing error.
+
+---
+
 ## Caveats
 
 - `intron_chain` requires intron labels or `infer_introns=True` when introns
   should be inferred from coding gaps.
+- Splice-site junction metrics require `intron_label`, `splice_donor_label`, and
+  `splice_acceptor_label` to all be configured; otherwise no `splice_site_results`
+  are produced.
 - Good Region Discovery scores do not guarantee good Structural Coherence. A
   model can recover many individual sections while still assembling the wrong
   transcript chain.

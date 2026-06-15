@@ -39,6 +39,14 @@ class Segment:
         """Number of positions spanned by this segment."""
         return self.end - self.start + 1
 
+    def overlaps(self, other: "Segment") -> bool:
+        """True if this segment shares at least one base with *other*.
+
+        Coordinates are inclusive, so segments touching end-to-end without a
+        shared position (e.g. ``(0, 9)`` and ``(10, 19)``) do **not** overlap.
+        """
+        return min(self.end, other.end) >= max(self.start, other.start)
+
 
 @dataclasses.dataclass(frozen=True)
 class ExtractedStructure:

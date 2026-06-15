@@ -173,14 +173,20 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     # --- Structural Coherence ---
     "boundary_shift_distribution": PlotMetadata(
         display_name="Boundary Shift Distribution",
-        description="Distribution of splice-site boundary errors among transcripts where "
-        "GT and pred have the same segment count but ≥1 boundary position differs.",
+        description="Per-boundary offset distributions for transcripts where GT and pred "
+        "share the same segment count (correct chain topology) but ≥1 boundary position "
+        "differs. Conditioned on getting the exon count right, it asks how precisely each "
+        "individual junction is placed — complementary to the global boundary-precision "
+        "landscape, not a duplicate.",
         bullet_points=(
-            "Left: number of shifted boundary positions per transcript",
-            "Middle: total absolute bp offset summed across shifted positions",
-            "Right: scatter — count vs total bp offset per transcript",
+            "Left: ECDF of |offset| per method — fraction of misplaced junctions within k bp",
+            "Middle: signed offset density — directional (5'/3') bias and the ±1/±2 bp spike",
+            "Right: |offset| split by internal splice junction vs terminal TSS/TES",
         ),
-        caveat="Only transcripts with at least one shifted boundary (count > 0) are included.",
+        caveat="Only shifted boundaries (offset ≠ 0) from equal-segment-count transcripts are "
+        "included, so the distribution is conditional shift magnitude, not recall. Offsets use "
+        "array orientation (array-3' positive) and are not strand-resolved; a donor/acceptor "
+        "split is deferred until minus-strand arrays are reverse-complemented upstream.",
     ),
     "ts_level_precision": PlotMetadata(
         display_name="Transcript-Level Precision metrics",
@@ -212,15 +218,18 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     ),
     "transcript_match": PlotMetadata(
         display_name="Transcript Match Classification",
-        description="Holistic structural classification of each (GT, prediction) pair into 8 granular categories.",
+        description="Holistic structural classification of each (GT, prediction) pair into 9 granular categories, "
+        "ordered best→worst (the same order drives the green→red stacked bar).",
         bullet_points=(
             "exact: identical exon sets",
-            "boundary_shift_internal: same count, splice-site boundaries differ but gene locus span matches",
-            "boundary_shift_terminal: same count, terminal transcript boundaries also differ",
+            "boundary_shift_internal: same count with every exon overlapping its counterpart; "
+            "splice-site boundaries differ but the gene locus span matches",
+            "boundary_shift_terminal: same count and full pairwise overlap, but terminal transcript boundaries differ",
             "missing_segments: pred ⊂ GT (all pred exons are real, some GT exons absent)",
             "extra_segments: GT ⊂ pred (all GT exons found, pred has novel extras)",
-            "partial_overlap: some exon (start,end) pairs shared, not a clean subset/superset",
-            "no_overlap: no (start,end) pairs in common",
+            "partial_overlap: ≥1 exon (start,end) shared exactly, not a clean subset/superset",
+            "substitution: no exon shared exactly, but exons overlap in bases (relocated/substituted exons)",
+            "no_overlap: no shared exon and no base overlap at all",
             "missed: no prediction for this class",
         ),
     ),
