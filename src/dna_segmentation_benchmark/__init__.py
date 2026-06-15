@@ -9,6 +9,9 @@ Public API
 .. autofunction:: benchmark_gt_vs_pred_single
 .. autofunction:: benchmark_gt_vs_pred_multiple
 .. autofunction:: benchmark_from_gff
+.. autofunction:: load_dataset
+.. autofunction:: list_datasets
+.. autofunction:: get_dataset_info
 .. autofunction:: compare_multiple_predictions
 .. autofunction:: log_benchmark_scalars
 .. autofunction:: log_benchmark_all_scalars
@@ -40,6 +43,12 @@ from .wandb_logger import (
 )
 from .pipeline import benchmark_from_gff
 from .transcript_mapping import LocusMatchingMode
+from .datasets import (
+    LoadedDataset,
+    get_dataset_info,
+    list_datasets,
+    load_dataset,
+)
 
 __all__ = [
     "LabelConfig",
@@ -51,6 +60,10 @@ __all__ = [
     "benchmark_gt_vs_pred_single",
     "benchmark_gt_vs_pred_multiple",
     "benchmark_from_gff",
+    "load_dataset",
+    "list_datasets",
+    "get_dataset_info",
+    "LoadedDataset",
     "compare_multiple_predictions",
     "clear_benchmark_media_video_buffer",
     "log_benchmark_scalars",

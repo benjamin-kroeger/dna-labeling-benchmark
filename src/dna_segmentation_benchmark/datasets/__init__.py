@@ -4,12 +4,12 @@ Examples
 --------
 >>> from dna_segmentation_benchmark.datasets import load_dataset, list_datasets
 >>> list_datasets()
-['toy_ecoli', 'gencode_v49_chr22']
->>> ds = load_dataset("toy_ecoli")
->>> ds.fasta, ds.gtf  # doctest: +SKIP
-(PosixPath('.../sequence.fa'), PosixPath('.../annotation.gtf'))
+['zenodo_test']
+>>> ds = load_dataset("zenodo_test")
+>>> ds.fasta, ds.annotation  # doctest: +SKIP
+(PosixPath('.../zenodo_test.fasta'), PosixPath('.../zenodo_test.gff3'))
 
-Datasets are pinned to a Hugging Face Hub commit SHA in ``registry.yaml``;
+Datasets are pinned to an immutable Zenodo record id in ``registry.yaml``;
 files are downloaded on first use, sha256-verified, and cached under
 ``$DNASB_DATA_HOME`` (default: platform user cache).
 """

@@ -160,7 +160,7 @@ selected as follows:
    defaults to `_INFER_INTRONS_LARGE_GAP_RATIO` × the median of the
    lower half of gap lengths (`20×` by default).
 
-These constants live at the top of `eval/evaluate_predictors.py` and
+These constants live at the top of `eval/preprocessing.py` and
 are not currently part of the public API. If you need different
 behaviour, edit them in source or filter intron labels in advance.
 
@@ -171,9 +171,9 @@ Common combinations:
 - fast training/validation: `REGION_DISCOVERY`, `BOUNDARY_EXACTNESS`,
   `STRUCTURAL_COHERENCE`
 - full structural analysis: add `INDEL`, `NUCLEOTIDE_CLASSIFICATION`,
-  `FRAMESHIFT`
+  `PHASE_DRIFT`
 
-`FRAMESHIFT` is only valid in `UTR_CDS_INTRON` mode with
+`PHASE_DRIFT` is only valid in `UTR_CDS_INTRON` mode with
 `evaluation_scope=BenchmarkScope.CDS`; requesting it in any other configuration
 raises an error. Even then it should only be used on transcript-level inputs
 where the full CDS is present, because GT coding positions must form complete

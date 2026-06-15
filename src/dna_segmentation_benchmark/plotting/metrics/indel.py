@@ -300,7 +300,7 @@ def plot_indel_rates_by_boundary(
     Each cell is ``events ÷ opportunities`` (boundary-anchored events by GT
     junctions of that type; split/join/whole-deletions by GT segment count;
     whole-insertions by predicted segment count).  Colour = rate (shared linear
-scale); the cell annotation is the rate value.  Cells with no opportunity
+    scale); the cell annotation is the rate value.  Cells with no opportunity
     or zero events are masked grey.
     """
     boundaries = _present_boundaries(all_indel_data)

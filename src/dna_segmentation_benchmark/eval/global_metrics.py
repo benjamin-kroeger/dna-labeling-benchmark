@@ -293,6 +293,7 @@ def _compute_global_exon_lenient_metrics(
     not required to match.  Only internal splice-site boundaries must be exact.
 
     Concretely:
+
     * **First exon** per transcript (lowest start): only the 3' boundary
       (splice-donor position, ``end``) is required to match.
     * **Last exon** per transcript (highest end): only the 5' boundary

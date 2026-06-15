@@ -1,48 +1,36 @@
 # Benchmark dataset registry.
 #
-# Each entry resolves to a (FASTA, GTF) pair plus optional ground-truth
-# labels. Remote entries are pinned to a Hugging Face Hub *commit SHA* so
-# results stay reproducible across registry edits. To add a new dataset:
+# Each entry resolves to a (FASTA, annotation) pair plus optional ground-truth
+# labels, hosted in a Zenodo record. A published Zenodo record is immutable, so
+# pinning the record_id pins the exact bytes — reproducible by construction. To
+# add a new dataset:
 #
-#   1. Upload files to the HF dataset repo (gzip large FASTAs).
-#   2. Take note of the commit SHA after the upload commit.
-#   3. Compute sha256 of each *uploaded* (compressed) file:
-#        sha256sum chr22/sequence.fa.gz
+#   1. Upload the files to a Zenodo record and publish it (gzip large FASTAs).
+#      Host the annotation as GFF3 (not GTF) so it carries distinct
+#      five_prime_UTR / three_prime_UTR features and can drive UTR_CDS_INTRON
+#      mode as well as EXON_INTRON.
+#   2. Note the record id from the published record URL
+#      (https://zenodo.org/records/<record_id>).
+#   3. Record the digest of each file's *decompressed content* in `checksum` as
+#      "<alg>:<hex>" (e.g. sha256). gzip is non-deterministic, so hash the
+#      uncompressed data, not the .gz blob:
+#        gzip -dc sequence.fa.gz | sha256sum
+#      For an uncompressed upload this equals the MD5 Zenodo shows for the file.
 #   4. Add an entry below.
+#
+# To test against a throwaway upload, publish to https://sandbox.zenodo.org and
+# add ``sandbox: true`` to the entry — the loader then resolves the record from
+# sandbox.zenodo.org instead of zenodo.org.
 
 datasets:
 
-  toy:
-    description: >
-      Tiny synthetic locus shipped in-package for tests and tutorials. No
-      network required. Not biologically meaningful.
-    builtin: true
+  zenodo_test:
+    description: Tiny smoke-test dataset for the Zenodo download path.
+    record_id: "512849"
+    sandbox: true
     fasta:
-      remote_path: toy.fa
-      sha256: ""        # unused for builtin
-      local_name: toy.fa
-    gtf:
-      remote_path: toy.gtf
-      sha256: ""
-      local_name: toy.gtf
-    license: CC0-1.0
-
-  # ---- Example remote entry — fill in repo_id, revision, and sha256s. ----
-  #
-  # gencode_v49_chr22:
-  #   description: GRCh38 chr22 + GENCODE v49 basic annotation, single-chrom subset.
-  #   repo_id: <hf-user>/dnasb-data
-  #   revision: <40-char-commit-sha>
-  #   assembly: GRCh38
-  #   license: GENCODE / Ensembl terms
-  #   citation: "Frankish et al., NAR 2021 (10.1093/nar/gkaa1087)"
-  #   fasta:
-  #     remote_path: gencode_v49_chr22/sequence.fa.gz
-  #     sha256: <sha256-of-the-.fa.gz>
-  #   gtf:
-  #     remote_path: gencode_v49_chr22/annotation.gtf.gz
-  #     sha256: <sha256-of-the-.gtf.gz>
-  #   labels:
-  #     remote_path: gencode_v49_chr22/ground_truth.npz
-  #     sha256: <sha256-of-the-.npz>
-  #     decompress: false
+      filename: zenodo_test.fasta
+      checksum: md5:1094bb8f038ee6f5c54bf2b209f52173
+    annotation:
+      filename: zenodo_test.gff3
+      checksum: md5:156796a5705c5d8b98124e09500b040f

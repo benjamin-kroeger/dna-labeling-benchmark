@@ -14,10 +14,14 @@ Both entry points are anchored to an explicit **annotation mode**
 explains what the positive labels mean, how evaluation scopes work, and which
 metrics each mode unlocks.
 
+Ready-made reference datasets can be downloaded on demand from the registry —
+see {doc}`datasets`.
+
 ```{toctree}
 :titlesonly:
 
 annotation_modes
+datasets
 array_benchmark
 wandb_logging
 method_comparison

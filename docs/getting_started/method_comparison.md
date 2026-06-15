@@ -56,10 +56,10 @@ figures = compare_multiple_predictions(
 
 - raw outputs from {py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple`
 - pipeline outputs from {py:func}`dna_segmentation_benchmark.benchmark_from_gff`
-  where each method result is wrapped as `{"per_transcript": ..., "global": ...}`
+  where each method result is wrapped as `{"aggregated": ..., "global": ...}`
 
 For the second case, the plotting code automatically unwraps the
-`per_transcript` section.
+`aggregated` section.
 
 ## Example Output
 

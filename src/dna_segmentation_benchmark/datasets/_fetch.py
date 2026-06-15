@@ -1,14 +1,16 @@
-"""Pooch-backed downloader for benchmark datasets.
+"""Downloader for benchmark datasets hosted on Zenodo.
 
-Each dataset gets its own pooch instance under
-``$DNASB_DATA_HOME`` (or platform-default cache via ``appdirs``). Files are
-fetched from Hugging Face Hub via SHA-pinned ``resolve/<commit>`` URLs,
-verified by sha256, and gunzipped on demand.
+Each dataset is cached under ``$DNASB_DATA_HOME`` (or the platform-default cache
+via ``appdirs``) and fetched from a Zenodo record's immutable file-content URLs.
+Integrity is checked against the **decompressed content** digest recorded in the
+registry: gzip is non-deterministic, so a compressed blob's digest is not a
+stable identity for the biological data.
 """
 
 from __future__ import annotations
 
 import gzip
+import hashlib
 import os
 import shutil
 from dataclasses import dataclass
@@ -16,7 +18,7 @@ from pathlib import Path
 
 import pooch
 
-from ._registry import DatasetSpec, FileSpec
+from ._registry import DatasetSpec
 
 
 @dataclass(frozen=True)
@@ -25,13 +27,13 @@ class LoadedDataset:
 
     name: str
     fasta: Path
-    gtf: Path
+    annotation: Path
     labels: Path | None
     spec: DatasetSpec
 
     def as_tuple(self) -> tuple[Path, Path]:
-        """Convenience: ``(fasta, gtf)`` for tools that take exactly those two."""
-        return self.fasta, self.gtf
+        """Convenience: ``(fasta, annotation)`` for tools that take exactly those two."""
+        return self.fasta, self.annotation
 
 
 def _cache_root() -> Path:
@@ -39,12 +41,6 @@ def _cache_root() -> Path:
     if env:
         return Path(env).expanduser()
     return Path(pooch.os_cache("dna-segmentation-benchmark"))
-
-
-def _builtin_dir() -> Path:
-    from importlib import resources
-
-    return Path(str(resources.files("dna_segmentation_benchmark.datasets") / "builtin"))
 
 
 class _Gunzip:
@@ -66,49 +62,68 @@ class _Gunzip:
         return str(out)
 
 
-def _build_pooch(spec: DatasetSpec) -> pooch.Pooch:
-    base_url = spec.hf_base_url()
-    registry: dict[str, str] = {}
-    for _role, fs in spec.files():
-        registry[fs.remote_path] = f"sha256:{fs.sha256}"
-    return pooch.create(
-        path=_cache_root() / spec.name,
-        base_url=base_url + "/",
-        registry=registry,
-        env="DNASB_DATA_HOME",
-    )
+def _hash_file(path: Path, algorithm: str) -> str:
+    h = hashlib.new(algorithm)
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
-def _resolve_builtin(spec: DatasetSpec, fs: FileSpec) -> Path:
-    p = _builtin_dir() / fs.local_name
-    if not p.exists():
-        raise FileNotFoundError(f"builtin file missing for {spec.name!r}: {p}")
-    return p
+def _verify_checksum(path: Path, checksum: str) -> None:
+    """Verify *path* against a ``"<algorithm>:<hex>"`` checksum string."""
+    if not checksum:
+        return  # no checksum recorded (e.g. local sandbox testing)
+    algorithm, _, expected = checksum.partition(":")
+    if not expected:  # bare digest → assume sha256
+        algorithm, expected = "sha256", checksum
+    actual = _hash_file(path, algorithm)
+    if actual.lower() != expected.lower():
+        raise ValueError(
+            f"checksum mismatch for {path.name}: expected {algorithm}:{expected}, got {algorithm}:{actual}"
+        )
 
 
 def fetch(spec: DatasetSpec) -> LoadedDataset:
     """Download (or reuse cached) dataset files and return resolved paths."""
-    if spec.builtin:
-        labels = _resolve_builtin(spec, spec.labels) if spec.labels else None
-        return LoadedDataset(
-            name=spec.name,
-            fasta=_resolve_builtin(spec, spec.fasta),
-            gtf=_resolve_builtin(spec, spec.gtf),
-            labels=labels,
-            spec=spec,
-        )
-
-    pup = _build_pooch(spec)
+    base_url = spec.zenodo_base_url()
+    cache = _cache_root() / spec.name
     paths: dict[str, Path] = {}
     for role, fs in spec.files():
-        processor = _Gunzip(fs.local_name) if fs.decompress else None
-        local = pup.fetch(fs.remote_path, processor=processor, progressbar=True)
-        paths[role] = Path(local)
+        url = f"{base_url}/{fs.filename}/content"
+        if fs.decompress:
+            # gzip is non-deterministic, so the recorded digest is of the
+            # decompressed content: let pooch fetch the blob unverified, then
+            # check the decompressed file ourselves.
+            local = Path(
+                pooch.retrieve(
+                    url=url,
+                    known_hash=None,
+                    fname=fs.filename,
+                    path=cache,
+                    processor=_Gunzip(fs.local_name),
+                    progressbar=True,
+                )
+            )
+            _verify_checksum(local, fs.checksum)
+        else:
+            # Stored uncompressed: the downloaded bytes are the content, so the
+            # recorded digest is pooch's known_hash directly.
+            local = Path(
+                pooch.retrieve(
+                    url=url,
+                    known_hash=fs.checksum or None,
+                    fname=fs.local_name,
+                    path=cache,
+                    progressbar=True,
+                )
+            )
+        paths[role] = local
 
     return LoadedDataset(
         name=spec.name,
         fasta=paths["fasta"],
-        gtf=paths["gtf"],
+        annotation=paths["annotation"],
         labels=paths.get("labels"),
         spec=spec,
     )

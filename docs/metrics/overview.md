@@ -11,14 +11,14 @@ The public entry points are:
 
 | Family | Enum | Main question | Key outputs |
 |---|---|---|---|
-| Region Discovery | `REGION_DISCOVERY` | Did the prediction find the right sections? | Precision / recall at four overlap strictness levels (neighborhood, internal, full-coverage, perfect-boundary) |
+| Region Discovery | `REGION_DISCOVERY` | Did the prediction find the right sections? | Precision / recall at two detection tiers (neighborhood, perfect-boundary) plus conditional containment rates (internal, full-coverage) |
 | Boundary Exactness | `BOUNDARY_EXACTNESS` | How accurate are the matched boundaries? | IoU distribution, boundary-residual bias/reliability landscape, terminal-boundary flags |
 | Nucleotide Classification | `NUCLEOTIDE_CLASSIFICATION` | How well does coding vs non-coding separate per base? | Precision / recall / F1 from the nucleotide confusion matrix |
 | Structural Coherence | `STRUCTURAL_COHERENCE` | Is the transcript chain correct as a whole? | Intron/exon chain P/R (strict, subset, superset), transcript match classes, boundary shift distribution, segment count delta, soft exon recall and hallucinated-exon count |
 | Diagnostic Depth | `DIAGNOSTIC_DEPTH` | Where and how severely does the prediction fail structurally? | Segment-length EMD, 100-bin position bias histogram over the coding span |
 | Transition Analysis | *always on* — no enum | Where do label changes fail or appear spuriously? | GT transition confusion matrices, false-transition counts (premature, late, spurious) |
 | INDEL | `INDEL` | What structural mismatch types occur? | Categorised mismatch groups (5′/3′ extensions, whole insertions/deletions, splits, joins) |
-| Frameshift | `FRAMESHIFT` | Is coding frame preserved where GT and prediction overlap? | Per-position reading-frame deviation |
+| Phase Drift | `PHASE_DRIFT` | Does the prediction stay in step by coding-base count where GT and prediction overlap? | Per-position coding-phase drift (modulo 3) |
 
 ### A note on "always available"
 
@@ -45,4 +45,4 @@ online scalar set deliberately small:
 - Region Discovery precision/recall
 - Boundary Exactness IoU mean
 - Structural Coherence intron-chain precision/recall
-- Structural Coherence transcript-exact precision/recall
+- Structural Coherence transcript exact-match rate

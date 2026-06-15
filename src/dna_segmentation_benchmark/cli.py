@@ -298,9 +298,20 @@ def cli():
 @click.option(
     "--gt",
     "gt_path",
-    required=True,
+    required=False,
+    default=None,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to ground-truth annotations (.gff3 or .gtf file).",
+    help="Path to ground-truth annotations (.gff3 or .gtf file). Omit when using --dataset.",
+)
+@click.option(
+    "--dataset",
+    "dataset",
+    type=str,
+    default=None,
+    help=(
+        "Registry dataset name to use as ground truth (downloaded on demand). "
+        "Mutually exclusive with --gt; see 'dna-benchmark datasets list'."
+    ),
 )
 @click.option(
     "--pred",
@@ -430,7 +441,8 @@ def cli():
     ),
 )
 def run(
-    gt_path: Path,
+    gt_path: Path | None,
+    dataset: str | None,
     pred_specs: tuple[str, ...],
     config_path: Path,
     exclude_features: tuple[str, ...],
@@ -453,6 +465,21 @@ def run(
         export_mapping_table,
         map_transcripts,
     )
+
+    # ------------------------------------------------------------------
+    # 0. Resolve ground truth: an explicit --gt path or a registry --dataset.
+    # ------------------------------------------------------------------
+    if dataset:
+        if gt_path is not None:
+            raise click.BadParameter("Pass either --gt or --dataset, not both.", param_hint="--dataset")
+        from .datasets import load_dataset
+
+        loaded = load_dataset(dataset)
+        gt_path = loaded.annotation
+        click.echo(f"Dataset '{dataset}': using GT annotation {gt_path}")
+    elif gt_path is None:
+        raise click.BadParameter("Provide ground truth via --gt PATH or --dataset NAME.", param_hint="--gt")
+
     # ------------------------------------------------------------------
     # 1. Parse inputs
     # ------------------------------------------------------------------
@@ -724,3 +751,72 @@ def init_config(mode: str, output_path: Path):
     output_path.write_text(content)
     click.echo(f"Template config ({template['annotation_mode']}) written to {output_path}")
     click.echo("Edit the file to match your label set, then use: dna-benchmark run --config " + str(output_path))
+
+
+# ------------------------------------------------------------------
+# `datasets` command group
+# ------------------------------------------------------------------
+
+
+@cli.group()
+def datasets():
+    """List, inspect, and download benchmark datasets from the registry."""
+
+
+@datasets.command("list")
+def datasets_list():
+    """List all datasets available in the registry."""
+    from .datasets import get_dataset_info, list_datasets
+
+    names = list_datasets()
+    if not names:
+        click.echo("No datasets registered.")
+        return
+    for name in names:
+        spec = get_dataset_info(name)
+        summary = (spec.description.strip().splitlines() or [""])[0]
+        click.echo(f"{name}\t{summary}")
+
+
+@datasets.command("info")
+@click.argument("name")
+def datasets_info(name: str):
+    """Show details for one dataset without downloading it."""
+    from .datasets import get_dataset_info
+
+    try:
+        spec = get_dataset_info(name)
+    except KeyError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"name:        {spec.name}")
+    click.echo(f"description: {spec.description.strip()}")
+    host = "sandbox.zenodo.org" if spec.sandbox else "zenodo.org"
+    click.echo(f"record:      {spec.record_id} ({host})")
+    if spec.assembly:
+        click.echo(f"assembly:    {spec.assembly}")
+    if spec.license:
+        click.echo(f"license:     {spec.license}")
+    if spec.citation:
+        click.echo(f"citation:    {spec.citation}")
+    click.echo(f"fasta:       {spec.fasta.filename} ({spec.fasta.checksum})")
+    click.echo(f"annotation:  {spec.annotation.filename} ({spec.annotation.checksum})")
+    if spec.labels:
+        click.echo(f"labels:      {spec.labels.filename} ({spec.labels.checksum})")
+
+
+@datasets.command("get")
+@click.argument("name")
+def datasets_get(name: str):
+    """Download (or reuse cached) a dataset and print resolved file paths."""
+    from .datasets import load_dataset
+
+    try:
+        ds = load_dataset(name)
+    except KeyError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"fasta:      {ds.fasta}")
+    click.echo(f"annotation: {ds.annotation}")
+    if ds.labels:
+        click.echo(f"labels:     {ds.labels}")
