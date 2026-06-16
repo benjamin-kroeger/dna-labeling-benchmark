@@ -7,7 +7,7 @@ transcript-level structure as the ground truth.
 
 ---
 
-## Intron/Exon Chain Precision and Recall
+## Intron/Exon Chain Match Rate
 
 Chain metrics measure whether the complete set of intron or exon boundaries in
 a predicted transcript matches the ground truth. For each chain type the
@@ -31,6 +31,27 @@ Aggregation converts those raw counts into corpus-level precision and
 recall (micro-averaged: counts are summed across sequences before the
 ratio is taken).
 
+### Why a single rate (precision = recall = F1)
+
+Because a chain mismatch is booked as **both** a false positive and a false
+negative, every transcript contributes either `tp=1` (exact match) or
+`fp=1, fn=1` (anything else). Summed across the corpus this forces `FP == FN`
+exactly, so:
+
+- precision `= TP / (TP + FP)` and recall `= TP / (TP + FN)` come out identical,
+  and
+- the bootstrap resamples `FP` and `FN` with the same indices, so even their
+  standard errors coincide.
+
+Precision and recall therefore carry no independent information for these
+all-or-nothing tiers — they are the same number (and equal to F1). Reporting
+them as two separate plots produced the same figure twice, so the benchmark
+collapses them into a single per-tier **match rate**. The precision-vs-recall
+question you actually care about is answered by the tiers themselves:
+`{chain}_subset` is the precision-flavoured view (penalises hallucinated
+boundaries) and `{chain}_superset` is the recall-flavoured view (penalises
+missed boundaries).
+
 ### Empty-prediction handling
 
 The subset and superset variants treat the empty prediction case
@@ -51,8 +72,7 @@ enable intron inference at the public entry points (e.g. pass
 `infer_introns=True` to `benchmark_gt_vs_pred_single` /
 `benchmark_gt_vs_pred_multiple`).
 
-![Intron/exon chain recall](../images/transcript_pr_overview_recall.png)
-![Intron/exon chain precision](../images/transcript_pr_overview_precision.png)
+![Intron/exon chain match rate](../images/transcript_match_rate.png)
 
 ---
 
@@ -144,16 +164,35 @@ question of recovering the right exons. That makes it complementary to — not a
 duplicate of — the global [boundary precision landscape](boundary_exactness.md),
 which pools every overlapping section pair regardless of topology.
 
+> **Read eligibility before precision.** Because the distribution is
+> conditioned on topology-correct transcripts *and* only records boundaries
+> that actually differ (exact, offset-0 junctions are dropped), a method that
+> recovers correct topology for only a handful of easy transcripts can still
+> show a tight, flattering offset distribution. The offset panels therefore say
+> nothing about *how many* transcripts a method got right. To stop this being
+> misread, the figure carries the denominator alongside the offsets: a
+> leftmost transcript-match classification bar, and a per-method **eligibility**
+> caption (the share of GT transcripts the panels are conditioned on, flagged
+> ⚠ when below 25 %). Always read those together with the boxes — and consult
+> the unconditional splice-site precision/recall and confusion plots for the
+> full-recall picture.
+
 ![Boundary shift distribution](../images/boundary_shift_dist.png)
 
-The three sub-panels show:
+The four panels show:
 
+- **Transcript match classes** (leftmost) — the severity-graded
+  classification stacked bar (see above), repeated here as the *denominator*
+  for the offset panels. The eligible (topology-correct) classes `exact` /
+  `boundary_shift_internal` / `boundary_shift_terminal` are what the remaining
+  panels are conditioned on.
 - **Offset ECDF** (log x) — the cumulative distribution of `|offset|` per
-  method, read directly as "fraction of misplaced junctions within *k* bp". The
-  per-method median offset and the percentage of boundaries within ±2 bp are
-  annotated. Because it is a cumulative *fraction*, methods with very different
-  numbers of shifted boundaries remain directly comparable. The dotted line
-  marks the ±2 bp reference.
+  method, read as "fraction of *shifted* junctions within *k* bp". The
+  per-method median offset and the percentage of shifted boundaries within
+  ±2 bp are annotated (exact junctions are excluded upstream, so this is not an
+  overall junction-accuracy rate). Because it is a cumulative *fraction*,
+  methods with very different numbers of shifted boundaries remain directly
+  comparable. The dotted line marks the ±2 bp reference.
 - **Signed Offset** density — the signed offset over a robust window
   (the central ~98 % of the data; the clipped tail fraction is annotated). It
   exposes the heavy ±1/±2 bp spike typical of off-by-one splice-site errors and
@@ -163,7 +202,9 @@ The three sub-panels show:
   Internal splice junctions are precisely defined (GT–AG dinucleotides) and
   should be tight; terminal TSS/TES boundaries are inherently fuzzy. Separating
   them prevents transcript-end uncertainty from masking (or being mistaken for)
-  genuine splice-site imprecision.
+  genuine splice-site imprecision. This panel is overlaid with the per-method
+  **eligibility** caption (topology-correct share, ⚠ below 25 %) so the boxes
+  are always read against the size of the population they summarise.
 
 > **Strand note.** Offsets use array orientation (lower index = array-5'), not
 > biological strand, so on the minus strand array-5'/3' correspond to the

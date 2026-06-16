@@ -34,6 +34,10 @@ class PlotMetadata:
     ----------
     icon_path : Path | Traversable | None
         Path to a PNG icon.  ``None`` means no icon yet.
+    secondary_icon_path : Path | Traversable | None
+        Optional second PNG icon.  When set, it is rendered beside
+        ``icon_path`` (used by plots that compare two spatial relations,
+        e.g. containment's internal vs. full-coverage pictograms).
     description : str
         Short paragraph explaining what the plot shows.
     bullet_points : tuple[str, ...] | None
@@ -50,6 +54,7 @@ class PlotMetadata:
     """
 
     icon_path: Path | Traversable | None = None
+    secondary_icon_path: Path | Traversable | None = None
     description: str = ""
     bullet_points: tuple[str, ...] | None = None
     caveat: str | None = None
@@ -118,11 +123,19 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     "containment": PlotMetadata(
         display_name="Containment Rates (among matched pairs)",
         icon_path=ICON_PATH / "internal.png",
-        description="Among neighborhood-matched pairs, what fraction meet stricter spatial criteria? "
-        "These are conditional rates over matched pairs, NOT precision/recall. "
-        "Denominator = neighborhood_hit TP. "
-        "internal_rate: prediction is entirely inside the GT boundary. "
-        "full_coverage_rate: prediction fully covers the GT boundary.",
+        secondary_icon_path=ICON_PATH / "full_coverage.png",
+        description="Among neighborhood-matched (GT, prediction) pairs, what fraction meet a "
+        "stricter spatial relation? Conditional rates over matched pairs (denominator = "
+        "neighborhood_hit TP count), NOT precision/recall.",
+        bullet_points=(
+            "internal_rate (top icon): predicted section lies fully within its matched GT "
+            "(pred ⊆ GT) — a nested / under-extended call.",
+            "full_coverage_rate (bottom icon): predicted section fully spans its matched GT "
+            "(pred ⊇ GT) — an enveloping / over-extended call.",
+            "Exact-boundary pairs count in neither rate (captured by perfect_boundary_hit); "
+            "a pair satisfies one or neither.",
+            "Error bars: bootstrap standard error over sequences.",
+        ),
         show_tp_tn_fp_fn=False,
     ),
     "perfect_boundary_hit": PlotMetadata(
@@ -155,80 +168,66 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Right: cumulative recall surface across increasing total tolerance budgets on both boundaries",
         ),
     ),
-    # Coding-phase drift (formerly "frameshift")
-    "frameshift": PlotMetadata(
+    # Coding-phase drift
+    "phase_drift": PlotMetadata(
         display_name="Coding-Phase Drift",
-        description="Relative coding-phase drift (mod 3) between GT and predicted CDS at each co-CDS position. "
-        "A value of 0 means the two annotations are in lockstep by CDS-base count; "
-        "1 or 2 means one annotation is ahead by that many bases at that position. "
-        "This is a structural comparison signal, not an absolute reading-frame computation.",
+        description="Relative coding-phase drift (mod 3) between GT and predicted CDS at each "
+        "co-CDS position. 0 means lockstep by CDS-base count; 1 or 2 means one annotation is "
+        "ahead by that many bases. A structural comparison signal, not an absolute reading frame.",
         bullet_points=(
             "In-phase (0): pred and GT CDS-base counts agree mod 3 at this position",
             "Offset +1 / +2: one annotation is 1 or 2 bases ahead of the other",
-            "Boundary indels in-frame: boundary indels whose length ≡ 0 (mod 3) — a direct frame-breaking signal",
+            "Boundary indels in-frame: boundary indels whose length ≡ 0 (mod 3) — frame-breaking",
         ),
-        caveat="Requires complete, in-frame CDS-only masks. Sequences with GT CDS length not divisible by 3 "
-        "are excluded and reported as n_skipped_non_divisible. Only valid in UTR_CDS_INTRON mode.",
+        caveat="Requires complete, in-frame CDS-only masks. Sequences with GT CDS length not "
+        "divisible by 3 are excluded (n_skipped_non_divisible). UTR_CDS_INTRON mode only.",
     ),
     # --- Structural Coherence ---
     "boundary_shift_distribution": PlotMetadata(
         display_name="Boundary Shift Distribution",
-        description="Per-boundary offset distributions for transcripts where GT and pred "
-        "share the same segment count (correct chain topology) but ≥1 boundary position "
-        "differs. Conditioned on getting the exon count right, it asks how precisely each "
-        "individual junction is placed — complementary to the global boundary-precision "
-        "landscape, not a duplicate.",
+        description="Per-boundary offset distributions for transcripts with correct chain "
+        "topology (same segment count) but ≥1 shifted boundary. Given the exon count is right, "
+        "how precisely is each junction placed? Complementary to the global boundary-precision "
+        "landscape.",
         bullet_points=(
             "Left: ECDF of |offset| per method — fraction of misplaced junctions within k bp",
             "Middle: signed offset density — directional (5'/3') bias and the ±1/±2 bp spike",
             "Right: |offset| split by internal splice junction vs terminal TSS/TES",
         ),
-        caveat="Only shifted boundaries (offset ≠ 0) from equal-segment-count transcripts are "
-        "included, so the distribution is conditional shift magnitude, not recall. Offsets use "
-        "array orientation (array-3' positive) and are not strand-resolved; a donor/acceptor "
-        "split is deferred until minus-strand arrays are reverse-complemented upstream.",
+        caveat="Only shifted boundaries (offset ≠ 0) from equal-count transcripts — conditional "
+        "shift magnitude, not recall. Offsets are array-oriented (array-3' positive), not "
+        "strand-resolved.",
     ),
-    "ts_level_precision": PlotMetadata(
-        display_name="Transcript-Level Precision metrics",
-        description="Precision across transcript-level structural match tiers.",
+    "ts_level_match_rate": PlotMetadata(
+        display_name="Transcript-Level Match Rate",
+        description="Per-tier rate at which a predicted transcript's full chain (its ordered "
+        "set of intron/exon boundaries) matches GT. Each tier is all-or-nothing — the fraction "
+        "of transcripts whose ENTIRE chain satisfies it. A chain mismatch is booked as both FP "
+        "and FN, so precision = recall = F1; the precision-vs-recall contrast is carried by the "
+        "subset vs superset tiers instead.",
         bullet_points=(
-            "Exact intron chain: all intron boundaries match exactly",
-            "Intron Subset: all predicted introns are real (pred ⊆ GT)",
-            "Intron Superset: all GT introns recovered (pred ⊇ GT)",
-            "Exact exon chain: all exon boundaries match exactly",
+            "Exact intron-chain rate: entire intron boundary chain matches GT exactly",
+            "Intron Subset: all predicted introns are real (pred ⊆ GT) — precision-flavoured",
+            "Intron Superset: all GT introns recovered (pred ⊇ GT) — recall-flavoured",
+            "Exact exon-chain rate: entire exon boundary chain matches GT exactly",
             "Exon Subset / Superset: analogous set semantics for exons",
-            "Intron boundaries: DONOR.start → ACCEPTOR.end when splice-site "
-            "labels are configured, matching gffcompare splice-junction semantics. "
-            "Without splice-site labels, raw intron-segment boundaries are used.",
-        ),
-    ),
-    "ts_level_recall": PlotMetadata(
-        display_name="Transcript-Level Recall metrics",
-        description="Recall across transcript-level structural match tiers.",
-        bullet_points=(
-            "Exact intron chain: all intron boundaries match exactly",
-            "Intron Subset: all predicted introns are real (pred ⊆ GT)",
-            "Intron Superset: all GT introns recovered (pred ⊇ GT)",
-            "Exact exon chain: all exon boundaries match exactly",
-            "Exon Subset / Superset: analogous set semantics for exons",
-            "Intron boundaries: DONOR.start → ACCEPTOR.end when splice-site "
-            "labels are configured, matching gffcompare splice-junction semantics. "
-            "Without splice-site labels, raw intron-segment boundaries are used.",
+            "Intron boundaries: DONOR.start → ACCEPTOR.end when splice-site labels are "
+            "configured (gffcompare semantics); else raw intron-segment boundaries.",
         ),
     ),
     "transcript_match": PlotMetadata(
         display_name="Transcript Match Classification",
-        description="Holistic structural classification of each (GT, prediction) pair into 9 granular categories, "
+        description="Structural classification of each (GT, prediction) pair into 9 categories, "
         "ordered best→worst (the same order drives the green→red stacked bar).",
         bullet_points=(
             "exact: identical exon sets",
-            "boundary_shift_internal: same count with every exon overlapping its counterpart; "
-            "splice-site boundaries differ but the gene locus span matches",
-            "boundary_shift_terminal: same count and full pairwise overlap, but terminal transcript boundaries differ",
-            "missing_segments: pred ⊂ GT (all pred exons are real, some GT exons absent)",
+            "boundary_shift_internal: same exon count, all overlap; internal splice boundaries "
+            "differ but locus span matches",
+            "boundary_shift_terminal: same count, full overlap, but terminal (TSS/TES) boundaries differ",
+            "missing_segments: pred ⊂ GT (all pred exons real, some GT exons absent)",
             "extra_segments: GT ⊂ pred (all GT exons found, pred has novel extras)",
             "partial_overlap: ≥1 exon (start,end) shared exactly, not a clean subset/superset",
-            "substitution: no exon shared exactly, but exons overlap in bases (relocated/substituted exons)",
+            "substitution: no exon shared exactly, but exons overlap in bases (relocated)",
             "no_overlap: no shared exon and no base overlap at all",
             "missed: no prediction for this class",
         ),

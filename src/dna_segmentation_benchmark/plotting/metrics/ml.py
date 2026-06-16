@@ -35,7 +35,7 @@ def plot_ml_metrics_bar(
     -------
     dict[str, Figure]
         Mapping of metric-level name (e.g. ``"neighborhood_hit"``,
-        ``"ts_level_precision"``) to its figure. Iteration order matches
+        ``"ts_level_match_rate"``) to its figure. Iteration order matches
         the order in which levels first appear in ``df_ml_metrics``.
     """
     if df_ml_metrics.empty:

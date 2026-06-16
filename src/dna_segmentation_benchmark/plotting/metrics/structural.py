@@ -35,35 +35,31 @@ MATCH_CLASS_COLORS: dict[str, tuple[float, float, float]] = dict(
     zip(_MATCH_CLASS_ORDER, severity_palette(len(_MATCH_CLASS_ORDER)))
 )
 
+# The transcript classes with *correct topology* (equal segment count + every
+# positional pair overlapping) — exactly the set gated in
+# ``transcript_classification._classify_segment_match``. These are the only
+# transcripts that contribute to the boundary-shift distribution, so they form
+# its denominator / eligibility population.
+TOPOLOGY_CORRECT_CLASSES: frozenset[str] = frozenset(
+    {
+        TranscriptMatchClass.EXACT.value,
+        TranscriptMatchClass.BOUNDARY_SHIFT_INTERNAL.value,
+        TranscriptMatchClass.BOUNDARY_SHIFT_TERMINAL.value,
+    }
+)
+
 # ---------------------------------------------------------------------------
 # Transcript match classification stacked bar
 # ---------------------------------------------------------------------------
 
 
-def plot_transcript_match_distribution(
-    df_sc: pd.DataFrame,
-    class_name: str,
-    save_path: Optional[Path] = None,
-    metadata: Optional[PlotMetadata] = None,
-) -> Optional[plt.Figure]:
-    """Stacked bar chart of transcript match class distribution per method.
+def _transcript_match_pivot(df_sc: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Per-method × match-class raw count pivot from ``df_sc``.
 
-    Each bar section is annotated with its raw count.
-
-    Parameters
-    ----------
-    df_sc : pd.DataFrame
-        Long-format DataFrame filtered to STRUCTURAL_COHERENCE rows.
-    class_name : str
-        Human-readable class name.
-    save_path : Path | None
-        If provided, the figure is saved to this path.
-    metadata : PlotMetadata | None
-        If provided, a pictogram panel is added to the figure.
-
-    Returns
-    -------
-    Figure | None
+    Shared by the standalone stacked bar and the boundary-shift figure, which
+    needs the denominator for :func:`_topology_eligibility` without drawing the
+    bar.  Returns ``None`` when *df_sc* carries no
+    ``transcript_match_distribution`` rows.
     """
     rows = []
     for _, row in df_sc.iterrows():
@@ -82,7 +78,7 @@ def plot_transcript_match_distribution(
 
     plot_df = pd.DataFrame(rows)
 
-    raw_pivot = plot_df.pivot_table(
+    return plot_df.pivot_table(
         index="method_name",
         columns="match_class",
         values="count",
@@ -90,10 +86,25 @@ def plot_transcript_match_distribution(
         aggfunc="sum",
     )
 
+
+def _draw_transcript_match_bar(ax: plt.Axes, df_sc: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Draw the transcript-match severity stacked bar onto *ax*.
+
+    Renders one stacked bar per method (green→red severity gradient, raw count
+    annotated per section, per-method ``n=`` above the bar) and returns the
+    per-method × class raw count pivot so callers can derive denominators /
+    eligibility.  Title, axis labels and legend are left to the caller.
+
+    Returns ``None`` (without drawing) when *df_sc* carries no
+    ``transcript_match_distribution`` rows.
+    """
+    raw_pivot = _transcript_match_pivot(df_sc)
+    if raw_pivot is None:
+        return None
+
     # Normalise to fractions for the stacked bar
     norm_pivot = raw_pivot.div(raw_pivot.sum(axis=1), axis=0)
 
-    fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
     bar_colors = [MATCH_CLASS_COLORS.get(c, "#888888") for c in norm_pivot.columns]
     norm_pivot.plot(kind="bar", stacked=True, ax=ax, color=bar_colors)
 
@@ -141,6 +152,66 @@ def plot_transcript_match_distribution(
             fontweight="bold",
         )
     ax.set_ylim(0, 1.08)
+    return raw_pivot
+
+
+def _topology_eligibility(raw_pivot: pd.DataFrame) -> dict[str, dict]:
+    """Per-method topology-correct (eligible) share of GT transcripts.
+
+    The boundary-shift panels are conditioned on the topology-correct set
+    (:data:`TOPOLOGY_CORRECT_CLASSES`), so a low fraction means the offset
+    distribution describes only a small, possibly non-representative slice of
+    the transcripts.  Returns ``{method: {"frac", "n_correct", "n_total"}}``.
+    """
+    totals = raw_pivot.sum(axis=1)
+    present = [c for c in TOPOLOGY_CORRECT_CLASSES if c in raw_pivot.columns]
+    correct = (
+        raw_pivot[present].sum(axis=1)
+        if present
+        else pd.Series(0, index=raw_pivot.index)
+    )
+    eligibility: dict[str, dict] = {}
+    for method in raw_pivot.index:
+        total = int(totals.loc[method])
+        n_correct = int(correct.loc[method])
+        eligibility[method] = {
+            "frac": n_correct / total if total else 0.0,
+            "n_correct": n_correct,
+            "n_total": total,
+        }
+    return eligibility
+
+
+def plot_transcript_match_distribution(
+    df_sc: pd.DataFrame,
+    class_name: str,
+    save_path: Optional[Path] = None,
+    metadata: Optional[PlotMetadata] = None,
+) -> Optional[plt.Figure]:
+    """Stacked bar chart of transcript match class distribution per method.
+
+    Each bar section is annotated with its raw count.
+
+    Parameters
+    ----------
+    df_sc : pd.DataFrame
+        Long-format DataFrame filtered to STRUCTURAL_COHERENCE rows.
+    class_name : str
+        Human-readable class name.
+    save_path : Path | None
+        If provided, the figure is saved to this path.
+    metadata : PlotMetadata | None
+        If provided, a pictogram panel is added to the figure.
+
+    Returns
+    -------
+    Figure | None
+    """
+    fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
+    raw_pivot = _draw_transcript_match_bar(ax, df_sc)
+    if raw_pivot is None:
+        plt.close(fig)
+        return None
 
     ax.set_title(f"{class_name} — Transcript Match Classification")
     ax.set_xlabel("Method")
@@ -258,15 +329,19 @@ def plot_boundary_shift_distribution(
 
     Panels
     ------
-    Left   : ECDF of ``|offset|`` per method (log x).  Reads directly as
-             "fraction of misplaced junctions within *k* bp"; per-method
-             headline stats (median ``|offset|`` and % within ±2 bp) are
-             annotated.
-    Middle : density histogram of the **signed** offset over a robust window,
-             exposing the ±1/±2 bp spike and any directional (5'/3') bias.
-    Right  : ``|offset|`` split by internal vs terminal boundary (log y),
-             separating precise splice junctions from inherently fuzzy
-             transcript ends.
+    Left      : ECDF of ``|offset|`` per method (log x).  Reads as "fraction of
+                *shifted* junctions within *k* bp" (exact/offset-0 junctions are
+                excluded upstream); per-method headline stats annotated.
+    Centre    : density histogram of the **signed** offset over a robust window,
+                exposing the ±1/±2 bp spike and any directional (5'/3') bias.
+    Right     : ``|offset|`` split by internal vs terminal boundary (log y),
+                separating precise splice junctions from inherently fuzzy
+                transcript ends.  Only topology-correct transcripts
+                (``exact`` / ``boundary_shift_*``) feed the offsets, so the
+                per-method eligibility caption overlaid here keeps that
+                conditioning in view; a tight box on a tiny eligible set must not
+                be read as "good".  The transcript-match classification itself is
+                the standalone ``transcript_match`` figure.
 
     Parameters
     ----------
@@ -310,9 +385,21 @@ def plot_boundary_shift_distribution(
     methods = sorted(df["method"].unique())
     palette = dict(zip(methods, spezi_palette(len(methods))))
 
-    fig, axes = plt.subplots(1, 3, figsize=(21, 6), constrained_layout=True)
+    fig, axes = plt.subplots(
+        1,
+        3,
+        figsize=(20, 6),
+        constrained_layout=True,
+    )
 
-    # --- Panel 1 — ECDF of |offset| with headline stats ---------------------
+    # Eligibility denominator for the conditioning caption on the box panel.
+    # The transcript-match classification lives in its standalone figure; here
+    # we only need the per-method topology-correct share so a tight offset box
+    # on a tiny eligible set cannot be misread as "good".
+    raw_pivot = _transcript_match_pivot(df_sc)
+    eligibility = _topology_eligibility(raw_pivot) if raw_pivot is not None else {}
+
+    # --- Panel 0 — ECDF of |offset| with headline stats ---------------------
     sns.ecdfplot(
         data=df,
         x="abs_offset",
@@ -328,13 +415,15 @@ def plot_boundary_shift_distribution(
     axes[0].set_ylabel("Cumulative fraction of shifted boundaries")
     axes[0].set_title("Offset ECDF — junction placement precision", pad=10)
     # Per-method headline stats, colour-matched, stacked in the empty corner.
+    # Exact (offset-0) junctions are excluded upstream, so the % is over the
+    # *shifted* boundaries only — not overall junction accuracy.
     for idx, method in enumerate(methods):
         abs_off = df.loc[df["method"] == method, "abs_offset"]
         within_2 = (abs_off <= 2).mean() * 100
         axes[0].text(
             0.98,
             0.02 + idx * 0.06,
-            f"{method}: median {abs_off.median():.0f} bp · {within_2:.0f}% ≤2 bp",
+            f"{method}: median {abs_off.median():.0f} bp · {within_2:.0f}% of shifted ≤2 bp",
             transform=axes[0].transAxes,
             ha="right",
             va="bottom",
@@ -342,7 +431,7 @@ def plot_boundary_shift_distribution(
             color=palette[method],
         )
 
-    # --- Panel 2 — signed offset density over a robust window ---------------
+    # --- Panel 1 — signed offset density over a robust window ---------------
     window = int(np.ceil(df["abs_offset"].quantile(0.98)))
     window = max(5, min(window, 60))
     bins_signed = np.arange(-window - 0.5, window + 1.5, 1.0)
@@ -378,7 +467,7 @@ def plot_boundary_shift_distribution(
             color="#555555",
         )
 
-    # --- Panel 3 — internal vs terminal |offset| ----------------------------
+    # --- Panel 2 — internal vs terminal |offset| ----------------------------
     positions = [p for p in ("internal", "terminal") if p in set(df["position"])]
     sns.boxplot(
         data=df,
@@ -395,10 +484,30 @@ def plot_boundary_shift_distribution(
     axes[2].set_xlabel("Boundary type", labelpad=8)
     axes[2].set_ylabel("|boundary offset| (bp, log scale)")
     axes[2].set_title("Internal splice vs terminal (TSS/TES) precision", pad=10)
-    axes[2].legend(title="Method", fontsize=8)
+    axes[2].legend(title="Method", fontsize=8, loc="upper right")
+    # Per-method eligibility caption — the share of GT transcripts these boxes
+    # are conditioned on. A low fraction (flagged ⚠) means the boxes summarise
+    # only a small slice, so precise-looking boxes may not reflect real skill.
+    for idx, method in enumerate(methods):
+        elig = eligibility.get(method)
+        if elig is None:
+            continue
+        low = elig["frac"] < 0.25
+        axes[2].text(
+            0.02,
+            0.98 - idx * 0.06,
+            f"{'⚠ ' if low else ''}{method}: eligible {elig['frac']:.0%} "
+            f"({elig['n_correct']}/{elig['n_total']} tx)",
+            transform=axes[2].transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+            color=palette[method],
+            fontweight="bold" if low else "normal",
+        )
 
     fig.suptitle(
-        f"{class_name} — Boundary Shift Distribution  "
+        f"{class_name} — Boundary Shift Distribution "
         f"(topology-correct transcripts · n={len(df)} shifted boundaries)",
         fontsize=13,
     )

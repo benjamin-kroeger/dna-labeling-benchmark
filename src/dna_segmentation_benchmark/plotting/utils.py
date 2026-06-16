@@ -5,7 +5,7 @@ import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from dna_segmentation_benchmark.plotting.config import DEFAULT_FIG_SIZE, PlotMetadata
+from dna_segmentation_benchmark.plotting.config import PlotMetadata
 
 SPEZI_COLORS = [
     "#F47B20", "#F5A623", "#F7C94B", "#F0553A", "#E8006A",
@@ -249,118 +249,93 @@ def _add_pictogram_panel(
         )
         y_cursor -= panel_h * 0.08  # Move cursor down
 
-    # --- Icon (scaled to fit panel, constrained by both width and height) ---
-    # Reserve vertical budget: title ~8%, icon max 40%, description ~20%, TP/TN ~20%
-    max_icon_height_frac = 0.40  # max 40% of panel height for the icon
-    if metadata.icon_path is not None:
+    # --- Icon(s): a single icon, or a vertical stack of two -----------------
+    # Two pictograms are stacked (one above the other) rather than placed in a
+    # row, so each stays wide enough to read in the narrow panel. Single-icon
+    # plots are unchanged.
+    max_icon_area_frac = 0.40  # vertical budget for the whole icon area
+    icon_paths = [p for p in (metadata.icon_path, metadata.secondary_icon_path) if p is not None]
+    if icon_paths:
+        n_icons = len(icon_paths)
+        per_icon_width_frac = 0.85 if n_icons == 1 else 0.62
+        per_icon_h_in = (max_icon_area_frac * panel_height_in) / n_icons
+        stack_gap_frac = (0.0 if n_icons == 1 else 0.02) * panel_h
         try:
-            icon_img = plt.imread(str(metadata.icon_path))
-            icon_w_px = icon_img.shape[1]
-            icon_h_px = icon_img.shape[0]
+            # (composited img, w_px, h_px, w_fig_frac, h_fig_frac) per icon
+            rendered = []
+            for icon_path in icon_paths:
+                icon_img = plt.imread(str(icon_path))
+                icon_w_px = icon_img.shape[1]
+                icon_h_px = icon_img.shape[0]
 
-            # Calculate zoom to fit within 85% of panel width and max_icon_height_frac of panel height
-            zoom_w = (panel_width_in * fig.dpi * 0.85) / icon_w_px
-            max_icon_h_px = max_icon_height_frac * panel_height_in * fig.dpi
-            zoom_h = max_icon_h_px / icon_h_px
-            zoom = min(zoom_w, zoom_h)
+                # Zoom to fit within the per-icon width budget and the per-icon
+                # height budget (the latter shrinks as icons are stacked).
+                zoom_w = (panel_width_in * fig.dpi * per_icon_width_frac) / icon_w_px
+                zoom_h = (per_icon_h_in * fig.dpi) / icon_h_px
+                zoom = min(zoom_w, zoom_h)
 
-            # Create an inset axes for the icon to ensure it respects bounds
-            icon_rendered_w_in = (icon_w_px * zoom) / fig.dpi
-            icon_rendered_h_in = (icon_h_px * zoom) / fig.dpi
+                w_fig_frac = ((icon_w_px * zoom) / fig.dpi) / fig_w_in
+                h_fig_frac = ((icon_h_px * zoom) / fig.dpi) / fig_h_in
+                rendered.append((icon_img, icon_w_px, icon_h_px, w_fig_frac, h_fig_frac))
 
-            # Convert rendered dimensions to figure fraction
-            icon_w_fig_frac = icon_rendered_w_in / fig_w_in
-            icon_h_fig_frac = icon_rendered_h_in / fig_h_in
+            # Stack top-down, each icon centered horizontally.
+            y = y_cursor
+            for icon_img, icon_w_px, icon_h_px, w_fig_frac, h_fig_frac in rendered:
+                x = panel_x0 + (panel_w - w_fig_frac) / 2
+                icon_ax = fig.add_axes([x, y - h_fig_frac, w_fig_frac, h_fig_frac])
+                icon_ax.set_in_layout(False)
+                icon_ax.imshow(_composite_on_white(icon_img), interpolation="lanczos")
+                # Pad limits slightly so edge pixels are never clipped
+                icon_ax.set_xlim(-1, icon_w_px)
+                icon_ax.set_ylim(icon_h_px, -3)
+                icon_ax.set_axis_off()
+                y -= h_fig_frac + stack_gap_frac
 
-            # Calculate icon axes position: centered horizontally, top aligned with y_cursor
-            icon_ax_x0 = panel_x0 + (panel_w - icon_w_fig_frac) / 2
-            icon_ax_y0 = y_cursor - icon_h_fig_frac  # Top of icon is at y_cursor
-
-            icon_ax = fig.add_axes([icon_ax_x0, icon_ax_y0, icon_w_fig_frac, icon_h_fig_frac])
-            icon_ax.set_in_layout(False)
-            icon_ax.imshow(_composite_on_white(icon_img), interpolation="lanczos")
-            # Pad limits slightly so edge pixels are never clipped
-            icon_ax.set_xlim(-1, icon_w_px)
-            icon_ax.set_ylim(icon_h_px, -3)
-            icon_ax.set_axis_off()
-
-            y_cursor -= icon_h_fig_frac + panel_h * 0.04  # Move cursor down past icon and add spacing
+            y_cursor = y - panel_h * 0.02  # spacing after the icon area
         except Exception:
             logger.warning(
-                "Could not load panel icon: %s",
-                metadata.icon_path,
+                "Could not load panel icon(s): %s",
+                icon_paths,
                 exc_info=True,
             )
 
-    # --- Description text ---
+    # --- Adaptive text flow -------------------------------------------------
+    # Everything below the icons is laid out as one top-down flow that is fitted
+    # to the available panel height: blocks are vertically justified (with a
+    # capped gap) when there is room, and uniformly shrunk when there is not, so
+    # panels never clip bullets off the bottom nor leave large dead gaps.
     wrap_width = 30
     text_x_left = panel_x0 + panel_w * 0.05
-    line_step = panel_h * 0.04
+    pt_to_frac = 1.0 / 72.0 / fig_h_in  # one typographic point in figure fraction
 
+    def _block_height(n_lines: int, fontsize: float, linespacing: float, boxed: bool) -> float:
+        h = n_lines * fontsize * linespacing * pt_to_frac
+        if boxed:
+            h += 2 * 0.45 * fontsize * pt_to_frac  # round-box top + bottom padding
+        return h
+
+    # Build the flowing blocks (description \u2192 bullets \u2192 caveat).
+    flow: list[dict] = []
     if metadata.description:
         wrapped = textwrap.fill(metadata.description, width=wrap_width)
-        fig.text(
-            text_x_left,
-            y_cursor,
-            wrapped,
-            ha="left",
-            va="top",
-            fontsize=11,
-            linespacing=1.4,
-            style="italic",
-        )
-        n_lines = wrapped.count("\n") + 1
-        y_cursor -= n_lines * line_step + panel_h * 0.03
-
-    # --- Bullet points ---
+        flow.append(dict(text=wrapped, fontsize=11.0, linespacing=1.4, style="italic",
+                         color="black", bbox=None, n_lines=wrapped.count("\n") + 1))
     if metadata.bullet_points:
         for bullet in metadata.bullet_points:
-            bullet_text = textwrap.fill(
-                f"\u2022 {bullet}",
-                width=wrap_width + 4,
-                subsequent_indent="  ",
-            )
-            fig.text(
-                text_x_left,
-                y_cursor,
-                bullet_text,
-                ha="left",
-                va="top",
-                fontsize=10,
-                linespacing=1.3,
-            )
-            n_lines = bullet_text.count("\n") + 1
-            y_cursor -= n_lines * line_step * 0.85
-
-        y_cursor -= panel_h * 0.02  # spacing after bullets
-
-    # --- Caveat box ---
+            bullet_text = textwrap.fill(f"\u2022 {bullet}", width=wrap_width + 4, subsequent_indent="  ")
+            flow.append(dict(text=bullet_text, fontsize=10.0, linespacing=1.3, style="normal",
+                             color="black", bbox=None, n_lines=bullet_text.count("\n") + 1))
     if metadata.caveat:
-        caveat_text = textwrap.fill(
-            f"\u26a0 {metadata.caveat}",
-            width=wrap_width + 4,
-            subsequent_indent="  ",
-        )
-        fig.text(
-            text_x_left,
-            y_cursor,
-            caveat_text,
-            ha="left",
-            va="top",
-            fontsize=8,
-            linespacing=1.3,
-            color="#8B6914",
-            bbox=dict(
-                boxstyle="round,pad=0.3",
-                facecolor="#FFF8DC",
-                edgecolor="#DAA520",
-                alpha=0.9,
-            ),
-        )
-        n_lines = caveat_text.count("\n") + 1
-        y_cursor -= n_lines * line_step + panel_h * 0.03
+        caveat_text = textwrap.fill(f"\u26a0 {metadata.caveat}", width=wrap_width + 4, subsequent_indent="  ")
+        flow.append(dict(text=caveat_text, fontsize=8.0, linespacing=1.3, style="normal",
+                         color="#8B6914", n_lines=caveat_text.count("\n") + 1,
+                         bbox=dict(boxstyle="round,pad=0.3", facecolor="#FFF8DC",
+                                   edgecolor="#DAA520", alpha=0.9)))
 
-    # --- TP / TN / FP / FN definitions (placed at bottom of panel) ---
+    # The TP/TN/FP/FN block is anchored at the bottom of the panel; reserve its
+    # height so the flowing blocks above stop just short of it.
+    tp_render = None
+    text_floor = panel_y0 + panel_h * 0.03
     if metadata.show_tp_tn_fp_fn:
         parts = []
         for label, attr, default in (
@@ -371,23 +346,50 @@ def _add_pictogram_panel(
         ):
             defn = getattr(metadata, attr, None) or default
             parts.append(f"\u2022 {label}: {defn}")
-
         wrapped_parts = [textwrap.fill(p, width=wrap_width + 8, subsequent_indent="  ") for p in parts]
         definitions = "\n".join(wrapped_parts)
+        tp_fontsize = 8.0
+        tp_height = _block_height(definitions.count("\n") + 1, tp_fontsize, 1.5, boxed=True)
+        tp_top = panel_y0 + panel_h * 0.05 + tp_height
+        text_floor = tp_top + panel_h * 0.02
+        tp_render = (definitions, tp_top, tp_fontsize)
 
-        # Place at fixed position near the bottom to avoid overlap
-        tp_y_bottom = panel_y0 + panel_h * 0.05
-        estimated_line_height = 0.025 * (fig_h_in / DEFAULT_FIG_SIZE[1])
-        tp_y_top = tp_y_bottom + 4 * estimated_line_height * 1.5
-        final_tp_y = min(y_cursor - panel_h * 0.02, tp_y_top)
+    # Fit the flow into [text_floor, y_cursor] and render it top-down.
+    if flow:
+        available = y_cursor - text_floor
+        sum_h = sum(_block_height(b["n_lines"], b["fontsize"], b["linespacing"], b["bbox"] is not None)
+                    for b in flow)
+        n_gaps = len(flow)  # one gap above each block
+        min_gap = 8.0 * pt_to_frac
+        max_gap = 40.0 * pt_to_frac
+        if sum_h + n_gaps * min_gap > available and sum_h > 0:
+            scale = max(0.5, available / (sum_h + n_gaps * min_gap))
+            gap = min_gap * scale
+        else:
+            scale = 1.0
+            gap = min(max_gap, (available - sum_h) / n_gaps)
 
+        y = y_cursor
+        for b in flow:
+            y -= gap
+            fontsize = b["fontsize"] * scale
+            kwargs = dict(ha="left", va="top", fontsize=fontsize,
+                          linespacing=b["linespacing"], style=b["style"], color=b["color"])
+            if b["bbox"]:
+                kwargs["bbox"] = b["bbox"]
+            fig.text(text_x_left, y, b["text"], **kwargs)
+            y -= _block_height(b["n_lines"], fontsize, b["linespacing"], b["bbox"] is not None)
+
+    # --- TP / TN / FP / FN definitions (anchored at the bottom of the panel) ---
+    if tp_render is not None:
+        definitions, tp_top, tp_fontsize = tp_render
         fig.text(
             text_x_left,
-            final_tp_y,
+            tp_top,
             definitions,
             ha="left",
             va="top",
-            fontsize=8,
+            fontsize=tp_fontsize,
             linespacing=1.5,
             family="monospace",
             bbox=dict(

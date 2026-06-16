@@ -71,8 +71,10 @@ metric was in the result:
   `region_discovery/perfect_boundary_hit/{precision,recall}`,
   `region_discovery/containment/{internal_rate,full_coverage_rate}`
 - `nucleotide_classification/nucleotide/{precision,recall,f1}`
-- `struct_coherence/intron_chain/{precision,recall}`,
-  `struct_coherence/exon_chain/{precision,recall}`,
+- `struct_coherence/intron_chain/match_rate`,
+  `struct_coherence/exon_chain/match_rate`
+  (whole-chain tiers are all-or-nothing, so precision = recall = F1 — a single
+  rate is logged),
   `struct_coherence/segment_count_delta/{mean,mae}`,
   `struct_coherence/exon_recall_per_transcript/mean`,
   `struct_coherence/hallucinated_exon_count_per_transcript/mean`,

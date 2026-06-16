@@ -54,7 +54,7 @@ def _require_wandb():
 _SCALAR_TYPES = (int, float, np.integer, np.floating)
 
 # Snake-case section names used as the W&B metric-path group segment.
-# Keeps full keys URL/glob-friendly, e.g. ``val/struct_coherence/intron_chain/precision``.
+# Keeps full keys URL/glob-friendly, e.g. ``val/struct_coherence/intron_chain/match_rate``.
 _GROUP_DISPLAY_NAMES = {
     "REGION_DISCOVERY": "region_discovery",
     "BOUNDARY_EXACTNESS": "boundary_exactness",
@@ -85,10 +85,11 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "nucleotide/f1": ("nucleotide", "f1"),
     },
     "STRUCTURAL_COHERENCE": {
-        "intron_chain/precision": ("intron_chain", "precision"),
-        "intron_chain/recall": ("intron_chain", "recall"),
-        "exon_chain/precision": ("exon_chain", "precision"),
-        "exon_chain/recall": ("exon_chain", "recall"),
+        # Whole-chain tiers are all-or-nothing, so precision == recall == F1
+        # (a chain mismatch is booked as both an FP and an FN). Log the single
+        # match rate instead of duplicating it as precision and recall.
+        "intron_chain/match_rate": ("intron_chain", "precision"),
+        "exon_chain/match_rate": ("exon_chain", "precision"),
         "segment_count_delta/mean": ("segment_count_delta", "mean"),
         "segment_count_delta/mae": ("segment_count_delta", "mae"),
         "exon_recall_per_transcript/mean": ("exon_recall_per_transcript",),
@@ -115,7 +116,7 @@ _VIDEO_BUFFER_FIGURE_KEYS = frozenset({
     "false_transitions",
     "transcript_match",
     "segment_count_delta",
-    "frameshift",
+    "phase_drift",
 })
 
 # Internal label used as the single-method key when feeding the multi-method

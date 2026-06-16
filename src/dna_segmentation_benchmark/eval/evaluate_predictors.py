@@ -77,7 +77,7 @@ def _validate_metric_config(metrics: Iterable[EvalMetrics], label_config: LabelC
     Called once at each public entry point so misconfigurations surface
     immediately instead of after some sequences have already been processed.
     """
-    if EvalMetrics.PHASE_DRIFT in metrics and not label_config.supports_frameshift:
+    if EvalMetrics.PHASE_DRIFT in metrics and not label_config.supports_phase_drift:
         raise ValueError(
             "PHASE_DRIFT is only valid in UTR_CDS_INTRON mode with "
             "evaluation_scope='cds'."
@@ -283,7 +283,7 @@ def _benchmark_chunk(
 
     if EvalMetrics.PHASE_DRIFT in metrics:
         # Validity is checked up-front at the public entry points.
-        metric_results[EvalMetrics.PHASE_DRIFT.name] = _eval_frameshift(
+        metric_results[EvalMetrics.PHASE_DRIFT.name] = _eval_phase_drift(
             gt_mask,
             pred_mask,
             indel_result=_indel_result,
@@ -317,7 +317,7 @@ def _eval_transitions(arr: np.ndarray, label_config: LabelConfig) -> dict:
 
 
 
-def _eval_frameshift(
+def _eval_phase_drift(
     gt_positive_mask: np.ndarray,
     pred_positive_mask: np.ndarray,
     indel_result: dict | None = None,

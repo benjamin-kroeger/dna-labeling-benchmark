@@ -86,6 +86,86 @@ def _compute_summary_statistics(
     return result
 
 
+def _macro_means(tp: np.ndarray, fp: np.ndarray, fn: np.ndarray) -> tuple:
+    """Per-sequence precision/recall/F1 averaged along the last axis.
+
+    Each ``(tp, fp, fn)`` triple is one sequence.  Unlike the micro path (pool
+    counts, *then* divide), this computes a ratio per sequence and takes the
+    mean, so every sequence carries equal weight regardless of length.  A
+    sequence whose denominator is undefined for a given ratio is skipped for
+    that ratio only; the result is ``NaN`` when every sequence is undefined.
+
+    Accepts arrays of any leading shape (1-D for a point estimate, ``(B, n)``
+    for a bootstrap batch) and reduces over the last axis.
+    """
+
+    def _masked_mean(num: np.ndarray, den: np.ndarray) -> np.ndarray:
+        ratio = np.divide(num, den, out=np.zeros_like(num, dtype=float), where=den > 0)
+        mask = den > 0
+        kept = mask.sum(axis=-1)
+        total = (ratio * mask).sum(axis=-1)
+        return np.divide(total, kept, out=np.full(np.shape(kept), np.nan, dtype=float), where=kept > 0)
+
+    return (
+        _masked_mean(tp, tp + fp),
+        _masked_mean(tp, tp + fn),
+        _masked_mean(2.0 * tp, 2.0 * tp + fp + fn),
+    )
+
+
+def _compute_macro_statistics(counts: list, n_bootstrap: int = 1000) -> dict:
+    """Macro (per-sequence, equal-weight) precision/recall/F1 with bootstrap SE.
+
+    Mirrors :func:`_compute_summary_statistics` (same seed, ``n >= 2`` guard)
+    but averages per-sequence ratios instead of pooling counts.  Returns only
+    the ``*_macro`` keys; standard-error keys are added when bootstrappable.
+    """
+    tp = np.array([c.tp for c in counts], dtype=float)
+    fp = np.array([c.fp for c in counts], dtype=float)
+    fn = np.array([c.fn for c in counts], dtype=float)
+    n = len(tp)
+
+    p_macro, r_macro, f_macro = _macro_means(tp, fp, fn)
+    result: dict = {
+        "precision_macro": None if np.isnan(p_macro) else float(p_macro),
+        "recall_macro": None if np.isnan(r_macro) else float(r_macro),
+        "f1_macro": None if np.isnan(f_macro) else float(f_macro),
+    }
+
+    if n >= 2:
+        rng = np.random.default_rng(42)
+        idx = rng.integers(0, n, size=(n_bootstrap, n))
+        boot_p, boot_r, boot_f = _macro_means(tp[idx], fp[idx], fn[idx])
+        result["precision_macro_stderr"] = float(np.nanstd(boot_p))
+        result["recall_macro_stderr"] = float(np.nanstd(boot_r))
+        result["f1_macro_stderr"] = float(np.nanstd(boot_f))
+
+    return result
+
+
+def _bootstrap_ratio_stderr(numerator: list, denominator: list, n_bootstrap: int = 1000) -> float | None:
+    """Standard error of a pooled ratio ``sum(numerator) / sum(denominator)``.
+
+    Resamples sequences with replacement (each element of ``numerator`` /
+    ``denominator`` is one sequence) to estimate the SE of the micro-averaged
+    ratio, mirroring the bootstrap used for precision/recall in
+    :func:`_compute_summary_statistics` (same seed and ``n >= 2`` guard).
+    Returns ``None`` when there are fewer than two sequences or no opportunities
+    (empty denominator).
+    """
+    num = np.asarray(numerator, dtype=float)
+    den = np.asarray(denominator, dtype=float)
+    n = len(num)
+    if n < 2 or den.sum() == 0:
+        return None
+    rng = np.random.default_rng(42)
+    idx = rng.integers(0, n, size=(n_bootstrap, n))
+    boot_num = num[idx].sum(axis=1)
+    boot_den = den[idx].sum(axis=1)
+    ratios = np.where(boot_den > 0, boot_num / np.where(boot_den > 0, boot_den, 1.0), 0.0)
+    return float(np.std(ratios))
+
+
 def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
     """Compute MAE, RMSE, Mean for a list of values."""
     if not values:
@@ -150,6 +230,14 @@ class Stat:
     recall_stderr: float | None = None
     f1: float | None = None
     f1_stderr: float | None = None
+    # Macro (per-sequence, equal-weight) siblings — populated only when the
+    # caller asks for them (metrics whose per-sequence unit count varies).
+    precision_macro: float | None = None
+    recall_macro: float | None = None
+    f1_macro: float | None = None
+    precision_macro_stderr: float | None = None
+    recall_macro_stderr: float | None = None
+    f1_macro_stderr: float | None = None
 
     def to_dict(self) -> dict:
         result = {
@@ -163,15 +251,33 @@ class Stat:
             result["f1_stderr"] = self.f1_stderr
         if self.f1 is not None:
             result["f1"] = self.f1
+        # Macro keys appear only when computed, so chain/all-or-nothing tiers
+        # (where macro == micro) never carry a redundant duplicate.
+        for key in (
+            "precision_macro",
+            "recall_macro",
+            "f1_macro",
+            "precision_macro_stderr",
+            "recall_macro_stderr",
+            "f1_macro_stderr",
+        ):
+            if getattr(self, key) is not None:
+                result[key] = getattr(self, key)
         return result
 
 
-def summarise_counts(per_sequence: list[Counts], n_bootstrap: int = 1000) -> Stat:
+def summarise_counts(per_sequence: list[Counts], n_bootstrap: int = 1000, include_macro: bool = False) -> Stat:
     """Micro-average a list of per-sequence :class:`Counts` into a :class:`Stat`.
 
     Delegates the precision/recall + bootstrap-standard-error computation to
     :func:`_compute_summary_statistics` so the numbers are identical to the
     pre-prototype path.
+
+    When ``include_macro`` is set, the per-sequence (equal-weight) macro
+    precision/recall/F1 are computed alongside and stored in the ``*_macro``
+    fields.  Only metrics whose per-sequence unit count varies (nucleotide,
+    region discovery) request this; for all-or-nothing chain tiers macro equals
+    micro, so they leave it off and the redundant keys never appear.
     """
     counts = list(per_sequence)
     raw = _compute_summary_statistics(
@@ -180,10 +286,17 @@ def summarise_counts(per_sequence: list[Counts], n_bootstrap: int = 1000) -> Sta
         fp=[c.fp for c in counts],
         n_bootstrap=n_bootstrap,
     )
+    macro = _compute_macro_statistics(counts, n_bootstrap=n_bootstrap) if include_macro else {}
     return Stat(
         precision=raw["precision"],
         recall=raw["recall"],
         precision_stderr=raw["precision_stderr"],
         recall_stderr=raw["recall_stderr"],
         f1_stderr=raw.get("f1_stderr"),
+        precision_macro=macro.get("precision_macro"),
+        recall_macro=macro.get("recall_macro"),
+        f1_macro=macro.get("f1_macro"),
+        precision_macro_stderr=macro.get("precision_macro_stderr"),
+        recall_macro_stderr=macro.get("recall_macro_stderr"),
+        f1_macro_stderr=macro.get("f1_macro_stderr"),
     )

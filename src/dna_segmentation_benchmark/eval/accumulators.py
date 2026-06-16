@@ -15,7 +15,7 @@ from typing import ClassVar
 import numpy as np
 
 from .boundary_precision import _compute_boundary_precision_landscape
-from .statistics import Counts, _compute_distribution_stats, summarise_counts
+from .statistics import Counts, _bootstrap_ratio_stderr, _compute_distribution_stats, summarise_counts
 
 
 def _add_matrix_dict(target: dict, source: dict) -> None:
@@ -210,11 +210,17 @@ class RegionDiscoveryAccumulator:
         total_full_coverage = sum(self._containment_full_coverage)
         containment = {
             "internal_rate": total_internal / total_matched if total_matched > 0 else None,
+            "internal_rate_stderr": _bootstrap_ratio_stderr(self._containment_internal, self._containment_matched),
             "full_coverage_rate": total_full_coverage / total_matched if total_matched > 0 else None,
+            "full_coverage_rate_stderr": _bootstrap_ratio_stderr(
+                self._containment_full_coverage, self._containment_matched
+            ),
         }
         return {
             self.KEY: {
-                **{level: summarise_counts(self.levels[level]).to_dict() for level in self.LEVELS},
+                # Section counts per transcript vary, so report macro alongside
+                # micro. Containment is a conditional rate, not a Counts table.
+                **{level: summarise_counts(self.levels[level], include_macro=True).to_dict() for level in self.LEVELS},
                 "containment": containment,
             }
         }
@@ -301,7 +307,10 @@ class NucleotideAccumulator:
     def summarise(self) -> dict:
         if not self._seen:
             return {}
-        stat = summarise_counts(self.counts)
+        # Base-level units per transcript vary widely (long transcripts have
+        # more bases), so the micro score is dominated by long transcripts —
+        # macro (per-transcript, equal weight) is reported alongside.
+        stat = summarise_counts(self.counts, include_macro=True)
         p, r = stat.precision or 0.0, stat.recall or 0.0
         f1 = (2 * p * r / (p + r)) if (p + r) > 0 else 0.0
         return {self.KEY: {"nucleotide": dataclasses.replace(stat, f1=f1).to_dict()}}
