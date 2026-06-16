@@ -141,8 +141,8 @@ class LabelConfig(BaseModel):
         return self
 
     @property
-    def supports_frameshift(self) -> bool:
-        """Whether CDS-only frameshift evaluation is well-defined."""
+    def supports_phase_drift(self) -> bool:
+        """Whether CDS-only phase-drift evaluation is well-defined."""
         return (
             self.annotation_mode == AnnotationMode.UTR_CDS_INTRON
             and self.evaluation_scope == BenchmarkScope.CDS

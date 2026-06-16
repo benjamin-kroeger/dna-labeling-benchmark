@@ -13,8 +13,8 @@ from ..utils import _save_figure, _add_pictogram_panel
 logger = logging.getLogger(__name__)
 
 
-def plot_frameshift_percentage_bar(
-    df_frameshift_metrics: pd.DataFrame,
+def plot_phase_drift_percentage_bar(
+    df_phase_drift_metrics: pd.DataFrame,
     class_name: str,
     save_path: Optional[Path] = None,
     metadata: PlotMetadata | None = None,
@@ -25,11 +25,11 @@ def plot_frameshift_percentage_bar(
     -------
     Figure | None
     """
-    if df_frameshift_metrics.empty:
+    if df_phase_drift_metrics.empty:
         logger.info("No coding-phase drift data for class %s.", class_name)
         return None
 
-    only_frames = df_frameshift_metrics[df_frameshift_metrics["metric_key"] == "gt_frames"]
+    only_frames = df_phase_drift_metrics[df_phase_drift_metrics["metric_key"] == "gt_frames"]
     if only_frames.empty:
         return None
 
@@ -77,8 +77,8 @@ def plot_frameshift_percentage_bar(
     # Annotation lines: skip counts + boundary-indel in-frame rate
     annotation_parts = []
 
-    skip_rows = df_frameshift_metrics[
-        df_frameshift_metrics["metric_key"].isin(("n_skipped_non_divisible", "n_skipped_short"))
+    skip_rows = df_phase_drift_metrics[
+        df_phase_drift_metrics["metric_key"].isin(("n_skipped_non_divisible", "n_skipped_short"))
     ]
     if not skip_rows.empty:
         skip_pivoted = skip_rows.pivot_table(index="method_name", columns="metric_key", values="value", aggfunc="first")
@@ -90,8 +90,8 @@ def plot_frameshift_percentage_bar(
                     f"{method}: {non_div} skipped (non-divisible GT), {short} skipped (pred < 3 CDS bases)"
                 )
 
-    indel_rows = df_frameshift_metrics[
-        df_frameshift_metrics["metric_key"].isin(("boundary_indel_total", "boundary_indel_in_frame"))
+    indel_rows = df_phase_drift_metrics[
+        df_phase_drift_metrics["metric_key"].isin(("boundary_indel_total", "boundary_indel_in_frame"))
     ]
     if not indel_rows.empty:
         indel_pivoted = indel_rows.pivot_table(index="method_name", columns="metric_key", values="value", aggfunc="first")
