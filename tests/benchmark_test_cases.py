@@ -60,7 +60,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"internal_exon": {"whole_insertions": [1], "split": [1, 1, 1, 1]}, "single_exon_gene": {"whole_insertions": [1]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 9},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 8, "fn": 2, "tn": 0}, "containment": {"matched": 3, "internal": 3, "full_coverage": 1}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 8, "fn": 2, "tn": 0}, "containment": {"matched": 3, "internal": 0, "full_coverage": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 1.0], "fuzzy_metrics": {"boundary_offsets": [(0, -4), (2, -2), (4, 0), (0, -4), (2, -2), (4, 0), (0, 0)], "total_gt": 3}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 8, "fp": 2, "fn": 4, "tn": 11}},
         },
@@ -95,7 +95,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 4, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 3, "fn": 3, "tn": 0}, "containment": {"matched": 4, "internal": 1, "full_coverage": 4}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 4, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 3, "fn": 3, "tn": 0}, "containment": {"matched": 4, "internal": 0, "full_coverage": 1}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [0.4, 0.7142857142857143, 1.0, 0.6666666666666666], "fuzzy_metrics": {"boundary_offsets": [(-3, 0), (-1, 1), (0, 0), (0, 1)], "total_gt": 4}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 12, "fp": 6, "fn": 0, "tn": 11}},
         },
@@ -118,7 +118,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "containment": {"matched": 3, "internal": 3, "full_coverage": 3}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "containment": {"matched": 3, "internal": 0, "full_coverage": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [1.0, 1.0, 1.0], "fuzzy_metrics": {"boundary_offsets": [(0, 0), (0, 0), (0, 0)], "total_gt": 3}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 12, "fp": 0, "fn": 0, "tn": 13}},
         },
@@ -129,7 +129,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "containment": {"matched": 1, "internal": 1, "full_coverage": 1}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "containment": {"matched": 1, "internal": 0, "full_coverage": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [1.0], "fuzzy_metrics": {"boundary_offsets": [(0, 0)], "total_gt": 1}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 5, "fp": 0, "fn": 0, "tn": 7}},
         },
@@ -141,7 +141,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"internal_exon": {"3_prime_deletions": [1]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "containment": {"matched": 1, "internal": 1, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "containment": {"matched": 1, "internal": 0, "full_coverage": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.5], "fuzzy_metrics": {"boundary_offsets": [(0, -1)], "total_gt": 2}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 1, "fp": 0, "fn": 3, "tn": 7}},
         },
@@ -154,7 +154,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([np.inf, np.inf, np.inf, 0.0, 0.0, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, 0.0, 0.0, 0.0, 0.0, np.inf, np.inf, np.inf, np.inf])},
         },
-        id='Frameshift_test',
+        id='phase_drift_test',
     ),
     pytest.param(
         # Perfect prediction: GT == pred, every overlap position has frame 0.
@@ -164,7 +164,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([0., 0., 0., np.inf, np.inf, np.inf, 0., 0., 0.])},
         },
-        id='frameshift_perfect_prediction',
+        id='phase_drift_perfect_prediction',
     ),
     pytest.param(
         # Pred is shifted 1 position to the right: one leading background in pred,
@@ -177,7 +177,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([np.inf, 1., 1., 1., 1., 1., np.inf])},
         },
-        id='frameshift_persistent_plus1',
+        id='phase_drift_persistent_plus1',
     ),
     pytest.param(
         # Pred is shifted 2 positions to the right: cumsum difference is 2 at every
@@ -188,7 +188,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([np.inf, np.inf, 2., 2., 2., 2., np.inf, np.inf])},
         },
-        id='frameshift_persistent_plus2',
+        id='phase_drift_persistent_plus2',
     ),
     pytest.param(
         # GT and pred CDS regions are completely non-overlapping: valid_mask is all
@@ -199,7 +199,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([np.inf, np.inf, np.inf, np.inf, np.inf, np.inf])},
         },
-        id='frameshift_no_overlap',
+        id='phase_drift_no_overlap',
     ),
     pytest.param(
         # Frame escalates 0→1→2 inside a single exon. GT has 9 consecutive CDS
@@ -211,7 +211,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([0., 0., np.inf, 1., 1., np.inf, 2., 2., np.inf, np.inf])},
         },
-        id='frameshift_escalating_within_exon',
+        id='phase_drift_escalating_within_exon',
     ),
     pytest.param(
         # Cyclic 0→1→2→0→1→2 across 6 sparse CDS positions. GT has CDS only at
@@ -229,7 +229,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([0., np.inf, np.inf, 1., np.inf, np.inf, 2., np.inf, np.inf, 0., np.inf, np.inf, 1., np.inf, np.inf, 2.])},
         },
-        id='frameshift_cyclic_012',
+        id='phase_drift_cyclic_012',
     ),
     pytest.param(
         # GT CDS count (4) is not divisible by 3: the metric skips the sequence and
@@ -240,7 +240,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([])},
         },
-        id='frameshift_gt_cds_not_mod3',
+        id='phase_drift_gt_cds_not_mod3',
     ),
     pytest.param(
         # Pred has only 1 CDS base (< 3): the metric returns an empty frame list
@@ -251,7 +251,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "PHASE_DRIFT": {"gt_frames": np.array([])},
         },
-        id='frameshift_pred_too_few_cds',
+        id='phase_drift_pred_too_few_cds',
     ),
     pytest.param(
         np.array([[-1, -1, -1, 5, 5, 5, 5, 5, -1, -1, -1, -1, 5, 5, 5, 5, 5, -1, -1, 5, 5], [5, 5, 5, 5, 5, -1, -1, -1, 5, 5, 5, 5, -1, 5, 5, 5, 5, 5, 5, -1, -1]]),
@@ -267,7 +267,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "REGION_DISCOVERY": {"neighborhood_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "perfect_boundary_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "containment": [{"matched": 1, "internal": 1, "full_coverage": 1}, {"matched": 1, "internal": 1, "full_coverage": 1}]},
+            "REGION_DISCOVERY": {"neighborhood_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "perfect_boundary_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "containment": [{"matched": 1, "internal": 0, "full_coverage": 0}, {"matched": 1, "internal": 0, "full_coverage": 0}]},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": [1, 1], "last_sec_correct_5_prime_boundary": [1, 1], "iou_scores": [1.0, 1.0], "fuzzy_metrics": {"boundary_offsets": [(0, 0), (0, 0)], "total_gt": 2}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": [{"tp": 3, "fp": 0, "fn": 0, "tn": 3}, {"tp": 2, "fp": 0, "fn": 0, "tn": 4}]},
         },

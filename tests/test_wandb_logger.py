@@ -126,10 +126,8 @@ def test_log_benchmark_scalars_logs_only_selected_online_metrics(monkeypatch):
         "val/region_discovery/perfect_boundary_hit/recall",
         "val/region_discovery/containment/internal_rate",
         "val/region_discovery/containment/full_coverage_rate",
-        "val/struct_coherence/intron_chain/precision",
-        "val/struct_coherence/intron_chain/recall",
-        "val/struct_coherence/exon_chain/precision",
-        "val/struct_coherence/exon_chain/recall",
+        "val/struct_coherence/intron_chain/match_rate",
+        "val/struct_coherence/exon_chain/match_rate",
         "val/struct_coherence/segment_count_delta/mean",
         "val/struct_coherence/segment_count_delta/mae",
         "val/struct_coherence/exon_recall_per_transcript/mean",
@@ -213,7 +211,7 @@ def test_log_benchmark_scalars_skips_missing_splice_site_results(monkeypatch):
     logged = log_benchmark_scalars(results, BEND_LABEL_CONFIG, step=1)
 
     assert not any("splice_site" in k for k in logged)
-    assert "struct_coherence/intron_chain/precision" in logged
+    assert "struct_coherence/intron_chain/match_rate" in logged
 
 
 def test_log_benchmark_all_scalars_logs_everything(monkeypatch):

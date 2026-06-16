@@ -404,18 +404,18 @@ def _eval_indel_metrics(expected_indel, computed_indel):
             )
 
 
-def _eval_frameshift_metrics(expected_frameshift, computed_frameshift):
-    if "scopes" in computed_frameshift and "scopes" not in expected_frameshift:
-        scope_payload = _single_scope_payload(computed_frameshift)
-        computed_frameshift = {"gt_frames": np.asarray(scope_payload["frames"])}
-    _OPTIONAL_FRAMESHIFT_KEYS = {"boundary_indel_total", "boundary_indel_in_frame", "n_skipped_non_divisible", "n_skipped_short"}
-    unexpected = set(computed_frameshift.keys()) - set(expected_frameshift.keys()) - _OPTIONAL_FRAMESHIFT_KEYS
-    assert not unexpected, f"Unexpected keys in computed frameshift: {unexpected}"
-    assert set(expected_frameshift.keys()) <= set(computed_frameshift.keys()), (
-        "The keys for the frameshift metrics dont match."
+def _eval_phase_drift_metrics(expected_phase_drift, computed_phase_drift):
+    if "scopes" in computed_phase_drift and "scopes" not in expected_phase_drift:
+        scope_payload = _single_scope_payload(computed_phase_drift)
+        computed_phase_drift = {"gt_frames": np.asarray(scope_payload["frames"])}
+    _OPTIONAL_PHASE_DRIFT_KEYS = {"boundary_indel_total", "boundary_indel_in_frame", "n_skipped_non_divisible", "n_skipped_short"}
+    unexpected = set(computed_phase_drift.keys()) - set(expected_phase_drift.keys()) - _OPTIONAL_PHASE_DRIFT_KEYS
+    assert not unexpected, f"Unexpected keys in computed phase drift: {unexpected}"
+    assert set(expected_phase_drift.keys()) <= set(computed_phase_drift.keys()), (
+        "The keys for the phase-drift metrics dont match."
     )
-    for metric in expected_frameshift:
-        assert (expected_frameshift[metric] == computed_frameshift[metric]).all(), (
+    for metric in expected_phase_drift:
+        assert (expected_phase_drift[metric] == computed_phase_drift[metric]).all(), (
             "The computed frame assignment does not match the expected frame assignment."
         )
 
@@ -511,10 +511,13 @@ def _assert_metric_value_equal(expected, computed, key_name: str):
         computed = dataclasses.asdict(computed)
     if isinstance(expected, dict):
         assert isinstance(computed, dict), f"Expected dict for {key_name}, got {type(computed)}"
-        # *_stderr (random bootstrap) and DataFrame-bearing landscape artifacts
-        # are soft: not required in fixtures, only sanity-checked.
+        # *_stderr (random bootstrap), *_macro (additive equal-weight siblings)
+        # and DataFrame-bearing landscape artifacts are soft: not required in
+        # fixtures, only sanity-checked.
         def _soft(key, container):
-            return (isinstance(key, str) and key.endswith("_stderr")) or _is_landscape_artifact(container.get(key))
+            return (
+                isinstance(key, str) and (key.endswith("_stderr") or key.endswith("_macro"))
+            ) or _is_landscape_artifact(container.get(key))
 
         expected_keys = {k for k in expected if not _soft(k, expected)}
         computed_keys = {k for k in computed if not _soft(k, computed)}
@@ -594,7 +597,7 @@ _METRIC_EVAL_DISPATCH = {
     EvalMetrics.REGION_DISCOVERY: _eval_region_discovery,
     EvalMetrics.BOUNDARY_EXACTNESS: _eval_boundary_exactness,
     EvalMetrics.NUCLEOTIDE_CLASSIFICATION: _eval_nucleotide_classification,
-    EvalMetrics.PHASE_DRIFT: _eval_frameshift_metrics,
+    EvalMetrics.PHASE_DRIFT: _eval_phase_drift_metrics,
     EvalMetrics.STRUCTURAL_COHERENCE: _eval_structural_coherence,
     EvalMetrics.DIAGNOSTIC_DEPTH: _eval_diagnostic_depth,
 }

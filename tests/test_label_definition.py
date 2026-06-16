@@ -28,7 +28,7 @@ class TestLabelConfigConstruction:
         assert config.scope_tokens(BenchmarkScope.TRANSCRIPT_EXON) == frozenset({0})
         assert config.labels == {8: "NONCODING", 0: "EXON"}
         assert config.evaluation_labels == {0: "EXON"}
-        assert config.supports_frameshift is False
+        assert config.supports_phase_drift is False
 
     def test_utr_cds_minimal_config(self):
         config = LabelConfig(
@@ -58,7 +58,7 @@ class TestLabelConfigConstruction:
             0: "CDS",
             5: "THREE_PRIME_UTR",
         }
-        assert config.supports_frameshift is False
+        assert config.supports_phase_drift is False
 
     def test_optional_labels_are_included_in_labels_and_evaluation_labels(self):
         config = LabelConfig(
@@ -90,7 +90,7 @@ class TestLabelConfigConstruction:
             1: "SPLICE_DONOR",
             3: "SPLICE_ACCEPTOR",
         }
-        assert config.supports_frameshift is True
+        assert config.supports_phase_drift is True
 
     def test_name_of_returns_label_name_and_falls_back_to_token_string(self):
         assert BEND_LABEL_CONFIG.name_of(0) == "EXON"
@@ -240,7 +240,7 @@ class TestLabelConfigHelpers:
         with pytest.raises(ValueError, match="Unknown benchmark scope"):
             BEND_LABEL_CONFIG.scope_tokens("bogus")
 
-    def test_frameshift_requires_utr_cds_cds_scope(self):
+    def test_phase_drift_requires_utr_cds_cds_scope(self):
         with pytest.raises(ValueError, match="UTR_CDS_INTRON"):
             benchmark_gt_vs_pred_single(
                 gt_labels=np.array([8, 0, 0, 8]),

@@ -249,11 +249,11 @@ def _summarise_region_discovery(
         matched_neighborhood += 1
 
         # Internal / Envelop (prediction entirely INSIDE GT)
-        if p_min >= gt_min and p_max <= gt_max:
+        if p_min > gt_min and p_max < gt_max:
             matched_internal += 1
 
         # Full Coverage / Encompass (prediction fully COVERS GT)
-        if p_min <= gt_min and p_max >= gt_max:
+        if p_min < gt_min and p_max > gt_max:
             matched_full_coverage += 1
 
     return {
