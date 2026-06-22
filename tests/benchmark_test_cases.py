@@ -48,7 +48,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"5_prime_extensions": [3]}, "internal_exon": {"whole_insertions": [4], "3_prime_extensions": [2], "3_prime_deletions": [3], "5_prime_deletions": [1]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 3},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 2, "fp": 1, "fn": 1, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 3, "fn": 3, "tn": 0}, "containment": {"matched": 2, "internal": 0, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 2, "fp": 1, "fn": 1, "tn": 0}, "internal_hit": {"tp": 0, "fp": 3, "fn": 3, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 3, "fn": 3, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 3, "fn": 3, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.25, 0.5714285714285714], "fuzzy_metrics": {"boundary_offsets": [(-3, -3), (1, 2)], "total_gt": 3}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 6, "fp": 9, "fn": 6, "tn": 4}},
         },
@@ -60,7 +60,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"internal_exon": {"whole_insertions": [1], "split": [1, 1, 1, 1]}, "single_exon_gene": {"whole_insertions": [1]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 9},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 8, "fn": 2, "tn": 0}, "containment": {"matched": 3, "internal": 0, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "internal_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 1, "fp": 8, "fn": 2, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 8, "fn": 2, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 1.0], "fuzzy_metrics": {"boundary_offsets": [(0, -4), (2, -2), (4, 0), (0, -4), (2, -2), (4, 0), (0, 0)], "total_gt": 3}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 8, "fp": 2, "fn": 4, "tn": 11}},
         },
@@ -72,7 +72,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"whole_deletions": [5]}, "internal_exon": {"whole_deletions": [5]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}, "containment": {"matched": 0, "internal": 0, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}, "internal_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [], "fuzzy_metrics": {"boundary_offsets": [], "total_gt": 3}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 0, "fp": 0, "fn": 12, "tn": 13}},
         },
@@ -84,7 +84,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"single_exon_gene": {"whole_insertions": [5, 5, 2]}}},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}, "containment": {"matched": 0, "internal": 0, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}, "internal_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [], "fuzzy_metrics": {"boundary_offsets": [], "total_gt": 0}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 0, "fp": 12, "fn": 0, "tn": 13}},
         },
@@ -95,7 +95,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 4, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 3, "fn": 3, "tn": 0}, "containment": {"matched": 4, "internal": 0, "full_coverage": 1}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 4, "fp": 0, "fn": 0, "tn": 0}, "internal_hit": {"tp": 1, "fp": 3, "fn": 3, "tn": 0}, "full_coverage_hit": {"tp": 4, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 3, "fn": 3, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [0.4, 0.7142857142857143, 1.0, 0.6666666666666666], "fuzzy_metrics": {"boundary_offsets": [(-3, 0), (-1, 1), (0, 0), (0, 1)], "total_gt": 4}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 12, "fp": 6, "fn": 0, "tn": 11}},
         },
@@ -107,7 +107,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"internal_exon": {"joined": [3]}, "five_prime_terminal_exon": {"5_prime_deletions": [3]}, "three_prime_terminal_exon": {"3_prime_deletions": [2]}}},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "containment": {"matched": 1, "internal": 0, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "internal_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.125, 0.14285714285714285], "fuzzy_metrics": {"boundary_offsets": [(3, 4), (-4, -2)], "total_gt": 2}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 2, "fp": 3, "fn": 5, "tn": 0}},
         },
@@ -118,7 +118,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "containment": {"matched": 3, "internal": 0, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "internal_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 3, "fp": 0, "fn": 0, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [1.0, 1.0, 1.0], "fuzzy_metrics": {"boundary_offsets": [(0, 0), (0, 0), (0, 0)], "total_gt": 3}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 12, "fp": 0, "fn": 0, "tn": 13}},
         },
@@ -129,7 +129,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "containment": {"matched": 1, "internal": 0, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "internal_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 0, "fn": 0, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [1.0], "fuzzy_metrics": {"boundary_offsets": [(0, 0)], "total_gt": 1}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 5, "fp": 0, "fn": 0, "tn": 7}},
         },
@@ -141,7 +141,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"internal_exon": {"3_prime_deletions": [1]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "containment": {"matched": 1, "internal": 0, "full_coverage": 0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "internal_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.5], "fuzzy_metrics": {"boundary_offsets": [(0, -1)], "total_gt": 2}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 1, "fp": 0, "fn": 3, "tn": 7}},
         },
@@ -267,7 +267,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         BEND_LABEL_CONFIG,
         [EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
-            "REGION_DISCOVERY": {"neighborhood_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "perfect_boundary_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "containment": [{"matched": 1, "internal": 0, "full_coverage": 0}, {"matched": 1, "internal": 0, "full_coverage": 0}]},
+            "REGION_DISCOVERY": {"neighborhood_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "internal_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "full_coverage_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}], "perfect_boundary_hit": [{"tp": 1, "fp": 0, "fn": 0, "tn": 0}, {"tp": 1, "fp": 0, "fn": 0, "tn": 0}]},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": [1, 1], "last_sec_correct_5_prime_boundary": [1, 1], "iou_scores": [1.0, 1.0], "fuzzy_metrics": {"boundary_offsets": [(0, 0), (0, 0)], "total_gt": 2}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": [{"tp": 3, "fp": 0, "fn": 0, "tn": 3}, {"tp": 2, "fp": 0, "fn": 0, "tn": 4}]},
         },
@@ -470,7 +470,7 @@ MULTI_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"whole_deletions": [5]}, "internal_exon": {"whole_deletions": [5]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 0},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"precision": 0.0, "recall": 0.0}, "perfect_boundary_hit": {"precision": 0.0, "recall": 0.0}, "containment": {"internal_rate": None, "full_coverage_rate": None}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"precision": 0.0, "recall": 0.0}, "internal_hit": {"precision": 0.0, "recall": 0.0}, "full_coverage_hit": {"precision": 0.0, "recall": 0.0}, "perfect_boundary_hit": {"precision": 0.0, "recall": 0.0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": [0], "last_sec_correct_5_prime_boundary": [0], "iou_scores": [], "iou_stats": {"count": 0, "mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"precision": 0.0, "recall": 0.0, "f1": 0.0}},
         },
