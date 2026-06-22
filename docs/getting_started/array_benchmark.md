@@ -105,6 +105,29 @@ arrays that already carry explicit intron tokens.
 `LabelConfig` is only about array semantics. Parser choices such as `"exon"` vs
 `"CDS"` belong to the GFF/GTF pipeline arguments, not to the label config.
 
+## Optional: Position Masking
+
+You can optionally exclude certain positions from evaluation using a boolean mask:
+
+```python
+mask_labels = [
+    np.array([False, False, True, True, False, ...]),  # exclude positions 2–3
+    np.array([False, False, False, ...]),
+]
+
+results = benchmark_gt_vs_pred_multiple(
+    gt_labels=gt_arrays,
+    pred_labels=pred_arrays,
+    label_config=label_config,
+    mask_labels=mask_labels,  # True = exclude
+    metrics=[...],
+)
+```
+
+Masked positions are not counted in any metric. Use this when you want to
+exclude low-confidence regions (e.g. N-stretches in the reference) from
+scoring.
+
 ## Result Structure
 
 The aggregated result is a flat dictionary keyed by metric family. There is no

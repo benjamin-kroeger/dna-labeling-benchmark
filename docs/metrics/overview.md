@@ -39,10 +39,30 @@ detail.
 
 ## Recommended Online Subset
 
-For repeated validation during training, the current W&B integration keeps the
-online scalar set deliberately small:
+For repeated validation during training, the current W&B integration logs
+the following online scalar set per metric family:
 
-- Region Discovery precision/recall
-- Boundary Exactness IoU mean
-- Structural Coherence intron-chain precision/recall
-- Structural Coherence transcript exact-match rate
+**Boundary Exactness**
+- IoU mean
+
+**Region Discovery**
+- `neighborhood_hit` precision / recall
+- `perfect_boundary_hit` precision / recall
+- `containment` internal rate / full coverage rate
+
+**Nucleotide Classification**
+- Precision / recall / F1
+
+**Structural Coherence**
+- Intron / exon chain match rates
+- Segment count delta (mean, MAE)
+- Exon recall per transcript (mean)
+- Hallucinated exon count per transcript (mean)
+- Exact match rate
+- Splice-site donor / acceptor precision & recall (when configured)
+
+**Diagnostic Depth**
+- Length EMD (mean, MAE)
+
+Full details in {py:func}`dna_segmentation_benchmark.log_benchmark_scalars` and
+{py:func}`dna_segmentation_benchmark.log_benchmark_all_scalars`.

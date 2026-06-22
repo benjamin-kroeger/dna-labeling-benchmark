@@ -63,7 +63,7 @@ For the second case, the plotting code automatically unwraps the
 
 ## Example Output
 
-The comparison bundle includes per-method plots for boundary landscape, per-class position bias, and transition matrices.
+The comparison bundle includes per-method plots for boundary landscape, position bias, and transition matrices.
 
 **Boundary landscape:**
 

@@ -48,6 +48,8 @@ fragment already claimed a GT section in the greedy assignment.
 
 ## Containment Rates
 
+![region_discovery_containment.png](../images/region_discovery_containment.png)
+
 `containment` answers a conditional question: **among the pairs that were
 matched by the greedy 1:1 assignment, how often does the prediction satisfy a
 stricter spatial criterion?**
