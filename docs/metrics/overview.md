@@ -11,7 +11,7 @@ The public entry points are:
 
 | Family | Enum | Main question | Key outputs |
 |---|---|---|---|
-| Region Discovery | `REGION_DISCOVERY` | Did the prediction find the right sections? | Precision / recall at two detection tiers (neighborhood, perfect-boundary) plus conditional containment rates (internal, full-coverage) |
+| Region Discovery | `REGION_DISCOVERY` | Did the prediction find the right sections? | Precision / recall at four nested detection tiers (neighborhood ⊇ internal / full-coverage ⊇ perfect-boundary) |
 | Boundary Exactness | `BOUNDARY_EXACTNESS` | How accurate are the matched boundaries? | IoU distribution, boundary-residual bias/reliability landscape, terminal-boundary flags |
 | Nucleotide Classification | `NUCLEOTIDE_CLASSIFICATION` | How well does coding vs non-coding separate per base? | Precision / recall / F1 from the nucleotide confusion matrix |
 | Structural Coherence | `STRUCTURAL_COHERENCE` | Is the transcript chain correct as a whole? | Intron/exon chain P/R (strict, subset, superset), transcript match classes, boundary shift distribution, segment count delta, soft exon recall and hallucinated-exon count, donor/acceptor splice-site confusion and P/R (when splice labels are configured) |
@@ -47,8 +47,9 @@ the following online scalar set per metric family:
 
 **Region Discovery**
 - `neighborhood_hit` precision / recall
+- `internal_hit` precision / recall
+- `full_coverage_hit` precision / recall
 - `perfect_boundary_hit` precision / recall
-- `containment` internal rate / full coverage rate
 
 **Nucleotide Classification**
 - Precision / recall / F1

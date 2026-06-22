@@ -67,9 +67,7 @@ follow `[<method_prefix>/]<group>/<leaf>`, and a group only appears if its
 metric was in the result:
 
 - `boundary_exactness/iou_mean`
-- `region_discovery/neighborhood_hit/{precision,recall}`,
-  `region_discovery/perfect_boundary_hit/{precision,recall}`,
-  `region_discovery/containment/{internal_rate,full_coverage_rate}`
+- `region_discovery/{neighborhood_hit,internal_hit,full_coverage_hit,perfect_boundary_hit}/{precision,recall}`
 - `nucleotide_classification/nucleotide/{precision,recall,f1}`
 - `struct_coherence/intron_chain/match_rate`,
   `struct_coherence/exon_chain/match_rate`

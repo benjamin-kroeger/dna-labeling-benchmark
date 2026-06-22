@@ -234,8 +234,8 @@ def _summarise_region_discovery(
     num_unmatched_pred = total_pred - len(matches)
 
     matched_neighborhood = 0  # All matches have overlap by definition
-    matched_internal = 0  # Pred entirely inside GT
-    matched_full_coverage = 0  # Pred fully covers GT
+    matched_internal = 0  # Pred contained in GT (pred ⊆ GT), inclusive of exact
+    matched_full_coverage = 0  # Pred spans GT (pred ⊇ GT), inclusive of exact
 
     for g_idx, p_idx in matches:
         gt_section = grouped_gt_section_indices[g_idx]
@@ -248,20 +248,36 @@ def _summarise_region_discovery(
         # Every matched pair has overlap → neighborhood TP
         matched_neighborhood += 1
 
-        # Internal / Envelop (prediction entirely INSIDE GT)
-        if p_min > gt_min and p_max < gt_max:
+        # Internal / containment (prediction lies within GT, pred ⊆ GT).
+        # Inclusive of an exact match so the discovery tiers nest:
+        # perfect ⊆ {internal, full_coverage} ⊆ neighborhood.
+        if p_min >= gt_min and p_max <= gt_max:
             matched_internal += 1
 
-        # Full Coverage / Encompass (prediction fully COVERS GT)
-        if p_min < gt_min and p_max > gt_max:
+        # Full coverage (prediction spans GT, pred ⊇ GT), inclusive of exact.
+        if p_min <= gt_min and p_max >= gt_max:
             matched_full_coverage += 1
 
     return {
-        # 1:1-matched detection contingency table
+        # 1:1-matched detection contingency tables. Each tier hardens its FP to
+        # ``total_pred − that-tier's hits`` (the same rule perfect_boundary_hit
+        # uses): a matched pair that fails the tier's spatial test is booked as
+        # both an FP (the prediction is not a hit) and an FN (the GT is not
+        # hit), so TP+FP = total_pred and TP+FN = total_gt close for every tier.
         "neighborhood_hit": Counts(
             tp=matched_neighborhood,
             fn=total_gt - matched_neighborhood,
             fp=num_unmatched_pred,
+        ),
+        "internal_hit": Counts(
+            tp=matched_internal,
+            fn=total_gt - matched_internal,
+            fp=total_pred - matched_internal,
+        ),
+        "full_coverage_hit": Counts(
+            tp=matched_full_coverage,
+            fn=total_gt - matched_full_coverage,
+            fp=total_pred - matched_full_coverage,
         ),
         # Sweep-based (no 1:1 matching) — handles fragmented predictions well
         "perfect_boundary_hit": Counts(
@@ -269,13 +285,4 @@ def _summarise_region_discovery(
             fn=int(total_gt - np.sum(gt_hit_strict)),
             fp=int(total_pred - np.sum(pred_hit_strict)),
         ),
-        # Conditional containment counts among matched pairs (not P/R).
-        # internal: prediction is entirely inside GT boundary.
-        # full_coverage: prediction fully covers GT boundary.
-        # Denominatr is matched (= neighborhood TP); rates are computed at summarise time.
-        "containment": {
-            "matched": matched_neighborhood,
-            "internal": matched_internal,
-            "full_coverage": matched_full_coverage,
-        },
     }

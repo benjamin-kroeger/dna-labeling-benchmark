@@ -130,11 +130,10 @@ def benchmark_gt_vs_pred_single(
         path reduces these to precision/recall and distribution statistics.
         Per group (raw fragment → aggregated form):
 
-        * ``REGION_DISCOVERY`` — ``neighborhood_hit`` and
-          ``perfect_boundary_hit`` (``tp/fp/fn`` bundles →
-          ``precision``/``recall``/``*_stderr``) and ``containment``
-          (``matched``/``internal``/``full_coverage`` counts →
-          ``internal_rate``/``full_coverage_rate``).
+        * ``REGION_DISCOVERY`` — the nested discovery tiers
+          ``neighborhood_hit`` ⊇ {``internal_hit``, ``full_coverage_hit``} ⊇
+          ``perfect_boundary_hit``, each a ``tp/fp/fn`` bundle →
+          ``precision``/``recall``/``*_stderr``.
         * ``BOUNDARY_EXACTNESS`` — ``first_sec_correct_3_prime_boundary``,
           ``last_sec_correct_5_prime_boundary``, ``iou_scores``
           (→ ``iou_stats``) and ``fuzzy_metrics`` (signed

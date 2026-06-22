@@ -74,10 +74,12 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
     "REGION_DISCOVERY": {
         "neighborhood_hit/precision": ("neighborhood_hit", "precision"),
         "neighborhood_hit/recall": ("neighborhood_hit", "recall"),
+        "internal_hit/precision": ("internal_hit", "precision"),
+        "internal_hit/recall": ("internal_hit", "recall"),
+        "full_coverage_hit/precision": ("full_coverage_hit", "precision"),
+        "full_coverage_hit/recall": ("full_coverage_hit", "recall"),
         "perfect_boundary_hit/precision": ("perfect_boundary_hit", "precision"),
         "perfect_boundary_hit/recall": ("perfect_boundary_hit", "recall"),
-        "containment/internal_rate": ("containment", "internal_rate"),
-        "containment/full_coverage_rate": ("containment", "full_coverage_rate"),
     },
     "NUCLEOTIDE_CLASSIFICATION": {
         "nucleotide/precision": ("nucleotide", "precision"),

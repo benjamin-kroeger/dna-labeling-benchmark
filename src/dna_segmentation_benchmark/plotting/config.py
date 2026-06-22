@@ -36,8 +36,7 @@ class PlotMetadata:
         Path to a PNG icon.  ``None`` means no icon yet.
     secondary_icon_path : Path | Traversable | None
         Optional second PNG icon.  When set, it is rendered beside
-        ``icon_path`` (used by plots that compare two spatial relations,
-        e.g. containment's internal vs. full-coverage pictograms).
+        ``icon_path`` (for plots that pair two pictograms in one panel).
     description : str
         Short paragraph explaining what the plot shows.
     bullet_points : tuple[str, ...] | None
@@ -120,23 +119,29 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         fp_definition="Predicted section not matched to any GT section",
         fn_definition="GT section not matched to any prediction",
     ),
-    "containment": PlotMetadata(
-        display_name="Containment Rates (among matched pairs)",
+    "internal_hit": PlotMetadata(
+        display_name="Internal Hit Metrics",
         icon_path=ICON_PATH / "internal.png",
-        secondary_icon_path=ICON_PATH / "full_coverage.png",
-        description="Among neighborhood-matched (GT, prediction) pairs, what fraction meet a "
-        "stricter spatial relation? Conditional rates over matched pairs (denominator = "
-        "neighborhood_hit TP count), NOT precision/recall.",
-        bullet_points=(
-            "internal_rate (top icon): predicted section lies fully within its matched GT "
-            "(pred ⊆ GT) — a nested / under-extended call.",
-            "full_coverage_rate (bottom icon): predicted section fully spans its matched GT "
-            "(pred ⊇ GT) — an enveloping / over-extended call.",
-            "Exact-boundary pairs count in neither rate (captured by perfect_boundary_hit); "
-            "a pair satisfies one or neither.",
-            "Error bars: bootstrap standard error over sequences.",
-        ),
-        show_tp_tn_fp_fn=False,
+        description="Is the predicted section contained within its matched GT section "
+        "(pred ⊆ GT, inclusive of an exact match)? Uses 1:1 greedy matching; the FP is "
+        "hardened so a matched pair that over-extends past the GT is booked as both FP and FN.",
+        show_tp_tn_fp_fn=True,
+        tp_definition="Matched prediction lies within its GT section (pred ⊆ GT)",
+        tn_definition="N/A",
+        fp_definition="Prediction not contained in its matched GT (over-extends, or unmatched)",
+        fn_definition="GT section whose matched prediction is not contained (or unmatched)",
+    ),
+    "full_coverage_hit": PlotMetadata(
+        display_name="Full Coverage Hit Metrics",
+        icon_path=ICON_PATH / "full_coverage.png",
+        description="Does the predicted section fully span its matched GT section "
+        "(pred ⊇ GT, inclusive of an exact match)? Uses 1:1 greedy matching; the FP is "
+        "hardened so a matched pair that falls short of the GT is booked as both FP and FN.",
+        show_tp_tn_fp_fn=True,
+        tp_definition="Matched prediction fully spans its GT section (pred ⊇ GT)",
+        tn_definition="N/A",
+        fp_definition="Prediction does not cover its matched GT (falls short, or unmatched)",
+        fn_definition="GT section whose matched prediction does not cover it (or unmatched)",
     ),
     "perfect_boundary_hit": PlotMetadata(
         display_name="Perfect Boundary Hit Metrics",
