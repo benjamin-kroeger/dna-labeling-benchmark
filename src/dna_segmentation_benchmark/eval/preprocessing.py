@@ -51,13 +51,26 @@ def _infer_introns_from_coding_gaps(
     representation produced by exon/CDS painting, where exons are explicit
     positive runs and introns are the unlabeled gaps between them.
 
-    For large arrays, defined by
-    :data:`_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH`, the function emits a
-    warning and applies a conservative gap-length cutoff.  Chromosome-sized
-    arrays can contain both true introns and intergenic distances between
-    separate transcripts; blindly filling every gap would turn intergenic
-    regions into introns.  The cutoff is estimated from the coding-gap length
-    distribution by :func:`_large_array_inferable_gap_cutoff`.
+    For large arrays (length ≥
+    :data:`_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH`, i.e. ``1_000_000`` bp),
+    the function emits a warning and applies a conservative gap-length cutoff.
+    Chromosome-sized arrays can contain both true introns and intergenic
+    distances between separate transcripts; blindly filling every gap would turn
+    intergenic regions into introns.  The cutoff is estimated from the
+    coding-gap length distribution by :func:`_large_array_inferable_gap_cutoff`
+    using two heuristic thresholds:
+
+    * :data:`_INFER_INTRONS_BIMODAL_MIN_JUMP_RATIO` (``5.0``) — the minimum
+      multiplicative jump between consecutive sorted gap lengths needed to treat
+      the distribution as bimodal (short intron-like vs long intergenic-like).
+      When such a split exists, gaps below it are inferred as introns.
+    * :data:`_INFER_INTRONS_LARGE_GAP_RATIO` (``20``) — fallback when no clear
+      bimodal split is found: infer gaps up to this multiple of a typical short
+      gap.
+
+    These thresholds are heuristics, not tuned constants.  On chromosome-scale
+    input, inspect the returned array (or prefer transcript/window-level arrays
+    or explicit intron labels) rather than trusting the inference blindly.
 
     Parameters
     ----------

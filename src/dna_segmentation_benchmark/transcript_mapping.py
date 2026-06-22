@@ -89,6 +89,14 @@ class LocusMatchingMode(str, Enum):
         evaluation.
 
         Use this mode for single-transcript tools (Augustus, …).
+
+        Caveat — per-transcript denominator: GT loci where the predictor emits
+        nothing are dropped from the per-transcript metrics entirely (they are
+        not counted as misses there). The global file-level metrics
+        (:func:`compute_global_metrics`) still count them, so per-transcript
+        precision/recall can read optimistically for skip-prone tools relative
+        to the global numbers. ``benchmark_from_gff`` logs the dropped-locus
+        count per predictor; pair the per-transcript and global views.
     """
 
     FULL_DISCOVERY = "full_discovery"

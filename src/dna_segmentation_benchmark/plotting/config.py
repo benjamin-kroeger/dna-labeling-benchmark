@@ -158,12 +158,12 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     "iou_average": PlotMetadata(
         display_name="Average IoU",
         icon_path=ICON_PATH / "iou.png",
-        description="Mean Intersection-over-Union across all overlapping (GT, prediction) section pairs.",
+        description="Mean Intersection-over-Union across the greedy 1:1-matched (GT, prediction) section pairs.",
     ),
     "iou_distribution": PlotMetadata(
         display_name="IoU Distribution",
         icon_path=ICON_PATH / "iou.png",
-        description="Distribution of per-section IoU scores across all overlapping pairs.",
+        description="Distribution of per-section IoU scores across the matched pairs.",
     ),
     "boundary_landscape": PlotMetadata(
         display_name="Boundary Bias and cumulative Recall",

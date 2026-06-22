@@ -16,19 +16,19 @@ The public entry points are:
 | Nucleotide Classification | `NUCLEOTIDE_CLASSIFICATION` | How well does coding vs non-coding separate per base? | Precision / recall / F1 from the nucleotide confusion matrix |
 | Structural Coherence | `STRUCTURAL_COHERENCE` | Is the transcript chain correct as a whole? | Intron/exon chain P/R (strict, subset, superset), transcript match classes, boundary shift distribution, segment count delta, soft exon recall and hallucinated-exon count, donor/acceptor splice-site confusion and P/R (when splice labels are configured) |
 | Diagnostic Depth | `DIAGNOSTIC_DEPTH` | Where and how severely does the prediction fail structurally? | Segment-length EMD, 100-bin position bias histogram over the coding span |
-| Transition Analysis | *always on* — no enum | Where do label changes fail or appear spuriously? | GT transition confusion matrices, false-transition counts (premature, late, spurious) |
+| Transition Analysis | `STATE_TRANSITIONS` | Where do label changes fail or appear spuriously? | GT transition confusion matrices, false-transition counts (premature, late, spurious) |
 | INDEL | `INDEL` | What structural mismatch types occur? | Categorised mismatch groups (5′/3′ extensions, whole insertions/deletions, splits, joins) |
 | Phase Drift | `PHASE_DRIFT` | Does the prediction stay in step by coding-base count where GT and prediction overlap? | Per-position coding-phase drift (modulo 3) |
 
-### A note on "always available"
+### A note on Transition Analysis
 
-Transition Analysis has no entry in
-{py:class}`~dna_segmentation_benchmark.EvalMetrics`. Its outputs
-(`transition_failures` and `false_transitions`) are computed and
-emitted unconditionally on every benchmarking call so that the
-plotting layer can always show a confusion-matrix view, even when no
-explicit enum was passed. To opt out, drop the corresponding figures
-on the consumer side rather than the eval side.
+Transition Analysis is requested via
+{py:attr}`~dna_segmentation_benchmark.EvalMetrics.STATE_TRANSITIONS`. It is kept
+in the default metric set (`_DEFAULT_METRICS`) so its outputs
+(`transition_failures` and `false_transitions`) are emitted — and the plotting
+layer can show a confusion-matrix view — without an explicit request. To skip
+the pass entirely, pass an explicit `metrics` list that omits
+`STATE_TRANSITIONS`.
 
 ## Cross-cutting conventions
 

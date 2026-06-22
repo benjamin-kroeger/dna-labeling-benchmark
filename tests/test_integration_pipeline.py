@@ -67,6 +67,23 @@ def test_pipeline_runs_end_to_end_gencode_vs_augustus(gencode_gtf, augustus_gff,
     assert results["augustus"]["aggregated"]["REGION_DISCOVERY"]["neighborhood_hit"]["recall"] == pytest.approx(1.0)
 
 
+def test_default_exon_intron_factory_runs_end_to_end(gencode_gtf, augustus_gff):
+    """LabelConfig.default_exon_intron() drives the GFF pipeline with no manual tokens."""
+    from dna_segmentation_benchmark.label_definition import LabelConfig
+
+    results = benchmark_from_gff(
+        gt_path=gencode_gtf,
+        pred_paths={"augustus": augustus_gff},
+        label_config=LabelConfig.default_exon_intron(),
+        metrics=[EvalMetrics.NUCLEOTIDE_CLASSIFICATION, EvalMetrics.REGION_DISCOVERY],
+        locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
+        infer_introns=True,
+    )
+
+    assert set(results["augustus"]) == {"aggregated", "global"}
+    assert results["augustus"]["aggregated"]["metadata"]["annotation_mode"] == "EXON_INTRON"
+
+
 def test_full_discovery_penalises_hallucinated_prediction(gencode_gtf, augustus_gff, exon_intron_config):
     """The unmatched Augustus gene (g4) becomes a false positive under FULL_DISCOVERY."""
     results = benchmark_from_gff(

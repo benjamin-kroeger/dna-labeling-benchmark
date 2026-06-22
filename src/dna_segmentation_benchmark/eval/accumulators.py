@@ -45,7 +45,11 @@ def _coerce_counts(value) -> Counts:
 
 @dataclass
 class TransitionsAccumulator:
-    """Sums the always-on state-transition matrices and stable-position counts."""
+    """Sums the state-transition matrices and stable-position counts.
+
+    No-ops when the fragment lacks transition keys (i.e. when
+    ``EvalMetrics.STATE_TRANSITIONS`` was not requested).
+    """
 
     failures: dict = field(default_factory=dict)
     late: dict = field(default_factory=dict)

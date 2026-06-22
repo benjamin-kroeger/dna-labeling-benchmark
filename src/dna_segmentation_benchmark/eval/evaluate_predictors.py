@@ -13,9 +13,11 @@ annotations with predictions and dispatch to the per-metric modules:
 * **DIAGNOSTIC_DEPTH** — :mod:`structural_summary`
 
 The state-transition diagnostics (``transition_failures`` /
-``false_transitions``) are **always computed**, independently of the requested
-``metrics`` frozenset — they back the transition-matrix plots that frame every
-other metric.  Every other metric group is opt-in via ``metrics``.
+``false_transitions``) are opt-in via ``EvalMetrics.STATE_TRANSITIONS``.  They
+remain in the default metric set (``_DEFAULT_METRICS``) so the transition-matrix
+plots that frame every other metric still render by default; pass an explicit
+``metrics`` list without ``STATE_TRANSITIONS`` to skip the pass.  Every metric
+group is opt-in via ``metrics``.
 
 Input preprocessing (intron inference, mask splitting) lives in
 :mod:`preprocessing`; cross-sequence accumulation and reduction live in
@@ -121,9 +123,11 @@ def benchmark_gt_vs_pred_single(
     dict
         Result keyed by metric-group name — the ``.name`` string of each
         requested :class:`EvalMetrics` member (e.g.
-        ``EvalMetrics.PHASE_DRIFT`` → ``"PHASE_DRIFT"``) — plus the always-on
-        transition keys ``"transition_failures"`` and ``"false_transitions"``
-        (see :func:`_eval_transitions`) and a ``"metadata"`` entry.
+        ``EvalMetrics.PHASE_DRIFT`` → ``"PHASE_DRIFT"``).  When
+        ``EvalMetrics.STATE_TRANSITIONS`` is requested (it is in the default
+        set), the transition keys ``"transition_failures"`` and
+        ``"false_transitions"`` are added (see :func:`_eval_transitions`).  A
+        ``"metadata"`` entry is always present.
 
         This single-sequence entry point returns the **raw per-sequence
         fragment**; the aggregating :func:`benchmark_gt_vs_pred_multiple`
@@ -233,8 +237,10 @@ def _benchmark_chunk(
     arr = np.stack((gt_labels, pred_labels), axis=0)
 
     metric_results: dict[str, dict] = {}
-    # Transition diagnostics are always-on (not gated on `metrics`); see module docstring.
-    metric_results.update(_eval_transitions(arr, label_config))
+    # Transition diagnostics are opt-in via EvalMetrics.STATE_TRANSITIONS (kept in
+    # the default metric set so plots still render unless explicitly excluded).
+    if EvalMetrics.STATE_TRANSITIONS in metrics:
+        metric_results.update(_eval_transitions(arr, label_config))
 
     scope = label_config.evaluation_scope
     gt_mask = resolve_scope_mask(gt_labels, scope, label_config)
@@ -301,7 +307,7 @@ def _benchmark_chunk(
 
 
 def _eval_transitions(arr: np.ndarray, label_config: LabelConfig) -> dict:
-    """Return the always-on state-transition diagnostic fragments."""
+    """Return the state-transition diagnostic fragments (opt-in via metrics)."""
     transition_analysis = compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
     return {
         "transition_failures": transition_analysis.gt_transition_matrices,

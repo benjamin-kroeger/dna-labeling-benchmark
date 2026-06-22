@@ -602,3 +602,28 @@ _METRIC_EVAL_DISPATCH = {
     EvalMetrics.DIAGNOSTIC_DEPTH: _eval_diagnostic_depth,
 }
 
+
+
+def test_boundary_offsets_are_matched_pairs_not_overlapping_pairs():
+    """One prediction spanning two GT sections yields one residual, not two.
+
+    Regression guard for the boundary-landscape inflation fix: offsets/IoU are
+    collected over the greedy 1:1-matched pairs, so a prediction that overlaps
+    several GT sections contributes a single residual.
+    """
+    gt = np.array([0, 0, 0, 2, 2, 0, 0, 0, 8, 8])      # exon (0,2) + exon (5,7)
+    pred = np.array([0, 0, 0, 0, 0, 0, 0, 0, 8, 8])    # one exon (0,7) spanning both
+
+    result = benchmark_gt_vs_pred_single(
+        gt_labels=gt,
+        pred_labels=pred,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.REGION_DISCOVERY],
+    )
+
+    offsets = result["BOUNDARY_EXACTNESS"]["fuzzy_metrics"]["boundary_offsets"]
+    ious = result["BOUNDARY_EXACTNESS"]["iou_scores"]
+    # Two GT sections overlap the single prediction, but only one pair is matched.
+    n_matched = result["REGION_DISCOVERY"]["neighborhood_hit"].tp
+    assert n_matched == 1
+    assert len(offsets) == n_matched == len(ious)

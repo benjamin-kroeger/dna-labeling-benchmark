@@ -248,3 +248,23 @@ class TestLabelConfigHelpers:
                 label_config=BEND_LABEL_CONFIG,
                 metrics=[EvalMetrics.PHASE_DRIFT],
             )
+
+
+class TestDefaultFactories:
+    def test_default_exon_intron_matches_bend(self):
+        """The EXON_INTRON factory reproduces the canonical BEND scheme."""
+        config = LabelConfig.default_exon_intron()
+        assert config == BEND_LABEL_CONFIG
+        assert config.available_scopes() == (BenchmarkScope.TRANSCRIPT_EXON,)
+
+    def test_default_utr_cds_intron_tokens_and_scopes(self):
+        config = LabelConfig.default_utr_cds_intron()
+        assert config.annotation_mode is AnnotationMode.UTR_CDS_INTRON
+        assert config.cds_label == 0
+        assert config.five_prime_utr_label == 4
+        assert config.three_prime_utr_label == 5
+        # CDS scope is available (precondition for PHASE_DRIFT once selected).
+        assert BenchmarkScope.CDS in config.available_scopes()
+        # All configured tokens are distinct (validators ran without error).
+        tokens = [t for t, _ in config._configured_labels()]
+        assert len(tokens) == len(set(tokens))

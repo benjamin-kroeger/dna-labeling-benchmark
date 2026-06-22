@@ -6,6 +6,8 @@ Diagnostic evaluation toolkit for nucleotide-level DNA segmentation models (gene
 
 Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **strict intron chain plus per-transcript soft exon distributions**, **transcript match classification**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
 
+For continuity with existing tooling, the GFF pipeline also reports a **gffcompare-compatible baseline layer** (nucleotide / exon / transcript / gene sensitivity & precision) under each predictor's `global` results; the diagnostics above are the value this toolkit adds on top of that baseline.
+
 ```
 pip install dna-segmentation-benchmark
 ```
@@ -90,7 +92,8 @@ Generate a starter `label_config.yaml` with `dna-benchmark init-config`
 
 ## Metrics
 
-Seven metric groups, each answering a distinct question about prediction quality:
+Seven scored metric groups, each answering a distinct question about prediction
+quality (plus opt-in `STATE_TRANSITIONS`, described below):
 
 | Group | Question |
 |-------|----------|
@@ -114,20 +117,27 @@ Per-base TP/TN/FP/FN with precision, recall, and F1. The most basic metric -- tr
 
 ### Region Discovery
 
-Evaluates section-level detection and boundary quality using greedy 1:1 matching by overlap length:
+Evaluates section-level detection using greedy 1:1 matching by overlap length.
+Four **coherent precision/recall tiers** nested by strictness:
 
-| Output | Type | Meaning |
-|--------|------|---------|
+| Tier | Type | Meaning |
+|------|------|---------|
 | `neighborhood_hit` | precision / recall | Detected the region at all (any overlap) |
+| `internal_hit` | precision / recall | Matched pair where prediction lies inside GT (pred ⊆ GT) |
+| `full_coverage_hit` | precision / recall | Matched pair where prediction spans GT (pred ⊇ GT) |
 | `perfect_boundary_hit` | precision / recall | Exact boundary match (sweep-based, no 1:1 constraint) |
-| `containment.internal_rate` | conditional rate | Among matched pairs, fraction where prediction lies inside GT |
-| `containment.full_coverage_rate` | conditional rate | Among matched pairs, fraction where prediction fully covers GT |
 
-`neighborhood_hit` and `perfect_boundary_hit` are coherent confusion tables.
-The containment rates are conditional on detection (denominator = `neighborhood_hit` TP)
-and are explicitly rates, not precision/recall.
+The tiers nest: `neighborhood_hit` ⊇ {`internal_hit`, `full_coverage_hit`} ⊇
+`perfect_boundary_hit`. Each is a coherent confusion table — every tier hardens
+its FP so `TP + FP = total predictions` and `TP + FN = total GT` — so all four are
+reported as plain precision/recall. The `internal_hit` vs `full_coverage_hit` split
+gives the direction of the boundary error (under- vs over-extension).
 
 ![Region discovery - neighborhood](docs/images/region_discovery_neighborhood_hit.png)
+
+![Region discovery - internal containment](docs/images/region_discovery_internal_hit.png)
+
+![Region discovery - full coverage](docs/images/region_discovery_full_coverage_hit.png)
 
 ![Region discovery - perfect boundary](docs/images/region_discovery_perfect_boundary_hit.png)
 
@@ -252,9 +262,10 @@ rather than aborting the run.
 
 ---
 
-### State Transitions (always computed)
+### State Transitions
 
-Two analyses run on every benchmark call:
+Requested via `EvalMetrics.STATE_TRANSITIONS` (included in the default metric set,
+so it runs unless you pass an explicit `metrics` list that omits it). Two analyses:
 
 - **GT Transition Confusion Matrices**: At every position where GT changes label, what did the predictor do? One heatmap per source label.
 - **False Transition Analysis**: At positions where GT is stable (no label change), did the predictor introduce a spurious transition? Each false transition is classified into *late-catchup*, *premature*, or *spurious* using lookbehind/lookahead context.
@@ -299,6 +310,15 @@ anatomy_config = LabelConfig(
     splice_donor_label=1,
     splice_acceptor_label=3,
 )
+```
+
+The integer tokens are an internal array-encoding detail. If you are working
+from GFF/GTF files and don't care about the specific integers, use the canonical
+defaults instead of assigning them by hand:
+
+```python
+exon_config   = LabelConfig.default_exon_intron()      # same scheme as BEND_LABEL_CONFIG
+anatomy_config = LabelConfig.default_utr_cds_intron()  # explicit UTR/CDS/intron/splice tokens
 ```
 
 The mode also fixes the **evaluation scope**. Per-transcript metrics run on the

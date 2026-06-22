@@ -67,6 +67,12 @@ def _analyze_section_overlap_and_boundaries(
     that exactly matches *some* GT section counts as a TP regardless of
     matching assignment.
 
+    ``boundary_offsets`` and ``iou_scores`` are collected over the **same
+    greedy 1:1-matched pairs** as region discovery — one record per matched
+    pair, not per overlapping pair — so a prediction overlapping several GT
+    sections contributes a single residual and does not inflate the
+    bias/reliability landscape.
+
     Two terminal-boundary flags are also collected:
 
     * ``first_sec_correct_3_prime_boundary`` — set to 1 iff *some*
@@ -104,7 +110,9 @@ def _analyze_section_overlap_and_boundaries(
     first_sec_correct_3_prime = 0
     last_sec_correct_5_prime = 0
 
-    # Overlap candidates for 1:1 matching
+    # Overlap candidates for 1:1 matching, shared by region discovery and the
+    # matched-pair boundary-offset/IoU collection below.
+    need_candidates = need_region_discovery or need_boundary_stats
     candidates: list[tuple[int, int, int]] = []  # (overlap_len, g_idx, p_idx)
 
     # ---- 1. Sweep — collect candidates & populate sweep-based metrics -----
@@ -130,24 +138,9 @@ def _analyze_section_overlap_and_boundaries(
                 p_min = int(pred_mins[p_idx])
                 p_max = int(pred_maxs[p_idx])
 
-                # --- A. Overlap (Any contact) ---
+                # --- A. Overlap (Any contact) → candidate for 1:1 matching ---
                 if not (p_max < gt_min or p_min > gt_max):
-                    if need_boundary_stats:
-                        # Signed boundary offsets + IoU for every overlapping pair.
-                        # Offset = pred_edge - gt_edge, so a positive value means the
-                        # prediction's edge sits to the right (3') of the GT edge.
-                        boundary_offsets.append((p_min - gt_min, p_max - gt_max))
-                        iou_scores.append(
-                            _compute_intersection_over_union_score(
-                                gt_start=gt_min,
-                                gt_end=gt_max,
-                                pred_start=p_min,
-                                pred_end=p_max,
-                            )
-                        )
-
-                    if need_region_discovery:
-                        # Collect candidate (overlap length + indices) for 1:1 matching
+                    if need_candidates:
                         overlap_len = min(gt_max, p_max) - max(gt_min, p_min) + 1
                         candidates.append((overlap_len, g_idx, p_idx))
 
@@ -163,10 +156,37 @@ def _analyze_section_overlap_and_boundaries(
                     if g_idx == total_gt - 1 and p_min == gt_min:
                         last_sec_correct_5_prime = 1
 
+    # ---- 2. Greedy 1:1 matching (shared by both consumers) ----------------
+    matches = _greedy_match(candidates) if need_candidates else []
+
+    # ---- 3. Boundary offsets + IoU over MATCHED pairs only ----------------
+    # Collecting these only for the greedy-matched pairs (rather than every
+    # overlapping pair) keeps the bias/reliability landscape from being inflated
+    # when one prediction overlaps several GT sections.
+    if need_boundary_stats:
+        # Array order (ascending GT index) so the residual list reads
+        # left-to-right and is independent of greedy claim order.
+        for g_idx, p_idx in sorted(matches):
+            gt_min = int(grouped_gt_section_indices[g_idx][0])
+            gt_max = int(grouped_gt_section_indices[g_idx][-1])
+            p_min = int(grouped_pred_section_indices[p_idx][0])
+            p_max = int(grouped_pred_section_indices[p_idx][-1])
+            # Offset = pred_edge - gt_edge, so a positive value means the
+            # prediction's edge sits to the right (3') of the GT edge.
+            boundary_offsets.append((p_min - gt_min, p_max - gt_max))
+            iou_scores.append(
+                _compute_intersection_over_union_score(
+                    gt_start=gt_min,
+                    gt_end=gt_max,
+                    pred_start=p_min,
+                    pred_end=p_max,
+                )
+            )
+
     region_data: dict | None = None
     if need_region_discovery:
         region_data = _summarise_region_discovery(
-            candidates=candidates,
+            matches=matches,
             grouped_gt_section_indices=grouped_gt_section_indices,
             grouped_pred_section_indices=grouped_pred_section_indices,
             total_gt=total_gt,
@@ -193,21 +213,13 @@ def _analyze_section_overlap_and_boundaries(
     return region_data, boundary_data
 
 
-def _summarise_region_discovery(
-        candidates: list[tuple[int, int, int]],
-        grouped_gt_section_indices: list[np.ndarray],
-        grouped_pred_section_indices: list[np.ndarray],
-        total_gt: int,
-        total_pred: int,
-        gt_hit_strict: np.ndarray,
-        pred_hit_strict: np.ndarray,
-) -> dict:
-    """Greedy 1:1 match the overlap candidates and classify discovery tiers.
+def _greedy_match(candidates: list[tuple[int, int, int]]) -> list[tuple[int, int]]:
+    """Greedy largest-overlap-first 1:1 matching of overlap candidates.
 
-    Candidates are claimed largest-overlap-first so each GT/pred section is
-    paired with its best fit; unmatched predictions become false positives.
-    ``perfect_boundary_hit`` is taken from the strict-match sweep instead and
-    does not depend on the 1:1 assignment.
+    Each candidate is ``(overlap_len, g_idx, p_idx)``.  Pairs are claimed
+    best-fit-first so each GT and pred section is matched at most once.  Shared
+    by region discovery and the boundary-exactness offset/IoU collection so both
+    describe the *same* matched pairs.
 
     Note on matching guarantees: this section-level matching is **greedy**,
     whereas the transcript-level assignment in
@@ -218,19 +230,36 @@ def _summarise_region_discovery(
     the simpler greedy pass is used here; the optimal solver is reserved for
     the multi-isoform transcript layer where it matters.
     """
-    candidates.sort(key=lambda x: x[0], reverse=True)
-
     claimed_gt: set[int] = set()
     claimed_pred: set[int] = set()
     matches: list[tuple[int, int]] = []  # (g_idx, p_idx)
 
-    for _overlap_len, g_idx, p_idx in candidates:
+    for _overlap_len, g_idx, p_idx in sorted(candidates, key=lambda x: x[0], reverse=True):
         # Best fits come first, so claim the GT/pred pair greedily.
         if g_idx not in claimed_gt and p_idx not in claimed_pred:
             claimed_gt.add(g_idx)
             claimed_pred.add(p_idx)
             matches.append((g_idx, p_idx))
 
+    return matches
+
+
+def _summarise_region_discovery(
+        matches: list[tuple[int, int]],
+        grouped_gt_section_indices: list[np.ndarray],
+        grouped_pred_section_indices: list[np.ndarray],
+        total_gt: int,
+        total_pred: int,
+        gt_hit_strict: np.ndarray,
+        pred_hit_strict: np.ndarray,
+) -> dict:
+    """Classify discovery tiers from the greedy 1:1-matched pairs.
+
+    *matches* is the shared :func:`_greedy_match` output (each GT/pred section
+    paired with its best fit); unmatched predictions become false positives.
+    ``perfect_boundary_hit`` is taken from the strict-match sweep instead and
+    does not depend on the 1:1 assignment.
+    """
     num_unmatched_pred = total_pred - len(matches)
 
     matched_neighborhood = 0  # All matches have overlap by definition

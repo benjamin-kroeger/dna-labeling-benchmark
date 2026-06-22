@@ -61,7 +61,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "INDEL": {"by_boundary": {"internal_exon": {"whole_insertions": [1], "split": [1, 1, 1, 1]}, "single_exon_gene": {"whole_insertions": [1]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 9},
             "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "internal_hit": {"tp": 3, "fp": 6, "fn": 0, "tn": 0}, "full_coverage_hit": {"tp": 1, "fp": 8, "fn": 2, "tn": 0}, "perfect_boundary_hit": {"tp": 1, "fp": 8, "fn": 2, "tn": 0}},
-            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 1.0], "fuzzy_metrics": {"boundary_offsets": [(0, -4), (2, -2), (4, 0), (0, -4), (2, -2), (4, 0), (0, 0)], "total_gt": 3}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 1, "last_sec_correct_5_prime_boundary": 1, "iou_scores": [0.2, 0.2, 1.0], "fuzzy_metrics": {"boundary_offsets": [(0, -4), (0, -4), (0, 0)], "total_gt": 3}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 8, "fp": 2, "fn": 4, "tn": 11}},
         },
         id='uncertain_predictions',
@@ -108,7 +108,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         {
             "INDEL": {"by_boundary": {"internal_exon": {"joined": [3]}, "five_prime_terminal_exon": {"5_prime_deletions": [3]}, "three_prime_terminal_exon": {"3_prime_deletions": [2]}}},
             "REGION_DISCOVERY": {"neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0}, "internal_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "full_coverage_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}, "perfect_boundary_hit": {"tp": 0, "fp": 1, "fn": 2, "tn": 0}},
-            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.125, 0.14285714285714285], "fuzzy_metrics": {"boundary_offsets": [(3, 4), (-4, -2)], "total_gt": 2}},
+            "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": 0, "last_sec_correct_5_prime_boundary": 0, "iou_scores": [0.125], "fuzzy_metrics": {"boundary_offsets": [(3, 4)], "total_gt": 2}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"tp": 2, "fp": 3, "fn": 5, "tn": 0}},
         },
         id='exon_joined_with_deletions',

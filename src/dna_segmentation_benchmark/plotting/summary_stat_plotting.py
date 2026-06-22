@@ -142,13 +142,16 @@ def compare_multiple_predictions(
 
         benchmark_results = dict(benchmark_results)
 
+        # Pop transition keys unconditionally so they never leak into the generic
+        # long-format rows loop; only plot them when STATE_TRANSITIONS was run.
         transition_matrices = benchmark_results.pop("transition_failures", {})
-        fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
-        if fig_transitions is not None:
-            key = "transition_matrices" if single_method_mode else f"{method_name}_transition_matrices"
-            figures[key] = fig_transitions
-
-        all_false_transition_data[method_name] = benchmark_results.pop("false_transitions", {})
+        false_transitions = benchmark_results.pop("false_transitions", {})
+        if EvalMetrics.STATE_TRANSITIONS in metrics_to_eval:
+            fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
+            if fig_transitions is not None:
+                key = "transition_matrices" if single_method_mode else f"{method_name}_transition_matrices"
+                figures[key] = fig_transitions
+            all_false_transition_data[method_name] = false_transitions
 
         for metric_group, metric_data in benchmark_results.items():
             metric_group_str = metric_group if isinstance(metric_group, str) else metric_group.name
@@ -183,9 +186,10 @@ def compare_multiple_predictions(
                 rows.append([method_name, metric_group_str, None, single_metric_key, value])
 
     # ---- Combined false-transition plot (all methods) --------------------
-    fig_false = plot_false_transitions(all_false_transition_data, label_config)
-    if fig_false is not None:
-        figures["false_transitions"] = fig_false
+    if EvalMetrics.STATE_TRANSITIONS in metrics_to_eval:
+        fig_false = plot_false_transitions(all_false_transition_data, label_config)
+        if fig_false is not None:
+            figures["false_transitions"] = fig_false
 
     # ---- Splice-site plots (all methods) --------------------------------
     if all_splice_site_data:

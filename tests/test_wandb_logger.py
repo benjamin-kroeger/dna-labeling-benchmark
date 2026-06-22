@@ -522,7 +522,7 @@ def test_compare_multiple_predictions_uses_generic_transition_key_for_single_met
     figures = compare_multiple_predictions(
         per_method_benchmark_res=results,
         label_config=BEND_LABEL_CONFIG,
-        metrics_to_eval=[EvalMetrics.DIAGNOSTIC_DEPTH],
+        metrics_to_eval=[EvalMetrics.STATE_TRANSITIONS],
     )
 
     assert "transition_matrices" in figures

@@ -289,3 +289,53 @@ def test_compute_state_change_errors_matches_reference_implementation():
         _compute_state_change_errors_reference(gt_pred_arr, label_config),
         compute_state_change_errors(gt_pred_arr, label_config),
     )
+
+
+# ------------------------------------------------------------------
+# Opt-in gating: STATE_TRANSITIONS controls whether the transition
+# fragments are emitted by the benchmark entry points.
+# ------------------------------------------------------------------
+def test_state_transitions_emitted_only_when_requested():
+    from dna_segmentation_benchmark.eval.evaluate_predictors import (
+        EvalMetrics,
+        benchmark_gt_vs_pred_single,
+    )
+
+    gt = np.array([EXON, EXON, DONOR, INTRON, ACCEPTOR, EXON, NONCODING, NONCODING])
+    pred = np.array([EXON, DONOR, INTRON, INTRON, ACCEPTOR, EXON, NONCODING, NONCODING])
+
+    without = benchmark_gt_vs_pred_single(
+        gt_labels=gt,
+        pred_labels=pred,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+    )
+    assert "transition_failures" not in without
+    assert "false_transitions" not in without
+
+    with_transitions = benchmark_gt_vs_pred_single(
+        gt_labels=gt,
+        pred_labels=pred,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.NUCLEOTIDE_CLASSIFICATION, EvalMetrics.STATE_TRANSITIONS],
+    )
+    assert "transition_failures" in with_transitions
+    assert "false_transitions" in with_transitions
+
+
+def test_state_transitions_in_default_metric_set():
+    """Default metrics keep transitions on so framing plots still render."""
+    from dna_segmentation_benchmark.eval.evaluate_predictors import (
+        benchmark_gt_vs_pred_single,
+    )
+
+    gt = np.array([EXON, EXON, DONOR, INTRON, ACCEPTOR, EXON, NONCODING, NONCODING])
+    pred = np.array([EXON, DONOR, INTRON, INTRON, ACCEPTOR, EXON, NONCODING, NONCODING])
+
+    default = benchmark_gt_vs_pred_single(
+        gt_labels=gt,
+        pred_labels=pred,
+        label_config=BEND_LABEL_CONFIG,
+    )
+    assert "transition_failures" in default
+    assert "false_transitions" in default

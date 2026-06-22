@@ -296,6 +296,12 @@ def _infer_metrics_from_results(results: dict) -> list[EvalMetrics]:
     for metric in EvalMetrics:
         if metric.name in metric_names:
             metrics.append(metric)
+    # State transitions are keyed by their fragment names, not the enum name, so
+    # detect them directly to keep the transition plots rendering when present.
+    if ("transition_failures" in metric_names or "false_transitions" in metric_names) and (
+        EvalMetrics.STATE_TRANSITIONS not in metrics
+    ):
+        metrics.append(EvalMetrics.STATE_TRANSITIONS)
     return metrics
 
 

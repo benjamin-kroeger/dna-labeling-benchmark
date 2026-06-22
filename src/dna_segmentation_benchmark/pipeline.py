@@ -15,7 +15,7 @@ from .eval.evaluate_predictors import EvalMetrics, benchmark_gt_vs_pred_multiple
 from .eval.global_metrics import compute_global_metrics
 from .feature_roles import FeatureRoleMap, PredFeatureRoleMapInput
 from .io_utils import DEFAULT_TRANSCRIPT_TYPES, collect_gff
-from .label_definition import AnnotationMode, LabelConfig
+from .label_definition import AnnotationMode, LabelConfig, _DEFAULT_METRICS
 from .transcript_mapping import (
     LocusMatchingMode,
     build_paired_arrays,
@@ -78,12 +78,11 @@ def benchmark_from_gff(
     label_config : LabelConfig
         Token-to-name mapping and semantic label roles.
     metrics : list[EvalMetrics] | None
-        Metric groups to compute.  Defaults to
-        ``[REGION_DISCOVERY, NUCLEOTIDE_CLASSIFICATION]``.  Note this differs
-        from :func:`benchmark_gt_vs_pred_single` /
-        :func:`benchmark_gt_vs_pred_multiple`, whose ``metrics=None`` default
-        also includes ``BOUNDARY_EXACTNESS``; pass an explicit list to align
-        them.
+        Metric groups to compute.  Defaults to ``_DEFAULT_METRICS``
+        (``REGION_DISCOVERY``, ``BOUNDARY_EXACTNESS``,
+        ``NUCLEOTIDE_CLASSIFICATION``) — the same default used by
+        :func:`benchmark_gt_vs_pred_single` /
+        :func:`benchmark_gt_vs_pred_multiple`, so all entry points agree.
     gt_feature_role_map : dict[str, str] | None
         Maps GT GFF/GTF feature types to benchmark roles.  When ``None``,
         the mode-specific default is used.
@@ -137,7 +136,7 @@ def benchmark_from_gff(
     exclude_features = exclude_features or []
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
     if metrics is None:
-        metrics = [EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION]
+        metrics = list(_DEFAULT_METRICS)
 
     if (
         gt_feature_role_map is None
@@ -177,6 +176,11 @@ def benchmark_from_gff(
     # 3. Build arrays per predictor
     gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
     pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
+    # Real GT loci dropped from per-transcript scoring because the predictor
+    # produced nothing there (BEST_PER_LOCUS only). They still count in the
+    # global metrics, but their absence makes per-transcript P/R optimistic for
+    # skip-prone tools, so the count is surfaced below.
+    dropped_loci: dict[str, int] = {name: 0 for name in pred_paths}
 
     for mapping in mappings:
         gt_arr, pred_arrays = build_paired_arrays(
@@ -195,6 +199,7 @@ def benchmark_from_gff(
                 if not has_match:
                     continue
             elif locus_matching_mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
+                dropped_loci[pred_name] += 1
                 continue
 
             gt_by_pred[pred_name].append(gt_arr)
@@ -210,6 +215,15 @@ def benchmark_from_gff(
         if not gt_labels:
             logger.warning("No mapped transcripts for '%s', skipping.", pred_name)
             continue
+
+        if dropped_loci[pred_name]:
+            logger.info(
+                "BEST_PER_LOCUS: %d GT locus/loci dropped from per-transcript scoring for '%s' "
+                "(predictor produced no match there). They still count in the global metrics; "
+                "per-transcript precision/recall therefore exclude these missed loci.",
+                dropped_loci[pred_name],
+                pred_name,
+            )
 
         aggregated = benchmark_gt_vs_pred_multiple(
             gt_labels=gt_labels,
