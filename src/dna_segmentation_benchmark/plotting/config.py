@@ -85,18 +85,24 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         caveat="Counts are absolute mismatch-group counts across the corpus. "
         "Methods evaluated on different inputs are not directly comparable.",
     ),
-    "indel_lengths": PlotMetadata(
-        display_name="INDEL Length Distribution",
-        description="Per-category length distribution of INDEL events on a "
-        "log-scaled x-axis. One subplot per INDEL category; one histogram "
-        "per method overlaid.",
-        bullet_points=(
-            "Long tails on extensions/deletions: occasional but very large boundary slips",
-            "Heavy mass on whole_insertions/deletions: hallucinated or missed exons",
-            "Tick labels are linear bp values even though bins are log-spaced",
-        ),
-        caveat="Only positive lengths are plotted (log scale). Zero-length "
-        "events would not appear and indicate a different failure mode.",
+    "indel_rates_by_boundary": PlotMetadata(
+        display_name="INDEL Rate by GT Boundary",
+        description="Per-method GT boundary × event-type heatmap of error rate "
+        "(events ÷ opportunities): the cross-method comparable INDEL view. "
+        "Boundary-anchored slips divide by GT junctions of that boundary type; "
+        "joined/split/whole_deletions by GT segment count; whole_insertions by "
+        "predicted segment count.",
+        caveat="Cells with no opportunity or zero events are masked grey. "
+        "Rates normalise out corpus size, so methods on different inputs stay comparable.",
+    ),
+    "indel_counts_by_boundary": PlotMetadata(
+        display_name="INDEL Counts by GT Boundary",
+        description="Raw-magnitude companion to the rate heatmap: per-method GT "
+        "boundary × event-type counts on a log colour scale, so one dominant cell "
+        "(e.g. thousands of whole insertions) does not wash out the tens-count "
+        "boundary slips.",
+        caveat="Zero cells are masked. Absolute counts are not comparable across "
+        "methods evaluated on different inputs — use the rate view for that.",
     ),
     # ML precision / recall (one entry per level)
     "nucleotide": PlotMetadata(
@@ -182,7 +188,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         bullet_points=(
             "In-phase (0): pred and GT CDS-base counts agree mod 3 at this position",
             "Offset +1 / +2: one annotation is 1 or 2 bases ahead of the other",
-            "Boundary indels in-frame: boundary indels whose length ≡ 0 (mod 3) — frame-breaking",
+            "Boundary indels in-frame: boundary indels whose length ≡ 0 (mod 3) — frame-preserving",
         ),
         caveat="Requires complete, in-frame CDS-only masks. Sequences with GT CDS length not "
         "divisible by 3 are excluded (n_skipped_non_divisible). UTR_CDS_INTRON mode only.",
@@ -199,14 +205,14 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Middle: signed offset density — directional (5'/3') bias and the ±1/±2 bp spike",
             "Right: |offset| split by internal splice junction vs terminal TSS/TES",
         ),
-        caveat="Only shifted boundaries (offset ≠ 0) from equal-count transcripts — conditional "
-        "shift magnitude, not recall. Offsets are array-oriented (array-3' positive), not "
-        "strand-resolved.",
+        caveat="Only shifted boundaries (offset ≠ 0) from equal-count transcripts whose paired "
+        "segments all overlap — conditional shift magnitude, not recall. Offsets are array-oriented "
+        "(array-3' positive), not strand-resolved.",
     ),
     "ts_level_match_rate": PlotMetadata(
         display_name="Transcript-Level Match Rate",
-        description="Per-tier rate at which a predicted transcript's full chain (its ordered "
-        "set of intron/exon boundaries) matches GT. Each tier is all-or-nothing — the fraction "
+        description="Per-tier rate at which a predicted transcript's full chain (its set "
+        "of intron/exon boundaries) matches GT. Each tier is all-or-nothing — the fraction "
         "of transcripts whose ENTIRE chain satisfies it. A chain mismatch is booked as both FP "
         "and FN, so precision = recall = F1; the precision-vs-recall contrast is carried by the "
         "subset vs superset tiers instead.",
