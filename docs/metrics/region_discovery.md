@@ -33,19 +33,14 @@ Every tier is a coherent contingency table: `TP + FN = total GT` and
 of an exact match**, so a perfect pair counts toward both — that is what makes
 the nesting hold.
 
-## Hardened FP — the same rule for every tier
+## False positives — the same rule for every tier
 
-Each tier hardens its FP to `total_pred − that-tier's hits` (the rule
-`perfect_boundary_hit` already used). A matched pair that fails a tier's
-spatial test is booked **as both an FP** (the prediction is not a hit for this
-tier) **and an FN** (the GT is not hit for this tier). This is the standard
-Burset/Eval exon-level behavior, and it is what makes precision and recall
-well-defined at every level of strictness.
-
-This replaces an earlier `containment` block that reported `internal`/
-`full_coverage` as *conditional rates over matched pairs* with a borrowed FP.
-Hardening the FP turns them into ordinary detection tiers, so the whole family
-reads as one precision/recall ladder.
+Each tier books its FP as `total_pred − that-tier's hits`. A matched pair that
+fails a tier's spatial test counts **as both an FP** (the prediction is not a
+hit for this tier) **and an FN** (the GT is not hit for this tier). This is the
+standard Burset/Eval exon-level behavior, and it is what makes precision and
+recall well-defined at every level of strictness — the whole family reads as
+one precision/recall ladder.
 
 ## The Four P/R Tiers
 
@@ -58,11 +53,14 @@ detection tier — any contact counts.
 
 ### `internal_hit`
 
+![region_discovery_internal_hit.png](../images/region_discovery_internal_hit.png)
 TP if the matched prediction lies within its GT section (`pred ⊆ GT`, inclusive
 of an exact match) — i.e. the prediction did not over-run the GT boundaries. A
 matched pair that over-extends past the GT is an FP (and its GT an FN).
 
 ### `full_coverage_hit`
+
+![region_discovery_full_coverage_hit.png](../images/region_discovery_full_coverage_hit.png)
 
 TP if the matched prediction fully spans its GT section (`pred ⊇ GT`, inclusive
 of an exact match) — i.e. the prediction did not fall short of the GT
