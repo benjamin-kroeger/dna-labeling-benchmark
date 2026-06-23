@@ -108,8 +108,12 @@ def eval_indel(
     padded_deletions = [g + 1 for g in grouped_deletions]
 
     by_boundary: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
-    _classify_mismatches(padded_insertions, padded_arr, gt_labels, label_config, _INSERTION_BUCKETS, by_boundary)
-    _classify_mismatches(padded_deletions, padded_arr, gt_labels, label_config, _DELETION_BUCKETS, by_boundary)
+    _classify_mismatches(
+        padded_insertions, padded_arr, gt_labels, label_config, _INSERTION_BUCKETS, by_boundary, is_insertion=True
+    )
+    _classify_mismatches(
+        padded_deletions, padded_arr, gt_labels, label_config, _DELETION_BUCKETS, by_boundary, is_insertion=False
+    )
 
     return {
         "by_boundary": {boundary: dict(buckets) for boundary, buckets in by_boundary.items()},
@@ -170,6 +174,7 @@ def _classify_mismatches(
     label_config: LabelConfig,
     bucket_names: tuple[str, str, str, str],
     out: dict[str, dict[str, list[int]]],
+    is_insertion: bool,
 ) -> None:
     """Sort contiguous mismatch groups into four buckets, keyed by GT boundary.
 
@@ -181,8 +186,10 @@ def _classify_mismatches(
     * whole insertions / whole deletions (run anchored on neither side)
 
     Each qualifying run appends its *length* (in nucleotides) to
-    ``out["<5'-flank>:<3'-flank>"][bucket]``, where the flank names are read from
-    the unpadded ``gt_labels`` immediately outside the run.
+    ``out["<5'-flank>:<3'-flank>"][bucket]``.
+
+    ``is_insertion`` distinguishes the two run geometries, which place the GT
+    coding-segment edge on opposite sides of the run (see boundary-key comment).
     """
     name_5_prime, name_3_prime, name_both, name_neither = bucket_names
 
@@ -198,14 +205,8 @@ def _classify_mismatches(
         target_on_3_prime = bool(gt_pred_arr[0, last_idx + 1]) and bool(gt_pred_arr[1, last_idx + 1])
         target_on_5_prime = bool(gt_pred_arr[0, first_idx - 1]) and bool(gt_pred_arr[1, first_idx - 1])
 
-        # Back to unpadded coordinates for the GT-label flank lookup.  Keys are in
-        # array (5'→3') order, so e.g. "FIVE_PRIME_UTR:CDS" and "CDS:FIVE_PRIME_UTR"
-        # stay distinct (5'UTR vs 3'UTR boundary).
+        # Back to unpadded coordinates for the GT-label flank lookup.
         adjusted = mismatch - 1
-        left_name = _flank_name(gt_labels, int(adjusted[0]) - 1, label_config)
-        right_name = _flank_name(gt_labels, int(adjusted[-1]) + 1, label_config)
-        boundary_key = semantic_boundary_label(left_name, right_name)
-        length = int(adjusted.size)
 
         if target_on_3_prime and target_on_5_prime:
             bucket = name_both
@@ -215,5 +216,34 @@ def _classify_mismatches(
             bucket = name_3_prime
         else:
             bucket = name_neither
+
+        # Boundary key (array 5'→3' order, so "FIVE_PRIME_UTR:CDS" and
+        # "CDS:FIVE_PRIME_UTR" stay distinct).  It must name the GT coding-segment
+        # edge the run abuts, matching the `_junction_opportunities` denominator
+        # (which types each segment edge by the GT label immediately outside the
+        # segment).  The run geometry differs by direction:
+        #
+        # * Deletion runs lie *inside* a GT coding segment, so the run's *outer*
+        #   flank already coincides with the GT label just outside the segment.
+        # * Insertion runs lie in GT non-coding space *abutting* the segment, so
+        #   for a boundary-anchored insertion the segment-adjacent (inner) run base
+        #   carries that label; the outer flank would mis-key any multi-base
+        #   insertion extending past a short intervening label (e.g. intron→1bp-
+        #   UTR→CDS, which must key as FIVE_PRIME_UTR:CDS, not INTRON:CDS).
+        #
+        # Whole insertions/deletions and joins/splits are not boundary-anchored
+        # (their denominators are segment counts), so they keep the outer-flank
+        # pair regardless of direction.
+        if is_insertion and bucket == name_5_prime:  # 3'-anchored: segment on the 3' side
+            left_name = _flank_name(gt_labels, int(adjusted[-1]), label_config)
+            right_name = _flank_name(gt_labels, int(adjusted[-1]) + 1, label_config)
+        elif is_insertion and bucket == name_3_prime:  # 5'-anchored: segment on the 5' side
+            left_name = _flank_name(gt_labels, int(adjusted[0]) - 1, label_config)
+            right_name = _flank_name(gt_labels, int(adjusted[0]), label_config)
+        else:
+            left_name = _flank_name(gt_labels, int(adjusted[0]) - 1, label_config)
+            right_name = _flank_name(gt_labels, int(adjusted[-1]) + 1, label_config)
+        boundary_key = semantic_boundary_label(left_name, right_name)
+        length = int(adjusted.size)
 
         out[boundary_key][bucket].append(length)

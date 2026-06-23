@@ -81,6 +81,8 @@ def _compute_summary_statistics(
         "precision_stderr": precision_stderr,
         "recall_stderr": recall_stderr,
     }
+    if precision is not None and recall is not None:
+        result["f1"] = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
     if f1_stderr is not None:
         result["f1_stderr"] = f1_stderr
     return result
@@ -292,6 +294,7 @@ def summarise_counts(per_sequence: list[Counts], n_bootstrap: int = 1000, includ
         recall=raw["recall"],
         precision_stderr=raw["precision_stderr"],
         recall_stderr=raw["recall_stderr"],
+        f1=raw.get("f1"),
         f1_stderr=raw.get("f1_stderr"),
         precision_macro=macro.get("precision_macro"),
         recall_macro=macro.get("recall_macro"),

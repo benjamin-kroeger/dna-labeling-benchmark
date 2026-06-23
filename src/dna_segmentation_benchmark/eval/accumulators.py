@@ -280,10 +280,7 @@ class NucleotideAccumulator:
         # Base-level units per transcript vary widely (long transcripts have
         # more bases), so the micro score is dominated by long transcripts —
         # macro (per-transcript, equal weight) is reported alongside.
-        stat = summarise_counts(self.counts, include_macro=True)
-        p, r = stat.precision or 0.0, stat.recall or 0.0
-        f1 = (2 * p * r / (p + r)) if (p + r) > 0 else 0.0
-        return {self.KEY: {"nucleotide": dataclasses.replace(stat, f1=f1).to_dict()}}
+        return {self.KEY: {"nucleotide": summarise_counts(self.counts, include_macro=True).to_dict()}}
 
 
 @dataclass
