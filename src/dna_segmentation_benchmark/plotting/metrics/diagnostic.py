@@ -84,6 +84,7 @@ def plot_position_bias(
     for ax in axes:
         ax.set_xlabel("Position in coding span (%)")
         ax.set_xlim(0, 99)
+        ax.set_ylim(bottom=0)
     axes[0].set_ylabel("Mismatch nucleotides (cumulative across sequences)")
     axes[1].legend(title="Method", loc="upper right", fontsize=9)
     fig.suptitle(f"{class_name} — Nucleotide Mismatch Location (coding span)")
