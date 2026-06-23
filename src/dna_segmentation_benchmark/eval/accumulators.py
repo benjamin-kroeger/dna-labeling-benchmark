@@ -45,7 +45,11 @@ def _coerce_counts(value) -> Counts:
 
 @dataclass
 class TransitionsAccumulator:
-    """Sums the always-on state-transition matrices and stable-position counts."""
+    """Sums the state-transition matrices and stable-position counts.
+
+    No-ops when the fragment lacks transition keys (i.e. when
+    ``EvalMetrics.STATE_TRANSITIONS`` was not requested).
+    """
 
     failures: dict = field(default_factory=dict)
     late: dict = field(default_factory=dict)
@@ -145,7 +149,14 @@ class IndelAccumulator:
 
 @dataclass
 class RegionDiscoveryAccumulator:
-    """Collects Counts per strictness level; summarises to P/R."""
+    """Collects region-discovery Counts and summarises them to precision/recall.
+
+    All four tiers are coherent detection contingency tables that nest by
+    strictness: ``neighborhood_hit`` (any overlap) ⊇ ``internal_hit`` (pred ⊆
+    GT) and ``full_coverage_hit`` (pred ⊇ GT) ⊇ ``perfect_boundary_hit`` (exact
+    boundaries).  Each hardens its FP so TP+FP = total pred and TP+FN = total
+    GT, so they are reported as plain precision/recall.
+    """
 
     KEY: ClassVar[str] = "REGION_DISCOVERY"
     LEVELS: ClassVar[tuple] = (
@@ -170,10 +181,7 @@ class RegionDiscoveryAccumulator:
         if not self._seen:
             return {}
         return {
-            self.KEY: {
-                level: list(self.levels[level])
-                for level in self.LEVELS
-            }
+            self.KEY: {level: list(self.levels[level]) for level in self.LEVELS}
         }
 
     def summarise(self) -> dict:
@@ -181,7 +189,8 @@ class RegionDiscoveryAccumulator:
             return {}
         return {
             self.KEY: {
-                level: summarise_counts(self.levels[level]).to_dict()
+                # Section counts per transcript vary, so report macro alongside micro.
+                level: summarise_counts(self.levels[level], include_macro=True).to_dict()
                 for level in self.LEVELS
             }
         }
@@ -209,7 +218,7 @@ class BoundaryExactnessAccumulator:
         self.first.append(payload.get("first_sec_correct_3_prime_boundary", 0))
         self.last.append(payload.get("last_sec_correct_5_prime_boundary", 0))
         self.iou.extend(payload.get("iou_scores", []))
-        self.residuals.extend(fuzzy_metrics.get("boundary_residuals", []))
+        self.residuals.extend(fuzzy_metrics.get("boundary_offsets", []))
         self.total_gt += fuzzy_metrics.get("total_gt", 0)
 
     def merged(self) -> dict:
@@ -221,7 +230,7 @@ class BoundaryExactnessAccumulator:
                 "last_sec_correct_5_prime_boundary": list(self.last),
                 "iou_scores": list(self.iou),
                 "fuzzy_metrics": {
-                    "boundary_residuals": list(self.residuals),
+                    "boundary_offsets": list(self.residuals),
                     "total_gt": self.total_gt,
                 },
             }
@@ -268,20 +277,25 @@ class NucleotideAccumulator:
     def summarise(self) -> dict:
         if not self._seen:
             return {}
-        stat = summarise_counts(self.counts)
-        p, r = stat.precision or 0.0, stat.recall or 0.0
-        f1 = (2 * p * r / (p + r)) if (p + r) > 0 else 0.0
-        return {self.KEY: {"nucleotide": dataclasses.replace(stat, f1=f1).to_dict()}}
+        # Base-level units per transcript vary widely (long transcripts have
+        # more bases), so the micro score is dominated by long transcripts —
+        # macro (per-transcript, equal weight) is reported alongside.
+        return {self.KEY: {"nucleotide": summarise_counts(self.counts, include_macro=True).to_dict()}}
 
 
 @dataclass
-class FrameshiftAccumulator:
-    """Concatenates frame-drift values."""
+class PhaseDriftAccumulator:
+    """Concatenates coding-phase drift values across sequences."""
 
-    KEY: ClassVar[str] = "FRAMESHIFT"
+    KEY: ClassVar[str] = "PHASE_DRIFT"
 
     frames: list = field(default_factory=list)
+    boundary_indel_total: int = 0
+    boundary_indel_in_frame: int = 0
+    n_skipped_non_divisible: int = 0
+    n_skipped_short: int = 0
     _seen: bool = False
+    _has_indel_counts: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
@@ -289,11 +303,25 @@ class FrameshiftAccumulator:
             return
         self._seen = True
         self.frames.extend(list(payload.get("gt_frames", payload.get("frames", []))))
+        if "boundary_indel_total" in payload and "boundary_indel_in_frame" in payload:
+            self._has_indel_counts = True
+            self.boundary_indel_total += payload["boundary_indel_total"]
+            self.boundary_indel_in_frame += payload["boundary_indel_in_frame"]
+        self.n_skipped_non_divisible += payload.get("n_skipped_non_divisible", 0)
+        self.n_skipped_short += payload.get("n_skipped_short", 0)
 
     def _to_dict(self) -> dict:
         if not self._seen:
             return {}
-        return {self.KEY: {"gt_frames": list(self.frames)}}
+        result: dict = {
+            "gt_frames": list(self.frames),
+            "n_skipped_non_divisible": self.n_skipped_non_divisible,
+            "n_skipped_short": self.n_skipped_short,
+        }
+        if self._has_indel_counts:
+            result["boundary_indel_total"] = self.boundary_indel_total
+            result["boundary_indel_in_frame"] = self.boundary_indel_in_frame
+        return {self.KEY: result}
 
     def merged(self) -> dict:
         return self._to_dict()
@@ -329,6 +357,8 @@ class StructuralAccumulator:
         "acceptor_tp",
         "acceptor_fp",
         "acceptor_fn",
+        "gt_malformed_junctions",
+        "pred_malformed_junctions",
     )
 
     exon_chains: dict = field(default_factory=lambda: defaultdict(list))
@@ -339,6 +369,7 @@ class StructuralAccumulator:
     transcript_match_class: list = field(default_factory=list)
     boundary_shift_count: list = field(default_factory=list)
     boundary_shift_total: list = field(default_factory=list)
+    boundary_shift_offsets: list = field(default_factory=list)
     splice_sums: dict = field(default_factory=dict)
     _seen: bool = False
     _splice_seen: bool = False
@@ -363,6 +394,10 @@ class StructuralAccumulator:
             self.boundary_shift_count.append(group["boundary_shift_count"])
         if "boundary_shift_total" in group:
             self.boundary_shift_total.append(group["boundary_shift_total"])
+        # Per-boundary records are concatenated into one flat pool (one entry
+        # per shifted boundary, not per transcript) for the distribution plots.
+        if "boundary_shift_offsets" in group:
+            self.boundary_shift_offsets.extend(group["boundary_shift_offsets"])
 
         for key in self.INTRON_CHAIN_KEYS:
             if key in group:
@@ -385,6 +420,8 @@ class StructuralAccumulator:
             payload["boundary_shift_count"] = list(self.boundary_shift_count)
         if self.boundary_shift_total:
             payload["boundary_shift_total"] = list(self.boundary_shift_total)
+        if self.boundary_shift_offsets:
+            payload["boundary_shift_offsets"] = list(self.boundary_shift_offsets)
 
     def _splice_summary(self) -> dict:
         ss = dict(self.splice_sums)
@@ -435,45 +472,6 @@ class StructuralAccumulator:
         if self._splice_seen:
             group[self.SPLICE_KEY] = self._splice_summary()
         return {self.KEY: group} if group else {}
-
-
-@dataclass
-class SpliceSiteAccumulator:
-    """Public legacy splice-site accumulator used by direct unit tests."""
-
-    KEY: ClassVar[str] = "splice_sites"
-    FIELDS: ClassVar[tuple] = StructuralAccumulator.SPLICE_FIELDS
-
-    sums: dict = field(default_factory=dict)
-    _seen: bool = False
-
-    def add(self, fragment: dict) -> None:
-        payload = fragment.get(self.KEY)
-        if not isinstance(payload, dict):
-            return
-        self._seen = True
-        for key in self.FIELDS:
-            self.sums[key] = self.sums.get(key, 0) + payload.get(key, 0)
-
-    def _summary(self) -> dict:
-        ss = {key: self.sums.get(key, 0) for key in self.FIELDS}
-        d_tp, d_fp, d_fn = ss["donor_tp"], ss["donor_fp"], ss["donor_fn"]
-        a_tp, a_fp, a_fn = ss["acceptor_tp"], ss["acceptor_fp"], ss["acceptor_fn"]
-        ss["donor_precision"] = d_tp / (d_tp + d_fp) if (d_tp + d_fp) > 0 else 0.0
-        ss["donor_recall"] = d_tp / (d_tp + d_fn) if (d_tp + d_fn) > 0 else 0.0
-        ss["acceptor_precision"] = a_tp / (a_tp + a_fp) if (a_tp + a_fp) > 0 else 0.0
-        ss["acceptor_recall"] = a_tp / (a_tp + a_fn) if (a_tp + a_fn) > 0 else 0.0
-        return ss
-
-    def merged(self) -> dict:
-        if not self._seen:
-            return {}
-        return {self.KEY: {key: self.sums.get(key, 0) for key in self.FIELDS}}
-
-    def summarise(self) -> dict:
-        if not self._seen:
-            return {}
-        return {self.KEY: self._summary()}
 
 
 @dataclass
@@ -536,8 +534,7 @@ class BenchmarkAccumulator:
             RegionDiscoveryAccumulator(),
             BoundaryExactnessAccumulator(),
             NucleotideAccumulator(),
-            FrameshiftAccumulator(),
-            SpliceSiteAccumulator(),
+            PhaseDriftAccumulator(),
             StructuralAccumulator(),
             DiagnosticDepthAccumulator(),
         ]

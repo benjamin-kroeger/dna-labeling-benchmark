@@ -37,19 +37,23 @@ from collections import defaultdict
 import numpy as np
 
 from ..label_definition import LabelConfig, semantic_boundary_label
+from .utils import get_contiguous_groups
 
 #: Bucket names for the four classification slots, for insertion runs.
 #: Order: (5'-anchored, 3'-anchored, anchored-on-both, anchored-on-neither).
 _INSERTION_BUCKETS = ("5_prime_extensions", "3_prime_extensions", "joined", "whole_insertions")
 #: Same four slots, for deletion runs.
 _DELETION_BUCKETS = ("5_prime_deletions", "3_prime_deletions", "split", "whole_deletions")
+#: The four bucket names that are anchored at a coding-segment boundary (5′/3′
+#: extensions and deletions).  Derived from the first two slots of each tuple.
+BOUNDARY_ANCHORED_BUCKETS: frozenset[str] = frozenset(_INSERTION_BUCKETS[:2] + _DELETION_BUCKETS[:2])
 
 #: Boundary-key token for "no neighbour" (run touches a sequence end).  A name,
 #: not an integer id, so it can never collide with a real label.
 _NO_NEIGHBOUR = "none"
 
 
-def _eval_indel(
+def eval_indel(
     grouped_insertions: list[np.ndarray],
     grouped_deletions: list[np.ndarray],
     gt_positive_mask: np.ndarray,
@@ -86,9 +90,10 @@ def _eval_indel(
         "junction_opportunities": {"LEFT:RIGHT": int},
         "n_gt_segments": int, "n_pred_segments": int}``.
 
-        ``junction_opportunities`` counts GT label transitions ``L→R`` and is the
-        denominator for boundary-anchored events (extensions / deletions) of the
-        matching key, so a count becomes "fraction of L→R junctions that
+        ``junction_opportunities`` counts the 5'/3' edges of GT coding segments,
+        typed by their outer GT flank (array edge = ``"none"`` = terminal), and is
+        the denominator for boundary-anchored events (extensions / deletions) of
+        the matching key, so a count becomes "fraction of that boundary type that
         suffered this error".
     """
     # _classify_mismatches looks one position before/after each group in the
@@ -103,35 +108,50 @@ def _eval_indel(
     padded_deletions = [g + 1 for g in grouped_deletions]
 
     by_boundary: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
-    _classify_mismatches(padded_insertions, padded_arr, gt_labels, label_config, _INSERTION_BUCKETS, by_boundary)
-    _classify_mismatches(padded_deletions, padded_arr, gt_labels, label_config, _DELETION_BUCKETS, by_boundary)
+    _classify_mismatches(
+        padded_insertions, padded_arr, gt_labels, label_config, _INSERTION_BUCKETS, by_boundary, is_insertion=True
+    )
+    _classify_mismatches(
+        padded_deletions, padded_arr, gt_labels, label_config, _DELETION_BUCKETS, by_boundary, is_insertion=False
+    )
 
     return {
         "by_boundary": {boundary: dict(buckets) for boundary, buckets in by_boundary.items()},
-        "junction_opportunities": _junction_opportunities(gt_labels, label_config),
+        "junction_opportunities": _junction_opportunities(gt_positive_mask, gt_labels, label_config),
         "n_gt_segments": int(n_gt_segments),
         "n_pred_segments": int(n_pred_segments),
     }
 
 
-def _junction_opportunities(gt_labels: np.ndarray, label_config: LabelConfig) -> dict[str, int]:
-    """Count GT label transitions ``L→R`` as ``"LEFT:RIGHT"`` name keys.
+def _junction_opportunities(
+    gt_positive_mask: np.ndarray, gt_labels: np.ndarray, label_config: LabelConfig
+) -> dict[str, int]:
+    """Count per-boundary opportunities for boundary-anchored slips.
 
-    These are the *opportunities* for boundary-anchored errors: the denominator
-    for the extension/deletion rate at each junction type.  Keys match those
-    produced for boundary-anchored runs, so a count divided by its opportunity
-    is the per-junction error rate.
+    Each GT coding segment contributes two opportunities — its 5' edge and its
+    3' edge — typed by the GT flank just *outside* the segment, read with the
+    same :func:`_flank_name` rule the mismatch classifier uses.  A flank off the
+    array end is therefore ``"none"`` (terminal), so a coding segment touching a
+    sequence/window edge is counted as a terminal-exon boundary, not an absent
+    one.  This keeps the denominator consistent with the numerator: under
+    per-transcript windowing the gene boundary coincides with the array edge,
+    which a plain label-transition count would miss entirely.
+
+    Keys match those produced for boundary-anchored runs, so a run count divided
+    by its opportunity is the per-junction error rate.
     """
-    if gt_labels.size < 2:
-        return {}
-    change_idx = np.where(gt_labels[:-1] != gt_labels[1:])[0]
     opportunities: dict[str, int] = {}
-    for i in change_idx:
-        key = semantic_boundary_label(
-            label_config.name_of(int(gt_labels[i])),
-            label_config.name_of(int(gt_labels[i + 1])),
-        )
-        opportunities[key] = opportunities.get(key, 0) + 1
+    for segment in get_contiguous_groups(np.where(gt_positive_mask)[0]):
+        if segment.size == 0:
+            continue
+        start = int(segment[0])
+        end = int(segment[-1])
+        start_name = label_config.name_of(int(gt_labels[start]))
+        end_name = label_config.name_of(int(gt_labels[end]))
+        key_5 = semantic_boundary_label(_flank_name(gt_labels, start - 1, label_config), start_name)
+        key_3 = semantic_boundary_label(end_name, _flank_name(gt_labels, end + 1, label_config))
+        opportunities[key_5] = opportunities.get(key_5, 0) + 1
+        opportunities[key_3] = opportunities.get(key_3, 0) + 1
     return opportunities
 
 
@@ -154,6 +174,7 @@ def _classify_mismatches(
     label_config: LabelConfig,
     bucket_names: tuple[str, str, str, str],
     out: dict[str, dict[str, list[int]]],
+    is_insertion: bool,
 ) -> None:
     """Sort contiguous mismatch groups into four buckets, keyed by GT boundary.
 
@@ -165,8 +186,10 @@ def _classify_mismatches(
     * whole insertions / whole deletions (run anchored on neither side)
 
     Each qualifying run appends its *length* (in nucleotides) to
-    ``out["<5'-flank>:<3'-flank>"][bucket]``, where the flank names are read from
-    the unpadded ``gt_labels`` immediately outside the run.
+    ``out["<5'-flank>:<3'-flank>"][bucket]``.
+
+    ``is_insertion`` distinguishes the two run geometries, which place the GT
+    coding-segment edge on opposite sides of the run (see boundary-key comment).
     """
     name_5_prime, name_3_prime, name_both, name_neither = bucket_names
 
@@ -182,14 +205,8 @@ def _classify_mismatches(
         target_on_3_prime = bool(gt_pred_arr[0, last_idx + 1]) and bool(gt_pred_arr[1, last_idx + 1])
         target_on_5_prime = bool(gt_pred_arr[0, first_idx - 1]) and bool(gt_pred_arr[1, first_idx - 1])
 
-        # Back to unpadded coordinates for the GT-label flank lookup.  Keys are in
-        # array (5'→3') order, so e.g. "FIVE_PRIME_UTR:CDS" and "CDS:FIVE_PRIME_UTR"
-        # stay distinct (5'UTR vs 3'UTR boundary).
+        # Back to unpadded coordinates for the GT-label flank lookup.
         adjusted = mismatch - 1
-        left_name = _flank_name(gt_labels, int(adjusted[0]) - 1, label_config)
-        right_name = _flank_name(gt_labels, int(adjusted[-1]) + 1, label_config)
-        boundary_key = semantic_boundary_label(left_name, right_name)
-        length = int(adjusted.size)
 
         if target_on_3_prime and target_on_5_prime:
             bucket = name_both
@@ -199,5 +216,34 @@ def _classify_mismatches(
             bucket = name_3_prime
         else:
             bucket = name_neither
+
+        # Boundary key (array 5'→3' order, so "FIVE_PRIME_UTR:CDS" and
+        # "CDS:FIVE_PRIME_UTR" stay distinct).  It must name the GT coding-segment
+        # edge the run abuts, matching the `_junction_opportunities` denominator
+        # (which types each segment edge by the GT label immediately outside the
+        # segment).  The run geometry differs by direction:
+        #
+        # * Deletion runs lie *inside* a GT coding segment, so the run's *outer*
+        #   flank already coincides with the GT label just outside the segment.
+        # * Insertion runs lie in GT non-coding space *abutting* the segment, so
+        #   for a boundary-anchored insertion the segment-adjacent (inner) run base
+        #   carries that label; the outer flank would mis-key any multi-base
+        #   insertion extending past a short intervening label (e.g. intron→1bp-
+        #   UTR→CDS, which must key as FIVE_PRIME_UTR:CDS, not INTRON:CDS).
+        #
+        # Whole insertions/deletions and joins/splits are not boundary-anchored
+        # (their denominators are segment counts), so they keep the outer-flank
+        # pair regardless of direction.
+        if is_insertion and bucket == name_5_prime:  # 3'-anchored: segment on the 3' side
+            left_name = _flank_name(gt_labels, int(adjusted[-1]), label_config)
+            right_name = _flank_name(gt_labels, int(adjusted[-1]) + 1, label_config)
+        elif is_insertion and bucket == name_3_prime:  # 5'-anchored: segment on the 5' side
+            left_name = _flank_name(gt_labels, int(adjusted[0]) - 1, label_config)
+            right_name = _flank_name(gt_labels, int(adjusted[0]), label_config)
+        else:
+            left_name = _flank_name(gt_labels, int(adjusted[0]) - 1, label_config)
+            right_name = _flank_name(gt_labels, int(adjusted[-1]) + 1, label_config)
+        boundary_key = semantic_boundary_label(left_name, right_name)
+        length = int(adjusted.size)
 
         out[boundary_key][bucket].append(length)

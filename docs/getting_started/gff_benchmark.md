@@ -25,10 +25,11 @@ results = benchmark_from_gff(
         EvalMetrics.BOUNDARY_EXACTNESS,
         EvalMetrics.STRUCTURAL_COHERENCE,
     ],
-    gt_exon_feature_types="exon",
-    pred_exon_feature_types={
-        "segmentnt": "exon",
-        "augustus": "CDS",
+    # EXON_INTRON's default role map already maps both "exon" and "CDS" to the
+    # exon role, so these maps are optional here — shown to illustrate the API.
+    pred_feature_role_maps={
+        "segmentnt": {"exon": "exon"},
+        "augustus": {"CDS": "exon"},
     },
     exclude_features=["gene"],
     locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
@@ -50,17 +51,17 @@ The pipeline returns one result block per predictor:
 ```python
 {
     "segmentnt": {
-        "per_transcript": {...},
+        "aggregated": {...},
         "global": {...},
     },
     "augustus": {
-        "per_transcript": {...},
+        "aggregated": {...},
         "global": {...},
     },
 }
 ```
 
-`per_transcript` is the same aggregated array benchmark result produced by
+`aggregated` is the same micro-averaged array benchmark result produced by
 {py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple`.
 
 `global` covers file-level counts such as how much GT or prediction content was
@@ -75,19 +76,23 @@ results["helixer"]["global"]["nucleotide"]["scopes"]
 
 ## Feature Types and Roles
 
-The parser feature types are not part of {py:class}`dna_segmentation_benchmark.LabelConfig`.
-They are explicit pipeline arguments.
+GFF/GTF feature names are **not** part of {py:class}`dna_segmentation_benchmark.LabelConfig`.
+The Python pipeline maps them to benchmark roles through two arguments:
+`gt_feature_role_map` (a `{feature_type: role}` map for the ground truth) and
+`pred_feature_role_maps` (a flat `{feature_type: role}` map applied to every
+predictor, or a nested `{predictor: {feature_type: role}}` map for per-predictor
+parsing).
 
-For `EXON_INTRON` runs, the simple exon-type arguments are enough:
+When omitted, mode-specific defaults are used:
 
-- `gt_exon_feature_types`
-- `pred_exon_feature_types`
+- `EXON_INTRON` maps both `exon` and `CDS` to the exon role — so a tool such as
+  Augustus that emits `CDS` rows instead of `exon` rows needs no extra
+  configuration.
+- `UTR_CDS_INTRON` maps `five_prime_UTR`, `CDS`, and `three_prime_UTR` to their
+  respective roles.
 
-That matters for tools such as Augustus that emit `CDS` rows instead of
-`exon` rows.
-
-For `UTR_CDS_INTRON` runs, a single exon type cannot express UTR vs CDS, so pass
-explicit feature-role maps instead:
+A single exon type cannot express UTR vs CDS, so override with explicit
+feature-role maps when a `UTR_CDS_INTRON` file uses non-default names:
 
 ```python
 results = benchmark_from_gff(
@@ -256,5 +261,5 @@ dna-benchmark run \
   error instead of returning empty results.
 - `infer_introns=True` affects both GT and prediction arrays before any metric
   family is computed.
-- `FRAMESHIFT` remains a transcript-level metric. It is a bad fit for partial
+- `PHASE_DRIFT` remains a transcript-level metric. It is a bad fit for partial
   or unmatched loci.

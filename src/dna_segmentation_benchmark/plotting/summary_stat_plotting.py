@@ -32,7 +32,7 @@ from .metrics.indel import (
     plot_indel_rates_by_boundary,
     plot_stacked_indel_counts_bar,
 )
-from .metrics.frameshift import plot_frameshift_percentage_bar
+from .metrics.phase_drift import plot_phase_drift_percentage_bar
 from .metrics.ml import plot_ml_metrics_bar
 from .metrics.iou import plot_iou_metrics
 from .metrics.boundary import plot_boundary_precision_landscapes
@@ -137,18 +137,21 @@ def compare_multiple_predictions(
     single_method_mode = len(per_method_benchmark_res) == 1
 
     for method_name, benchmark_results in per_method_benchmark_res.items():
-        if set(benchmark_results.keys()) == {"per_transcript", "global"}:
-            benchmark_results = benchmark_results["per_transcript"]
+        if set(benchmark_results.keys()) == {"aggregated", "global"}:
+            benchmark_results = benchmark_results["aggregated"]
 
         benchmark_results = dict(benchmark_results)
 
+        # Pop transition keys unconditionally so they never leak into the generic
+        # long-format rows loop; only plot them when STATE_TRANSITIONS was run.
         transition_matrices = benchmark_results.pop("transition_failures", {})
-        fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
-        if fig_transitions is not None:
-            key = "transition_matrices" if single_method_mode else f"{method_name}_transition_matrices"
-            figures[key] = fig_transitions
-
-        all_false_transition_data[method_name] = benchmark_results.pop("false_transitions", {})
+        false_transitions = benchmark_results.pop("false_transitions", {})
+        if EvalMetrics.STATE_TRANSITIONS in metrics_to_eval:
+            fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
+            if fig_transitions is not None:
+                key = "transition_matrices" if single_method_mode else f"{method_name}_transition_matrices"
+                figures[key] = fig_transitions
+            all_false_transition_data[method_name] = false_transitions
 
         for metric_group, metric_data in benchmark_results.items():
             metric_group_str = metric_group if isinstance(metric_group, str) else metric_group.name
@@ -183,9 +186,10 @@ def compare_multiple_predictions(
                 rows.append([method_name, metric_group_str, None, single_metric_key, value])
 
     # ---- Combined false-transition plot (all methods) --------------------
-    fig_false = plot_false_transitions(all_false_transition_data, label_config)
-    if fig_false is not None:
-        figures["false_transitions"] = fig_false
+    if EvalMetrics.STATE_TRANSITIONS in metrics_to_eval:
+        fig_false = plot_false_transitions(all_false_transition_data, label_config)
+        if fig_false is not None:
+            figures["false_transitions"] = fig_false
 
     # ---- Splice-site plots (all methods) --------------------------------
     if all_splice_site_data:
@@ -339,9 +343,9 @@ def compare_multiple_predictions(
                 for level, fig in nc_figs.items():
                     figures[_figure_key(f"nucleotide_classification_{level}", scope, default_scope)] = fig
 
-    # ---- Frameshift plots -------------------------------------------
-    if EvalMetrics.FRAMESHIFT in metrics_to_eval:
-        df_fs = df[(df["metric_group"] == EvalMetrics.FRAMESHIFT.name)].copy()
+    # ---- Phase-drift plots -------------------------------------------
+    if EvalMetrics.PHASE_DRIFT in metrics_to_eval:
+        df_fs = df[(df["metric_group"] == EvalMetrics.PHASE_DRIFT.name)].copy()
 
         if not df_fs.empty:
             default_scope = _metric_scopes(df_fs)[0]
@@ -349,14 +353,14 @@ def compare_multiple_predictions(
                 df_scope = df_fs[df_fs["scope"] == scope] if scope is not None else df_fs[df_fs["scope"].isna()]
                 class_name = _scope_display_name(label_config, scope)
                 suffix = "" if scope == default_scope else f"_{scope}"
-                fig = plot_frameshift_percentage_bar(
+                fig = plot_phase_drift_percentage_bar(
                     df_scope,
                     class_name,
-                    save_path=(output_dir / f"frameshift{suffix}.png") if output_dir else None,
-                    metadata=PLOT_METADATA.get("frameshift"),
+                    save_path=(output_dir / f"phase_drift{suffix}.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("phase_drift"),
                 )
                 if fig is not None:
-                    figures[_figure_key("frameshift", scope, default_scope)] = fig
+                    figures[_figure_key("phase_drift", scope, default_scope)] = fig
 
     # ---- Structural coherence plots ------------------------------------
     if EvalMetrics.STRUCTURAL_COHERENCE in metrics_to_eval:
@@ -371,14 +375,17 @@ def compare_multiple_predictions(
             ].copy()
             class_name = _scope_display_name(label_config, scope)
 
-            # Combined precision / recall overview — one figure per measure,
-            # reusing plot_ml_metrics_bar (x = metric, hue = method).
+            # Combined match-rate overview — one figure (x = tier, hue = method),
+            # reusing plot_ml_metrics_bar.
             _PR_KEYS = ("intron_chain", "intron_chain_subset", "intron_chain_superset", "exon_chain", "exon_chain_superset", "exon_chain_subset")
+            # These are whole-chain, all-or-nothing rates (fraction of transcripts
+            # whose entire chain matches), NOT per-junction Sn/Sp — the "rate"
+            # wording keeps that distinction explicit.
             _PR_DISPLAY = {
-                "intron_chain": "Exact intron chain",
+                "intron_chain": "Exact intron-chain rate",
                 "intron_chain_subset": "Intron Subset",
                 "intron_chain_superset": "Intron Superset",
-                "exon_chain": "Exact exon chain",
+                "exon_chain": "Exact exon-chain rate",
                 "exon_chain_superset": "Exon Superset",
                 "exon_chain_subset": "Exon Subset",
             }
@@ -388,37 +395,40 @@ def compare_multiple_predictions(
                     _method_scores.setdefault(_row["method_name"], {})[_row["metric_key"]] = _row["value"]
 
             if _method_scores:
+                # Each tier is all-or-nothing: a chain mismatch is booked as BOTH
+                # a false positive and a false negative, so per tier fp == fn for
+                # every sequence. Precision, recall and F1 (and their bootstrap
+                # standard errors) are therefore identical by construction — a
+                # separate precision and recall figure would be the same image
+                # twice. Collapse to a single per-tier match rate (precision is
+                # the representative value) and let the subset (precision-
+                # flavoured) vs superset (recall-flavoured) tiers carry the P/R
+                # contrast instead. See docs/metrics/structural_coherence.md.
                 _pr_rows = []
                 for _method, _scores in _method_scores.items():
-                    for _measure in ("precision", "recall"):
-                        _combined = {
-                            _PR_DISPLAY[k]: v.get(_measure, 0.0) for k, v in _scores.items() if isinstance(v, dict)
+                    _combined = {
+                        _PR_DISPLAY[k]: v.get("precision", 0.0) for k, v in _scores.items() if isinstance(v, dict)
+                    }
+                    for k, v in _scores.items():
+                        if isinstance(v, dict):
+                            se = v.get("precision_stderr")
+                            if se is not None:
+                                _combined[f"{_PR_DISPLAY[k]}_stderr"] = se
+                    _pr_rows.append(
+                        {
+                            "method_name": _method,
+                            "metric_group": EvalMetrics.STRUCTURAL_COHERENCE.name,
+                            "metric_key": "ts_level_match_rate",
+                            "value": _combined,
                         }
-                        for k, v in _scores.items():
-                            if isinstance(v, dict):
-                                se = v.get(f"{_measure}_stderr")
-                                if se is not None:
-                                    _combined[f"{_PR_DISPLAY[k]}_stderr"] = se
-                        _pr_rows.append(
-                            {
-                                "method_name": _method,
-                                "metric_group": EvalMetrics.STRUCTURAL_COHERENCE.name,
-                                "metric_key": "ts_level_" + _measure,
-                                "value": _combined,
-                            }
-                        )
+                    )
                 _df_pr = pd.DataFrame(_pr_rows)
-                _prefix = (output_dir / f"transcript_pr_overview{'' if scope == default_scope else f'_{scope}'}") if output_dir else None
+                _prefix = (output_dir / f"transcript_match_rate{'' if scope == default_scope else f'_{scope}'}") if output_dir else None
                 _pr_figs = plot_ml_metrics_bar(
                     _df_pr, class_name, save_path_prefix=_prefix, metadata_map=PLOT_METADATA
                 )
-                _pr_suffix = {
-                    "ts_level_precision": "precision",
-                    "ts_level_recall": "recall",
-                }
-                for _level, _fig in _pr_figs.items():
-                    _suffix = _pr_suffix.get(_level, _level)
-                    figures[_figure_key(f"transcript_pr_overview_{_suffix}", scope, default_scope)] = _fig
+                for _fig in _pr_figs.values():
+                    figures[_figure_key("transcript_match_rate", scope, default_scope)] = _fig
 
             fig = plot_transcript_match_distribution(
                 df_sc_scope,

@@ -6,6 +6,8 @@ Diagnostic evaluation toolkit for nucleotide-level DNA segmentation models (gene
 
 Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **strict intron chain plus per-transcript soft exon distributions**, **transcript match classification**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
 
+For continuity with existing tooling, the GFF pipeline also reports a **gffcompare-compatible baseline layer** (nucleotide / exon / transcript / gene sensitivity & precision) under each predictor's `global` results; the diagnostics above are the value this toolkit adds on top of that baseline.
+
 ```
 pip install dna-segmentation-benchmark
 ```
@@ -30,14 +32,14 @@ results = benchmark_from_gff(
     gt_path="ground_truth.gtf",
     pred_paths={"augustus": "predictions.gff"},
     label_config=label_config,
-    metrics=[EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+    metrics=[EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
     exclude_features=["gene"],
 )
 
 figures = compare_multiple_predictions(
     per_method_benchmark_res=results,
     label_config=label_config,
-    metrics_to_eval=[EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+    metrics_to_eval=[EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
 )
 ```
 
@@ -67,6 +69,7 @@ results = benchmark_gt_vs_pred_multiple(
         EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
         EvalMetrics.STRUCTURAL_COHERENCE,
         EvalMetrics.DIAGNOSTIC_DEPTH,
+        # EvalMetrics.PHASE_DRIFT,  # only in UTR_CDS_INTRON mode with evaluation_scope='cds'
     ],
 )
 ```
@@ -89,7 +92,8 @@ Generate a starter `label_config.yaml` with `dna-benchmark init-config`
 
 ## Metrics
 
-Seven metric groups, each answering a distinct question about prediction quality:
+Seven scored metric groups, each answering a distinct question about prediction
+quality (plus opt-in `STATE_TRANSITIONS`, described below):
 
 | Group | Question |
 |-------|----------|
@@ -97,7 +101,7 @@ Seven metric groups, each answering a distinct question about prediction quality
 | `REGION_DISCOVERY` | Did we find the right regions? |
 | `BOUNDARY_EXACTNESS` | How precise are the boundaries? |
 | `INDEL` | What structural errors exist? |
-| `FRAMESHIFT` | Is the coding-base phase preserved? |
+| `PHASE_DRIFT` | Is the coding-base phase preserved? |
 | `STRUCTURAL_COHERENCE` | Is the overall segment arrangement correct? |
 | `DIAGNOSTIC_DEPTH` | Why is the prediction structurally wrong? |
 
@@ -111,18 +115,29 @@ Per-base TP/TN/FP/FN with precision, recall, and F1. The most basic metric -- tr
 
 ---
 
-### Region Discovery (4-level Precision/Recall)
+### Region Discovery
 
-Evaluates section matching at increasing strictness using 1:1 greedy matching by overlap length:
+Evaluates section-level detection using greedy 1:1 matching by overlap length.
+Four **coherent precision/recall tiers** nested by strictness:
 
-| Level | TP condition | What it forgives |
-|-------|-------------|-----------------|
-| `neighborhood_hit` | Any overlap | Over- and under-prediction |
-| `internal_hit` | Prediction inside GT | Over-prediction |
-| `full_coverage_hit` | Prediction covers GT | Under-prediction |
-| `perfect_boundary_hit` | Exact match (sweep-based) | Nothing |
+| Tier | Type | Meaning |
+|------|------|---------|
+| `neighborhood_hit` | precision / recall | Detected the region at all (any overlap) |
+| `internal_hit` | precision / recall | Matched pair where prediction lies inside GT (pred ⊆ GT) |
+| `full_coverage_hit` | precision / recall | Matched pair where prediction spans GT (pred ⊇ GT) |
+| `perfect_boundary_hit` | precision / recall | Exact boundary match (sweep-based, no 1:1 constraint) |
+
+The tiers nest: `neighborhood_hit` ⊇ {`internal_hit`, `full_coverage_hit`} ⊇
+`perfect_boundary_hit`. Each is a coherent confusion table — every tier hardens
+its FP so `TP + FP = total predictions` and `TP + FN = total GT` — so all four are
+reported as plain precision/recall. The `internal_hit` vs `full_coverage_hit` split
+gives the direction of the boundary error (under- vs over-extension).
 
 ![Region discovery - neighborhood](docs/images/region_discovery_neighborhood_hit.png)
+
+![Region discovery - internal containment](docs/images/region_discovery_internal_hit.png)
+
+![Region discovery - full coverage](docs/images/region_discovery_full_coverage_hit.png)
 
 ![Region discovery - perfect boundary](docs/images/region_discovery_perfect_boundary_hit.png)
 
@@ -183,7 +198,7 @@ Rendered as two overlayed histograms; a fat left tail of recall combined with a 
 
 #### Transcript Match Classification
 
-Holistic structural classification of each (GT, prediction) pair into one of eight categories
+Holistic structural classification of each (GT, prediction) pair into one of nine categories
 (see :class:`~dna_segmentation_benchmark.eval.transcript_classification.TranscriptMatchClass`):
 
 | Class | Condition |
@@ -194,7 +209,8 @@ Holistic structural classification of each (GT, prediction) pair into one of eig
 | `missing_segments` | Prediction's segment set is a strict subset of GT's |
 | `extra_segments` | GT's segment set is a strict subset of prediction's |
 | `partial_overlap` | At least one shared segment, but neither equality nor subset relation |
-| `no_overlap` | No shared `(start, end)` segment with GT |
+| `substitution` | No shared `(start, end)` segment, but ≥1 predicted segment overlaps a GT segment in base coordinates (relocated/substituted exons) |
+| `no_overlap` | No shared `(start, end)` segment and no base overlap |
 | `missed` | Prediction has no segments of this class |
 
 ![Transcript match classification](docs/images/transcript_match.png)
@@ -234,7 +250,7 @@ Earth Mover's Distance between the GT and predicted coding-segment length distri
 
 ---
 
-### Frameshift
+### Phase Drift
 
 Per-position coding-base phase drift, defined as
 `|cumulative_pred_coding_count − cumulative_gt_coding_count| mod 3` along the transcript.
@@ -246,9 +262,10 @@ rather than aborting the run.
 
 ---
 
-### State Transitions (always computed)
+### State Transitions
 
-Two analyses run on every benchmark call:
+Requested via `EvalMetrics.STATE_TRANSITIONS` (included in the default metric set,
+so it runs unless you pass an explicit `metrics` list that omits it). Two analyses:
 
 - **GT Transition Confusion Matrices**: At every position where GT changes label, what did the predictor do? One heatmap per source label.
 - **False Transition Analysis**: At positions where GT is stable (no label change), did the predictor introduce a spurious transition? Each false transition is classified into *late-catchup*, *premature*, or *spurious* using lookbehind/lookahead context.
@@ -267,7 +284,7 @@ All metrics are label-agnostic. Every `LabelConfig` declares an explicit
 | Mode | Positive labels | Use it for |
 |------|-----------------|------------|
 | `EXON_INTRON` | one `exon_label` | exon/intron structure; tools that don't split UTR from CDS |
-| `UTR_CDS_INTRON` | `five_prime_utr_label`, `cds_label`, `three_prime_utr_label` | full transcript anatomy; CDS-scoped metrics; `FRAMESHIFT` |
+| `UTR_CDS_INTRON` | `five_prime_utr_label`, `cds_label`, `three_prime_utr_label` | full transcript anatomy; CDS-scoped metrics; `PHASE_DRIFT` |
 
 ```python
 from dna_segmentation_benchmark import AnnotationMode, LabelConfig
@@ -295,10 +312,19 @@ anatomy_config = LabelConfig(
 )
 ```
 
+The integer tokens are an internal array-encoding detail. If you are working
+from GFF/GTF files and don't care about the specific integers, use the canonical
+defaults instead of assigning them by hand:
+
+```python
+exon_config   = LabelConfig.default_exon_intron()      # same scheme as BEND_LABEL_CONFIG
+anatomy_config = LabelConfig.default_utr_cds_intron()  # explicit UTR/CDS/intron/splice tokens
+```
+
 The mode also fixes the **evaluation scope**. Per-transcript metrics run on the
 configured `evaluation_scope` (`transcript_exon` by default; `cds` is available
 in `UTR_CDS_INTRON`), while global file-level metrics report every available
-scope. `FRAMESHIFT` is only valid in `UTR_CDS_INTRON` with
+scope. `PHASE_DRIFT` is only valid in `UTR_CDS_INTRON` with
 `evaluation_scope=BenchmarkScope.CDS`.
 
 A pre-built `EXON_INTRON` config for the BEND benchmark is available as

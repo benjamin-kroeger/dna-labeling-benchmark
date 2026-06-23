@@ -62,12 +62,26 @@ run.finish()
 
 ## What Gets Logged
 
-`log_benchmark_scalars(...)` logs a curated online subset:
+`log_benchmark_scalars(...)` logs a curated, high-signal online subset. Keys
+follow `[<method_prefix>/]<group>/<leaf>`, and a group only appears if its
+metric was in the result:
 
-- `Boundary Exactness/iou_mean`
-- `Region Discovery/*/{precision,recall}`
-- `Structural Coherence/intron_chain/{precision,recall}`
-- `Structural Coherence/transcript_exact/{precision,recall}`
+- `boundary_exactness/iou_mean`
+- `region_discovery/{neighborhood_hit,internal_hit,full_coverage_hit,perfect_boundary_hit}/{precision,recall}`
+- `nucleotide_classification/nucleotide/{precision,recall,f1}`
+- `struct_coherence/intron_chain/match_rate`,
+  `struct_coherence/exon_chain/match_rate`
+  (whole-chain tiers are all-or-nothing, so precision = recall = F1 — a single
+  rate is logged),
+  `struct_coherence/segment_count_delta/{mean,mae}`,
+  `struct_coherence/exon_recall_per_transcript/mean`,
+  `struct_coherence/hallucinated_exon_count_per_transcript/mean`,
+  `struct_coherence/exact_match_rate`,
+  `struct_coherence/splice_site_results/{donor,acceptor}_{precision,recall}`
+- `diagnostic_depth/length_emd/{mean,mae}`
+
+To log *every* numeric scalar instead of this subset, use
+{py:func}`dna_segmentation_benchmark.log_benchmark_all_scalars`.
 
 `log_benchmark_media(...)` renders and logs:
 

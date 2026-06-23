@@ -54,13 +54,13 @@ def _require_wandb():
 _SCALAR_TYPES = (int, float, np.integer, np.floating)
 
 # Snake-case section names used as the W&B metric-path group segment.
-# Keeps full keys URL/glob-friendly, e.g. ``val/struct_coherence/intron_chain/precision``.
+# Keeps full keys URL/glob-friendly, e.g. ``val/struct_coherence/intron_chain/match_rate``.
 _GROUP_DISPLAY_NAMES = {
     "REGION_DISCOVERY": "region_discovery",
     "BOUNDARY_EXACTNESS": "boundary_exactness",
     "NUCLEOTIDE_CLASSIFICATION": "nucleotide_classification",
     "INDEL": "indel",
-    "FRAMESHIFT": "frameshift",
+    "PHASE_DRIFT": "phase_drift",
     "STRUCTURAL_COHERENCE": "struct_coherence",
     "DIAGNOSTIC_DEPTH": "diagnostic_depth",
 }
@@ -72,35 +72,54 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "iou_mean": ("iou_stats", "mean"),
     },
     "REGION_DISCOVERY": {
-        "full_coverage_hit/precision": ("full_coverage_hit", "precision"),
-        "full_coverage_hit/recall": ("full_coverage_hit", "recall"),
-        "internal_hit/precision": ("internal_hit", "precision"),
-        "internal_hit/recall": ("internal_hit", "recall"),
         "neighborhood_hit/precision": ("neighborhood_hit", "precision"),
         "neighborhood_hit/recall": ("neighborhood_hit", "recall"),
+        "internal_hit/precision": ("internal_hit", "precision"),
+        "internal_hit/recall": ("internal_hit", "recall"),
+        "full_coverage_hit/precision": ("full_coverage_hit", "precision"),
+        "full_coverage_hit/recall": ("full_coverage_hit", "recall"),
         "perfect_boundary_hit/precision": ("perfect_boundary_hit", "precision"),
         "perfect_boundary_hit/recall": ("perfect_boundary_hit", "recall"),
     },
+    "NUCLEOTIDE_CLASSIFICATION": {
+        "nucleotide/precision": ("nucleotide", "precision"),
+        "nucleotide/recall": ("nucleotide", "recall"),
+        "nucleotide/f1": ("nucleotide", "f1"),
+    },
     "STRUCTURAL_COHERENCE": {
-        "intron_chain/precision": ("intron_chain", "precision"),
-        "intron_chain/recall": ("intron_chain", "recall"),
-        "exon_chain/precision": ("exon_chain", "precision"),
-        "exon_chain/recall": ("exon_chain", "recall"),
+        # Whole-chain tiers are all-or-nothing, so precision == recall == F1
+        # (a chain mismatch is booked as both an FP and an FN). Log the single
+        # match rate instead of duplicating it as precision and recall.
+        "intron_chain/match_rate": ("intron_chain", "precision"),
+        "exon_chain/match_rate": ("exon_chain", "precision"),
         "segment_count_delta/mean": ("segment_count_delta", "mean"),
         "segment_count_delta/mae": ("segment_count_delta", "mae"),
         "exon_recall_per_transcript/mean": ("exon_recall_per_transcript",),
         "hallucinated_exon_count_per_transcript/mean": ("hallucinated_exon_count_per_transcript",),
         "exact_match_rate": ("exact_match_rate",),
+        "splice_site_results/donor_precision": ("splice_site_results", "donor_precision"),
+        "splice_site_results/donor_recall": ("splice_site_results", "donor_recall"),
+        "splice_site_results/acceptor_precision": ("splice_site_results", "acceptor_precision"),
+        "splice_site_results/acceptor_recall": ("splice_site_results", "acceptor_recall"),
+    },
+    "DIAGNOSTIC_DEPTH": {
+        "length_emd/mean": ("length_emd", "mean"),
+        "length_emd/mae": ("length_emd", "mae"),
     },
 }
 
-_MEDIA_FIGURE_KEYS = {
-    "boundary_landscape": "boundary_landscape",
-    "position_bias": "position_bias",
-    "transition_matrices": "transition_matrices",
-    "false_transitions": "false_transitions",
-    "transcript_match": "transcript_match",
-}
+# Figures to buffer for per-epoch GIF videos. Only short, informative plots
+# are included — heavy multi-panel plots (indel histograms, splice-site CMs)
+# grow too large to animate usefully.
+_VIDEO_BUFFER_FIGURE_KEYS = frozenset({
+    "boundary_landscape",
+    "position_bias",
+    "transition_matrices",
+    "false_transitions",
+    "transcript_match",
+    "segment_count_delta",
+    "phase_drift",
+})
 
 # Internal label used as the single-method key when feeding the multi-method
 # plotting orchestrator. Surfaces in plot legends only.
@@ -192,10 +211,10 @@ def _flatten_selected_scalars(
     return flat
 
 
-def _unwrap_per_transcript_results(results: dict) -> dict:
+def _unwrap_aggregated_results(results: dict) -> dict:
     """Accept either a raw benchmark result or a pipeline wrapper dict."""
-    if set(results.keys()) == {"per_transcript", "global"}:
-        return results["per_transcript"]
+    if set(results.keys()) == {"aggregated", "global"}:
+        return results["aggregated"]
     return results
 
 
@@ -216,13 +235,13 @@ def _render_benchmark_media_figures(
     label_config: LabelConfig,
 ) -> dict[str, Any]:
     """Render the benchmark media figures for one aggregated result dict."""
-    per_transcript_results = _unwrap_per_transcript_results(results)
-    metrics_to_eval = _infer_metrics_from_results(per_transcript_results)
-    if not metrics_to_eval and "transition_failures" not in per_transcript_results:
+    inner_results = _unwrap_aggregated_results(results)
+    metrics_to_eval = _infer_metrics_from_results(inner_results)
+    if not metrics_to_eval and "transition_failures" not in inner_results:
         return {}
 
     return compare_multiple_predictions(
-        per_method_benchmark_res={_INTERNAL_METHOD_LABEL: per_transcript_results},
+        per_method_benchmark_res={_INTERNAL_METHOD_LABEL: inner_results},
         label_config=label_config,
         metrics_to_eval=metrics_to_eval,
     )
@@ -259,13 +278,12 @@ def _buffer_media_frames(
     *,
     method_prefix: str | None,
 ) -> None:
-    """Append the current media figures to the internal video-frame buffer."""
-    for fig_name, plot_name in _MEDIA_FIGURE_KEYS.items():
-        fig = figures.get(fig_name)
-        if fig is None:
+    """Append figures in _VIDEO_BUFFER_FIGURE_KEYS to the internal video-frame buffer."""
+    for fig_name, fig in figures.items():
+        if fig_name not in _VIDEO_BUFFER_FIGURE_KEYS:
             continue
         buffer_key = _build_buffered_video_key(
-            plot_name=plot_name,
+            plot_name=fig_name,
             method_prefix=method_prefix,
         )
         _BUFFERED_MEDIA_FRAMES.setdefault(buffer_key, []).append(_figure_to_rgb_frame(fig))
@@ -278,6 +296,12 @@ def _infer_metrics_from_results(results: dict) -> list[EvalMetrics]:
     for metric in EvalMetrics:
         if metric.name in metric_names:
             metrics.append(metric)
+    # State transitions are keyed by their fragment names, not the enum name, so
+    # detect them directly to keep the transition plots rendering when present.
+    if ("transition_failures" in metric_names or "false_transitions" in metric_names) and (
+        EvalMetrics.STATE_TRANSITIONS not in metrics
+    ):
+        metrics.append(EvalMetrics.STATE_TRANSITIONS)
     return metrics
 
 
@@ -290,7 +314,7 @@ def _flatten_all_scalars(
     flat: dict[str, float] = {}
 
     for group_key, group_data in results.items():
-        if group_key in ("transition_failures", "false_transitions"):
+        if group_key in ("transition_failures", "false_transitions", "metadata"):
             continue
         if not isinstance(group_data, dict):
             continue
@@ -352,29 +376,73 @@ def log_benchmark_scalars(
     return flat
 
 
+def log_benchmark_all_scalars(
+    results: dict,
+    label_config: LabelConfig,
+    step: Optional[int] = None,
+    method_prefix: Optional[str] = None,
+) -> dict[str, float]:
+    """Log every numeric scalar in the benchmark result to an active W&B run.
+
+    Unlike :func:`log_benchmark_scalars` (which logs a curated high-signal
+    subset), this function flattens the entire result dict recursively.
+    Suitable for final evaluation runs or post-training analysis where
+    logging cost is not a concern.
+
+    Parameters
+    ----------
+    results : dict
+        Aggregated result dict from :func:`benchmark_gt_vs_pred_multiple`.
+        Pipeline wrapper ``{"aggregated": ..., "global": ...}`` is also
+        accepted.
+    label_config : LabelConfig
+        Currently unused; kept for API compatibility.
+    step : int, optional
+        Training step or epoch number.
+    method_prefix : str, optional
+        Optional prefix to namespace the metrics (e.g., ``"final"``).
+
+    Returns
+    -------
+    dict[str, float]
+        The flat dict that was logged.
+    """
+    wandb = _require_wandb()
+
+    inner = _unwrap_aggregated_results(results)
+    flat = _flatten_all_scalars(inner, prefix="")
+    if method_prefix:
+        flat = {f"{method_prefix}/{k}": v for k, v in flat.items()}
+
+    log_kwargs: dict[str, Any] = {"data": flat}
+    if step is not None:
+        log_kwargs["step"] = step
+
+    wandb.log(**log_kwargs)
+
+    logger.info("Logged %d scalar metrics to W&B (step=%s).", len(flat), step)
+    return flat
+
+
 def log_benchmark_media(
     results: dict,
     label_config: LabelConfig,
     step: Optional[int] = None,
     method_prefix: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Log key diagnostic plots to W&B as stepwise media history.
+    """Log all diagnostic plots to W&B as stepwise media history.
 
-    The helper accepts one aggregated benchmark result dict and logs a
-    focused set of high-value diagnostic plots:
-
-    * boundary bias and cumulative reliability landscape
-    * error location bias
-    * GT transition confusion matrices
-    * false transitions at GT-stable positions
-    * transcript match classification distribution
+    Renders every figure produced by the benchmark plotting layer and logs
+    them all as W&B Image panels.  A focused subset of high-value figures
+    (listed in :data:`_VIDEO_BUFFER_FIGURE_KEYS`) is also buffered for later
+    animation via :func:`log_benchmark_media_videos`.
 
     Parameters
     ----------
     results : dict
         Aggregated benchmark result dict from
         :func:`benchmark_gt_vs_pred_multiple`. A pipeline-style wrapper
-        ``{"per_transcript": ..., "global": ...}`` is also accepted.
+        ``{"aggregated": ..., "global": ...}`` is also accepted.
     label_config : LabelConfig
         Label semantics for plot labelling.
     step : int, optional
@@ -385,18 +453,15 @@ def log_benchmark_media(
     Returns
     -------
     dict[str, Any]
-        The logged W&B media payload.
+        The logged W&B media payload (keys are W&B panel paths).
     """
     wandb = _require_wandb()
 
     figures = _render_benchmark_media_figures(results, label_config)
     try:
         media_payload: dict[str, Any] = {}
-        for fig_name, target_name in _MEDIA_FIGURE_KEYS.items():
-            fig = figures.get(fig_name)
-            if fig is None:
-                continue
-            key = f"plots/{target_name}"
+        for fig_name, fig in figures.items():
+            key = f"plots/{fig_name}"
             if method_prefix:
                 key = f"{method_prefix}/{key}"
             media_payload[key] = wandb.Image(fig)
@@ -501,7 +566,7 @@ def init_wandb_with_presets(
         wandb.define_metric(f"{group_display}/*")
         wandb.define_metric(f"val/{group_display}/*")
 
-    # Validation-prefixed metrics (for online logging with method_prefix="val")
+    wandb.define_metric("plots/*")
     wandb.define_metric("val/*")
     wandb.define_metric("val/plots/*")
 

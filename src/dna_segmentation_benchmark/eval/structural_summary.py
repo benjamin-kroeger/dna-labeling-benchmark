@@ -35,7 +35,7 @@ POSITION_BIAS_HISTOGRAM_BINS: int = 100
 # ---------------------------------------------------------------------------
 
 
-def _compute_structural_summary(
+def compute_structural_summary(
     grouped_gt_sections: list[np.ndarray],
     grouped_pred_sections: list[np.ndarray],
 ) -> dict:

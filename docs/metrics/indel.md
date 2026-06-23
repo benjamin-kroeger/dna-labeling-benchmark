@@ -105,7 +105,7 @@ the standard 5'→3' input orientation (see {doc}`conventions`).
 
 ## Output Structure
 
-`_eval_indel` returns
+`eval_indel` returns
 
 ```python
 {

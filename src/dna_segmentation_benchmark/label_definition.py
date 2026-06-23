@@ -140,9 +140,47 @@ class LabelConfig(BaseModel):
             seen[value] = field_name
         return self
 
+    @classmethod
+    def default_exon_intron(cls) -> "LabelConfig":
+        """Canonical ``EXON_INTRON`` config so GFF users need not pick tokens.
+
+        Tokens: ``background=8``, ``exon=0``, ``intron=2``, ``splice_donor=1``,
+        ``splice_acceptor=3`` (the same scheme as :data:`BEND_LABEL_CONFIG`).
+        The integers are an internal array-encoding detail; only their
+        distinctness matters.
+        """
+        return cls(
+            annotation_mode=AnnotationMode.EXON_INTRON,
+            background_label=8,
+            exon_label=0,
+            intron_label=2,
+            splice_donor_label=1,
+            splice_acceptor_label=3,
+        )
+
+    @classmethod
+    def default_utr_cds_intron(cls) -> "LabelConfig":
+        """Canonical ``UTR_CDS_INTRON`` config with explicit UTR/CDS/intron tokens.
+
+        Tokens: ``background=8``, ``cds=0``, ``five_prime_utr=4``,
+        ``three_prime_utr=5``, ``intron=2``, ``splice_donor=1``,
+        ``splice_acceptor=3``.  Mirrors the anatomy example in the README; the
+        integers are an internal encoding detail.
+        """
+        return cls(
+            annotation_mode=AnnotationMode.UTR_CDS_INTRON,
+            background_label=8,
+            cds_label=0,
+            five_prime_utr_label=4,
+            three_prime_utr_label=5,
+            intron_label=2,
+            splice_donor_label=1,
+            splice_acceptor_label=3,
+        )
+
     @property
-    def supports_frameshift(self) -> bool:
-        """Whether CDS-only frameshift evaluation is well-defined."""
+    def supports_phase_drift(self) -> bool:
+        """Whether CDS-only phase-drift evaluation is well-defined."""
         return (
             self.annotation_mode == AnnotationMode.UTR_CDS_INTRON
             and self.evaluation_scope == BenchmarkScope.CDS
@@ -250,33 +288,49 @@ class EvalMetrics(Enum):
     * ``INDEL`` – *"What structural errors exist?"*
       5'/3' extensions/deletions, whole insertions/deletions, splits/joins.
     * ``REGION_DISCOVERY`` – *"Did we find the right regions?"*
-      Scope-aware precision & recall at four overlap strictness levels.
+      Four coherent detection P/R tiers nested by strictness:
+      ``neighborhood_hit`` (any overlap) ⊇ ``internal_hit`` (pred ⊆ GT) and
+      ``full_coverage_hit`` (pred ⊇ GT) ⊇ ``perfect_boundary_hit`` (exact
+      boundaries). Each hardens its FP so a matched-but-wrong-shape pair is
+      booked as both FP and FN; ``internal_hit`` vs ``full_coverage_hit`` give
+      the direction of the boundary error (under- vs over-extension).
     * ``BOUNDARY_EXACTNESS`` – *"How precise are the boundaries?"*
       Scope-aware IoU stats, bias/reliability landscape, and boundary flags.
     * ``NUCLEOTIDE_CLASSIFICATION`` – *"Per-base, how accurate is it?"*
       Binary or multiclass outputs depending on annotation mode and scope.
-    * ``FRAMESHIFT`` – *"Is the reading frame preserved?"*
-      CDS-only per-position reading-frame deviation.
+    * ``PHASE_DRIFT`` – *"Is the CDS reading phase preserved?"*
+      CDS-only per-position reading-phase deviation.  Measures relative
+      CDS-base count drift between GT and prediction; it is a structural
+      comparison signal, not a biological frameshift-mutation detector.
     * ``STRUCTURAL_COHERENCE`` – *"Is the segment chain correct as a whole?"*
       Scope-aware chain comparison, transcript classification, and segment
       count diagnostics.
     * ``DIAGNOSTIC_DEPTH`` – *"Why is the prediction structurally wrong?"*
       Scope-aware segment-length EMD and position-bias summaries.
+    * ``STATE_TRANSITIONS`` – *"Where do label transitions go wrong?"*
+      GT transition confusion matrices plus classified false transitions
+      (late-catchup / premature / spurious).  Operates on the full label
+      vocabulary, so it is config-agnostic.
     """
 
     INDEL = 0
     REGION_DISCOVERY = 1
     BOUNDARY_EXACTNESS = 2
     NUCLEOTIDE_CLASSIFICATION = 3
-    FRAMESHIFT = 4
+    PHASE_DRIFT = 4
     STRUCTURAL_COHERENCE = 5
     DIAGNOSTIC_DEPTH = 6
+    STATE_TRANSITIONS = 7
 
 
 _DEFAULT_METRICS = [
     EvalMetrics.REGION_DISCOVERY,
     EvalMetrics.BOUNDARY_EXACTNESS,
     EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
+    # Kept in the default set so the transition-matrix plots — which frame the
+    # other metrics — still render without an explicit request.  Drop from an
+    # explicit ``metrics`` list to skip the always-on transition pass.
+    EvalMetrics.STATE_TRANSITIONS,
 ]
 
 _FULL_SWEEP_METRICS = [
@@ -284,9 +338,10 @@ _FULL_SWEEP_METRICS = [
     EvalMetrics.REGION_DISCOVERY,
     EvalMetrics.BOUNDARY_EXACTNESS,
     EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
-    EvalMetrics.FRAMESHIFT,
+    EvalMetrics.PHASE_DRIFT,
     EvalMetrics.STRUCTURAL_COHERENCE,
     EvalMetrics.DIAGNOSTIC_DEPTH,
+    EvalMetrics.STATE_TRANSITIONS,
 ]
 
 

@@ -46,7 +46,7 @@ used by the W&B online logger.
 
 ## Boundary Residual Landscape
 
-The raw `fuzzy_metrics["boundary_residuals"]` list contains all signed
+The raw `fuzzy_metrics["boundary_offsets"]` list contains all signed
 residual pairs from overlapping sections. Aggregation turns that into the
 boundary bias landscape which can show if certain numbers or nucleotides are consistently over or under predicted.
 The cumulative reliability highlights how recall improves if each boundary is counted as an exact match given x 

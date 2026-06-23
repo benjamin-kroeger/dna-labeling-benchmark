@@ -58,8 +58,6 @@ def compute_global_metrics(
     mappings: list[TranscriptMapping],
     predictor_name: str,
     label_config: LabelConfig,
-    gt_exon_types: list[str],
-    pred_exon_types: list[str],
     transcript_types: list[str],
     gt_feature_role_map: FeatureRoleMap | None = None,
     pred_feature_role_map: FeatureRoleMap | None = None,
@@ -79,10 +77,6 @@ def compute_global_metrics(
     label_config : LabelConfig
         Label configuration.  ``coding_label`` must be set for nucleotide
         metrics; if it is ``None`` the nucleotide section is returned empty.
-    gt_exon_types : list[str]
-        GT GFF/GTF feature types that represent exon/coding intervals.
-    pred_exon_types : list[str]
-        Prediction GFF/GTF feature types that represent exon/coding intervals.
     transcript_types : list[str]
         GFF feature types that define transcript boundaries
         (e.g. ``["mRNA", "transcript"]``).
@@ -99,17 +93,11 @@ def compute_global_metrics(
         GT isoforms per locus that received a match, addressing multi-isoform
         caller fairness.  Most meaningful with ``FULL_DISCOVERY`` matching.
     """
-    gt_feature_role_map = _resolve_feature_role_map(
-        label_config,
-        gt_feature_role_map,
-        gt_exon_types,
-        arg_name="gt_feature_role_map",
+    gt_feature_role_map = normalize_feature_role_map(
+        gt_feature_role_map, label_config, arg_name="gt_feature_role_map"
     )
-    pred_feature_role_map = _resolve_feature_role_map(
-        label_config,
-        pred_feature_role_map,
-        pred_exon_types,
-        arg_name="pred_feature_role_map",
+    pred_feature_role_map = normalize_feature_role_map(
+        pred_feature_role_map, label_config, arg_name="pred_feature_role_map"
     )
 
     return {
@@ -156,24 +144,6 @@ def compute_global_metrics(
 # ---------------------------------------------------------------------------
 # Nucleotide metrics — union-based
 # ---------------------------------------------------------------------------
-
-
-def _resolve_feature_role_map(
-    label_config: LabelConfig,
-    feature_role_map: FeatureRoleMap | None,
-    exon_types: list[str] | None,
-    *,
-    arg_name: str,
-) -> FeatureRoleMap:
-    """Resolve a global-metrics feature-role map from new or legacy inputs."""
-    if feature_role_map is None and exon_types is not None:
-        if label_config.annotation_mode.name != "EXON_INTRON":
-            raise ValueError(
-                f"{arg_name} must be provided explicitly in UTR_CDS_INTRON mode. "
-                "Legacy exon_types only express one exonic role."
-            )
-        feature_role_map = {feature_type: "exon" for feature_type in exon_types}
-    return normalize_feature_role_map(feature_role_map, label_config, arg_name=arg_name)
 
 
 def _compute_global_nucleotide_metrics(
@@ -323,6 +293,7 @@ def _compute_global_exon_lenient_metrics(
     not required to match.  Only internal splice-site boundaries must be exact.
 
     Concretely:
+
     * **First exon** per transcript (lowest start): only the 3' boundary
       (splice-donor position, ``end``) is required to match.
     * **Last exon** per transcript (highest end): only the 5' boundary

@@ -15,7 +15,11 @@ Metrics
 * **Exon chain (strict / subset / superset)** — same set semantics applied to
   coding segments, directly comparable to intron chain.
 * **Boundary shift** — per-transcript count and total bp offset of shifted
-  segment boundaries (only for equal-count pairs).
+  segment boundaries (only for equal-count pairs), plus the signed,
+  position-tagged per-boundary offsets that drive the shift-distribution
+  plots.  Reported only when GT and prediction have the same segment count
+  (i.e. the chain topology is correct), so the offsets describe junction
+  placement *conditioned on* getting the exon count right.
 * **Per-transcript exon recall** — fraction of GT exons exactly recovered.
 * **Per-transcript hallucinated exon count** — predicted exons absent from GT.
 """
@@ -32,60 +36,6 @@ from ..label_definition import BenchmarkScope
 # ---------------------------------------------------------------------------
 # Generic chain comparison (shared by intron and exon metrics)
 # ---------------------------------------------------------------------------
-
-
-def _compute_chain_metrics(
-        gt_structure: ExtractedStructure,
-        pred_structure: ExtractedStructure,
-        label: int,
-        metric_prefix: str,
-) -> dict:
-    """Compare segment boundary sets for one label class.
-
-    Filters both structures to segments matching *label*, converts each to a
-    ``frozenset`` of ``(start, end)`` pairs, and scores three binary metrics
-    via set comparison.
-
-    Parameters
-    ----------
-    gt_structure, pred_structure : ExtractedStructure
-        Structures extracted from the GT and predicted arrays.
-    label : int
-        Which label class to evaluate.
-    metric_prefix : str
-        Prefix for the three output keys.  For introns use ``"intron_chain"``,
-        for exons use ``"exon_chain"``.
-
-    Returns
-    -------
-    dict
-        Three sibling dicts, each with ``tp``, ``fp``, ``fn`` counts:
-
-        * ``{metric_prefix}`` — all-or-nothing exact match.
-        * ``{metric_prefix}_subset`` — 1 iff pred ⊆ GT (all predicted segments
-          are real; may miss some GT segments).
-        * ``{metric_prefix}_superset`` — 1 iff pred ⊇ GT (every GT segment was
-          found; may contain extra spurious ones).
-    """
-    gt_segs: set[tuple[int, int]] = {(s.start, s.end) for s in gt_structure.filter_by_label(label)}
-    pred_segs: set[tuple[int, int]] = {(s.start, s.end) for s in pred_structure.filter_by_label(label)}
-
-    if len(gt_segs) == 0:
-        return {
-            metric_prefix: Counts(),
-            f"{metric_prefix}_subset": Counts(),
-            f"{metric_prefix}_superset": Counts(),
-        }
-
-    exact = gt_segs == pred_segs
-    subset = bool(pred_segs) and pred_segs <= gt_segs
-    superset = bool(pred_segs) and pred_segs >= gt_segs
-
-    return {
-        metric_prefix: Counts(tp=1) if exact else Counts(fp=1, fn=1),
-        f"{metric_prefix}_subset": Counts(tp=1) if subset else Counts(fp=1, fn=1),
-        f"{metric_prefix}_superset": Counts(tp=1) if superset else Counts(fp=1, fn=1),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +89,7 @@ def _extract_logical_intron_spans(
     return spans
 
 
-def _compute_intron_chain_metrics(
+def compute_intron_chain_metrics(
         gt_structure: ExtractedStructure,
         pred_structure: ExtractedStructure,
         label_config: LabelConfig,
@@ -149,7 +99,16 @@ def _compute_intron_chain_metrics(
     Extracts logical intron spans via :func:`_extract_logical_intron_spans`
     (which groups ``DONOR + INTRON* + ACCEPTOR`` into a single span when
     splice-site labels are defined), then performs the same strict / subset /
-    superset set comparison as :func:`_compute_chain_metrics`.
+    superset set comparison as the exon chain metrics.
+
+    Scoring is **transcript-level (whole-chain)**: this pair contributes
+    ``tp=1`` only when the entire GT intron set equals the predicted set,
+    otherwise ``fp=1, fn=1``.  When :func:`summarise_counts` aggregates these
+    across transcripts, the resulting precision/recall is the *fraction of
+    transcripts with an exact intron-chain match* — **not** the fraction of
+    individual introns correctly predicted.  For an intron-level gradation of
+    "nearly right" chains, see the per-transcript soft-exon scalars in
+    :func:`_compute_per_transcript_exon_soft_metrics`.
 
     Returns
     -------
@@ -194,7 +153,7 @@ def _segments_for_scope(
     return extract_scoped_segments(structure, label_config.scope_tokens(scope))
 
 
-def _compute_scoped_chain_metrics(
+def compute_scoped_chain_metrics(
         gt_structure: ExtractedStructure,
         pred_structure: ExtractedStructure,
         label_config: LabelConfig,
@@ -239,42 +198,40 @@ def _compute_scoped_chain_metrics(
 # ---------------------------------------------------------------------------
 
 
-def _compute_boundary_shift_metrics(
-        gt_structure: ExtractedStructure,
-        pred_structure: ExtractedStructure,
-        label: int,
-) -> dict:
-    """Count shifted boundary positions for equal-count segment pairs.
-
-    Only meaningful when GT and pred have the same number of segments.  If the
-    counts differ, both values are 0.  Used as a per-transcript diagnostic
-    complement to the chain set-comparison metrics.
-
-    Returns
-    -------
-    dict
-        ``{"boundary_shift_count": int, "boundary_shift_total": int}``
-    """
-    gt_segs = gt_structure.filter_by_label(label)
-    pred_segs = pred_structure.filter_by_label(label)
-
-    if len(gt_segs) == 0 or len(gt_segs) != len(pred_segs):
-        return {"boundary_shift_count": 0, "boundary_shift_total": 0}
-
-    count, total = _measure_shifted_boundaries(gt_segs, pred_segs)
-    return {"boundary_shift_count": count, "boundary_shift_total": total}
-
-
 def _compute_boundary_shift_from_segments(
         gt_segs: tuple[Segment, ...],
         pred_segs: tuple[Segment, ...],
 ) -> dict:
-    """Count shifted boundaries for a pre-selected scope segment chain."""
-    if len(gt_segs) == 0 or len(gt_segs) != len(pred_segs):
-        return {"boundary_shift_count": 0, "boundary_shift_total": 0}
+    """Count and characterise shifted boundaries for a scope segment chain.
 
-    count, total = _measure_shifted_boundaries(gt_segs, pred_segs)
-    return {"boundary_shift_count": count, "boundary_shift_total": total}
+    Returns the per-transcript scalar summary (``boundary_shift_count``,
+    ``boundary_shift_total``) together with ``boundary_shift_offsets`` — the
+    list of signed, position-tagged per-boundary records that drives the
+    boundary-shift distribution plots.  All three are empty/zero unless the
+    two chains have matching, non-zero length (correct exon-count topology)
+    *and* every predicted segment overlaps its positional GT counterpart.
+    Boundaries can only be paired position-by-position when the counts agree,
+    and the offsets are only meaningful when the paired segments genuinely
+    correspond — a relocated/substituted exon is not a "shifted boundary" and
+    would otherwise inject a spurious large offset into the distribution.
+    """
+    if (
+        len(gt_segs) == 0
+        or len(gt_segs) != len(pred_segs)
+        or not all(g.overlaps(p) for g, p in zip(gt_segs, pred_segs))
+    ):
+        return {
+            "boundary_shift_count": 0,
+            "boundary_shift_total": 0,
+            "boundary_shift_offsets": [],
+        }
+
+    count, total, offsets = _measure_shifted_boundaries(gt_segs, pred_segs)
+    return {
+        "boundary_shift_count": count,
+        "boundary_shift_total": total,
+        "boundary_shift_offsets": offsets,
+    }
 
 
 def _raise_if_introns_missing_but_inferable(
@@ -357,30 +314,67 @@ def _compute_soft_metrics_from_segments(
 def _measure_shifted_boundaries(
         gt_segs: tuple[Segment, ...],
         pred_segs: tuple[Segment, ...],
-) -> tuple[int, int]:
-    """Count and sum all shifted boundary positions across every segment pair.
+) -> tuple[int, int, list[dict]]:
+    """Measure every shifted boundary position across a segment chain.
+
+    The two chains are compared position-by-position (they must have equal
+    length); each boundary whose predicted coordinate differs from the
+    ground-truth coordinate is both counted and recorded individually.
 
     Parameters
     ----------
     gt_segs, pred_segs : tuple[Segment, ...]
-        Segment chains of equal length.
+        Segment chains of equal length, ordered by array position.
 
     Returns
     -------
-    (count, total) : tuple[int, int]
+    (count, total, offsets) : tuple[int, int, list[dict]]
         *count* — number of boundary positions that differ.
         *total* — sum of absolute position offsets across those boundaries (bp).
+        *offsets* — one record per **shifted** boundary, each a dict with keys
+
+        ``offset``
+            Signed offset ``pred_edge - gt_edge`` in array coordinates.  A
+            positive value means the predicted edge lies to the right (higher
+            index, array-3') of the matching GT edge.  The sign therefore
+            follows the same array-orientation convention as the boundary
+            precision landscape and is **not** strand-resolved — a biological
+            donor/acceptor split is intentionally deferred until minus-strand
+            arrays are reverse-complemented upstream.
+        ``position``
+            ``"terminal"`` for the chain's outer start/end (the transcript
+            TSS/TES in array orientation), ``"internal"`` for every interior
+            splice-site boundary.  This separates inherently fuzzy transcript
+            ends from precisely defined splice junctions.
+
+        Only boundaries that actually differ are recorded, so the distribution
+        describes the *conditional* shift magnitude ("given a junction is
+        misplaced, by how much") rather than overall recall.
     """
     if not gt_segs:
-        return 0, 0
+        return 0, 0, []
     count = 0
     total = 0
-    for g, p in zip(gt_segs, pred_segs):
+    offsets: list[dict] = []
+    last_index = len(gt_segs) - 1
+    for index, (g, p) in enumerate(zip(gt_segs, pred_segs)):
         if g.start != p.start:
             count += 1
             total += abs(g.start - p.start)
+            offsets.append(
+                {
+                    "offset": p.start - g.start,
+                    "position": "terminal" if index == 0 else "internal",
+                }
+            )
         if g.end != p.end:
             count += 1
             total += abs(g.end - p.end)
-    return count, total
+            offsets.append(
+                {
+                    "offset": p.end - g.end,
+                    "position": "terminal" if index == last_index else "internal",
+                }
+            )
+    return count, total, offsets
 

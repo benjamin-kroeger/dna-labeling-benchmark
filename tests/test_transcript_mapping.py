@@ -11,16 +11,16 @@ Covers:
 """
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from dna_segmentation_benchmark.io_utils import collect_gff
 from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
 from dna_segmentation_benchmark.transcript_mapping import (
     MatchClass,
-    PredictionMatch,
-    TranscriptMapping,
     _TranscriptInfo,
     _base_overlap,
+    _build_intron_chain_index,
     _classify_pair,
     build_paired_arrays,
     export_mapping_table,
@@ -146,6 +146,60 @@ chr3\tPred\tmRNA\t1\t50\t.\t+\t.\tID=pred_chr3_t1
 chr3\tPred\tCDS\t10\t30\t.\t+\t0\tID=pred_chr3_cds1;Parent=pred_chr3_t1
 """
     f = tmp_path / "pred_chr3.gff"
+    f.write_text(content)
+    return str(f)
+
+
+@pytest.fixture
+def gt_two_loci_gff(tmp_path):
+    """Two GT transcripts in separate loci (large intergenic gap)."""
+    content = """\
+##gff-version 3
+chr1\tTest\tmRNA\t100\t200\t.\t+\t.\tID=gt_left
+chr1\tTest\tCDS\t120\t180\t.\t+\t0\tID=gt_left_cds;Parent=gt_left
+chr1\tTest\tmRNA\t1000\t1100\t.\t+\t.\tID=gt_right
+chr1\tTest\tCDS\t1020\t1080\t.\t+\t0\tID=gt_right_cds;Parent=gt_right
+"""
+    f = tmp_path / "gt_two_loci.gff"
+    f.write_text(content)
+    return str(f)
+
+
+@pytest.fixture
+def pred_spanning_gff(tmp_path):
+    """One prediction spanning the intergenic gap, overlapping both GT loci."""
+    content = """\
+##gff-version 3
+chr1\tPredSpan\tmRNA\t150\t1050\t.\t+\t.\tID=pred_span
+chr1\tPredSpan\tCDS\t150\t1050\t.\t+\t0\tID=pred_span_cds;Parent=pred_span
+"""
+    f = tmp_path / "pred_spanning.gff"
+    f.write_text(content)
+    return str(f)
+
+
+@pytest.fixture
+def gt_over_gff(tmp_path):
+    """GT transcript spanning 1-100 with CDS 10-90."""
+    content = """\
+##gff-version 3
+chr1\tTest\tmRNA\t1\t100\t.\t+\t.\tID=gt_over
+chr1\tTest\tCDS\t10\t90\t.\t+\t0\tID=gt_over_cds;Parent=gt_over
+"""
+    f = tmp_path / "gt_over.gff"
+    f.write_text(content)
+    return str(f)
+
+
+@pytest.fixture
+def pred_over_gff(tmp_path):
+    """Prediction over-extending past the GT: span 1-150, CDS 10-120."""
+    content = """\
+##gff-version 3
+chr1\tPredOver\tmRNA\t1\t150\t.\t+\t.\tID=pred_over
+chr1\tPredOver\tCDS\t10\t120\t.\t+\t0\tID=pred_over_cds;Parent=pred_over
+"""
+    f = tmp_path / "pred_over.gff"
     f.write_text(content)
     return str(f)
 
@@ -300,6 +354,46 @@ class TestClassifyPair:
 
 
 # ------------------------------------------------------------------
+# Unit tests: _build_intron_chain_index
+# ------------------------------------------------------------------
+
+
+class TestBuildIntronChainIndex:
+    """The intron-chain index must merge interleaved exon/CDS rows."""
+
+    def test_gencode_style_exon_and_cds_rows_yield_clean_chain(self):
+        """A transcript with both exon rows and nested CDS rows (GENCODE/RefSeq
+        convention) must not produce spurious reverse-coordinate junctions.
+
+        tx1: exon [100,200] + exon [300,400] (one real intron 200->300), with
+        nested CDS [150,200] and CDS [300,350].  Sorting by start interleaves
+        them; without merging, exon->CDS transitions would emit (200,150) and
+        (400,300).
+        """
+        df = pd.DataFrame(
+            [
+                {"seqid": "chr1", "type": "exon", "parent": "tx1", "start": 100, "end": 200},
+                {"seqid": "chr1", "type": "CDS", "parent": "tx1", "start": 150, "end": 200},
+                {"seqid": "chr1", "type": "exon", "parent": "tx1", "start": 300, "end": 400},
+                {"seqid": "chr1", "type": "CDS", "parent": "tx1", "start": 300, "end": 350},
+            ]
+        )
+        index = _build_intron_chain_index(df, "chr1", ["exon", "CDS"])
+        assert index["tx1"] == frozenset({(200, 300)})
+
+    def test_single_merged_exon_is_single_exon(self):
+        """Overlapping exon + CDS for a single-exon transcript -> empty chain."""
+        df = pd.DataFrame(
+            [
+                {"seqid": "chr1", "type": "exon", "parent": "tx1", "start": 100, "end": 200},
+                {"seqid": "chr1", "type": "CDS", "parent": "tx1", "start": 120, "end": 180},
+            ]
+        )
+        index = _build_intron_chain_index(df, "chr1", ["exon", "CDS"])
+        assert index["tx1"] == frozenset()
+
+
+# ------------------------------------------------------------------
 # Integration tests: map_transcripts
 # ------------------------------------------------------------------
 
@@ -414,6 +508,24 @@ class TestMapTranscripts:
         # Both overlapping GT transcripts should appear in the mappings
         gt_ids = {m.gt_id for m in mappings if not m.is_unmatched_prediction}
         assert len(gt_ids) >= 2
+
+    def test_prediction_spanning_two_loci_matched_once(
+        self, gt_two_loci_gff, pred_spanning_gff,
+    ):
+        """A single prediction overlapping two GT loci is assigned to only one,
+        not double-counted across loci (regression)."""
+        mappings = map_transcripts(
+            gt_path=gt_two_loci_gff,
+            pred_paths={"PredSpan": pred_spanning_gff},
+            exclude_features=["gene"],
+        )
+        matched_to_span = [
+            m
+            for m in mappings
+            if not m.is_unmatched_prediction
+            and any(p.transcript_id == "pred_span" for p in m.matched_predictions)
+        ]
+        assert len(matched_to_span) == 1
 
     def test_prediction_on_unknown_chromosome(
         self, gt_gff, pred_only_chr3_gff,
@@ -633,6 +745,78 @@ class TestBuildPairedArrays:
         pred_arr = pred_arrs["Pred"]
         np.testing.assert_array_equal(pred_arr[0:20], np.full(20, 4))
         np.testing.assert_array_equal(pred_arr[20:30], np.full(10, 5))
+
+    def test_matched_prediction_overhang_is_captured(
+        self, gt_over_gff, pred_over_gff, simple_label_config,
+    ):
+        """A matched prediction over-extending past the GT span must not be
+        clipped: the window widens to the union of GT and pred spans so the
+        terminal overhang is preserved (regression: GT-span-only window)."""
+        mappings = map_transcripts(
+            gt_path=gt_over_gff,
+            pred_paths={"PredOver": pred_over_gff},
+            exclude_features=["gene"],
+        )
+        mapping = next(m for m in mappings if m.gt_id == "gt_over")
+        gt_df, pred_dfs = self._get_dfs(gt_over_gff, {"PredOver": pred_over_gff})
+
+        gt_arr, pred_arrs = build_paired_arrays(
+            mapping=mapping,
+            gt_df=gt_df,
+            pred_dfs=pred_dfs,
+            label_config=simple_label_config,
+        )
+
+        # Window = union of GT (1-100) and pred (1-150) -> length 150.
+        assert len(gt_arr) == 150
+        pred_arr = pred_arrs["PredOver"]
+        assert len(pred_arr) == 150
+
+        # GT CDS 10-90 -> indices 9..89; nothing past genomic 100.
+        np.testing.assert_array_equal(gt_arr[9:90], np.full(81, 0))
+        np.testing.assert_array_equal(gt_arr[100:150], np.full(50, 1))
+
+        # Pred CDS 10-120 -> indices 9..119; the overhang at 100..119 (past the
+        # GT end) is exactly the part the old GT-span-only window clipped.
+        np.testing.assert_array_equal(pred_arr[9:120], np.full(111, 0))
+        np.testing.assert_array_equal(pred_arr[120:150], np.full(30, 1))
+
+    def test_minus_strand_arrays_are_biologically_oriented(
+        self, gt_gff, pred_a_gff, simple_label_config,
+    ):
+        """Minus-strand arrays are in biological 5'→3' order.
+
+        mRNA2: chr1, -, 200-400 (length 201).  GT CDS at 250-300 (genomic).
+        Biological 5' = genomic 400 → index 0.
+        After reversal the CDS lands at biological indices 100-150, not 50-100.
+        """
+        mappings = map_transcripts(
+            gt_path=gt_gff,
+            pred_paths={"PredA": pred_a_gff},
+            exclude_features=["gene"],
+        )
+        mRNA2_mapping = next(m for m in mappings if m.gt_id == "mRNA2")
+        gt_df, pred_dfs = self._get_dfs(gt_gff, {"PredA": pred_a_gff})
+
+        gt_arr, pred_arrs = build_paired_arrays(
+            mapping=mRNA2_mapping,
+            gt_df=gt_df,
+            pred_dfs=pred_dfs,
+            label_config=simple_label_config,
+        )
+
+        assert len(gt_arr) == 201
+        # Biological layout: [bg*100][CDS*51][bg*50]
+        np.testing.assert_array_equal(gt_arr[0:100], np.full(100, 1))
+        np.testing.assert_array_equal(gt_arr[100:151], np.full(51, 0))
+        np.testing.assert_array_equal(gt_arr[151:], np.full(50, 1))
+
+        # predA_t2 CDS at 260-290 (genomic) → biological indices 110-140
+        pred_arr = pred_arrs["PredA"]
+        assert len(pred_arr) == 201
+        np.testing.assert_array_equal(pred_arr[0:110], np.full(110, 1))
+        np.testing.assert_array_equal(pred_arr[110:141], np.full(31, 0))
+        np.testing.assert_array_equal(pred_arr[141:], np.full(60, 1))
 
 
 # ------------------------------------------------------------------

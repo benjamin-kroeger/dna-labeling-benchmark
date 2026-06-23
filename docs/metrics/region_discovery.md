@@ -9,82 +9,102 @@ The benchmark first extracts contiguous GT and predicted coding sections. It
 then finds all overlapping `(GT, pred)` pairs and sorts them by overlap
 length. A greedy 1:1 assignment claims the largest overlaps first.
 
-For `neighborhood_hit`, `internal_hit`, and `full_coverage_hit`, each GT
-section can be matched to at most one prediction and each prediction can be
-matched to at most one GT section.
-
 `perfect_boundary_hit` is different: it uses a sweep over all sections and
 counts any exact-boundary match, without the 1:1 assignment.
 
-## The Four Levels
+## Output Structure
+
+Region Discovery produces four precision/recall tiers that **nest by
+strictness**:
+
+```
+neighborhood_hit  ⊇  { internal_hit , full_coverage_hit }  ⊇  perfect_boundary_hit
+```
+
+| Tier | TP criterion | Question answered |
+|---|---|---|
+| `neighborhood_hit` | matched pair overlaps at all | Did we detect the region? |
+| `internal_hit` | prediction lies within GT (`pred ⊆ GT`) | Detected, but under-extended? |
+| `full_coverage_hit` | prediction spans GT (`pred ⊇ GT`) | Detected, but over-extended? |
+| `perfect_boundary_hit` | both boundaries exact | Did we reproduce exact boundaries? |
+
+Every tier is a coherent contingency table: `TP + FN = total GT` and
+`TP + FP = total pred`. `internal_hit` and `full_coverage_hit` are **inclusive
+of an exact match**, so a perfect pair counts toward both — that is what makes
+the nesting hold.
+
+## False positives — the same rule for every tier
+
+Each tier books its FP as `total_pred − that-tier's hits`. A matched pair that
+fails a tier's spatial test counts **as both an FP** (the prediction is not a
+hit for this tier) **and an FN** (the GT is not hit for this tier). This is the
+standard Burset/Eval exon-level behavior, and it is what makes precision and
+recall well-defined at every level of strictness — the whole family reads as
+one precision/recall ladder.
+
+## The Four P/R Tiers
 
 ### `neighborhood_hit`
 
 ![region_discovery_neighborhood_hit.png](../images/region_discovery_neighborhood_hit.png)
 
-True positive if the matched prediction overlaps the GT section at all.
-
-This is the most forgiving tier. Any contact counts.
+TP if the matched prediction overlaps the GT section at all. The most forgiving
+detection tier — any contact counts.
 
 ### `internal_hit`
 
 ![region_discovery_internal_hit.png](../images/region_discovery_internal_hit.png)
-
-True positive if the matched prediction lies entirely inside the GT section.
-
-This forgives under-prediction of the GT span less than
-`full_coverage_hit`, but it treats over-extended predictions as failures.
+TP if the matched prediction lies within its GT section (`pred ⊆ GT`, inclusive
+of an exact match) — i.e. the prediction did not over-run the GT boundaries. A
+matched pair that over-extends past the GT is an FP (and its GT an FN).
 
 ### `full_coverage_hit`
 
 ![region_discovery_full_coverage_hit.png](../images/region_discovery_full_coverage_hit.png)
 
-True positive if the matched prediction fully covers the GT section.
+TP if the matched prediction fully spans its GT section (`pred ⊇ GT`, inclusive
+of an exact match) — i.e. the prediction did not fall short of the GT
+boundaries. A matched pair that falls short is an FP (and its GT an FN).
 
-This is the converse of `internal_hit`: it forgives over-prediction but not
-under-prediction.
+`internal_hit` and `full_coverage_hit` give the **direction** of the boundary
+error: contrast their recalls to read under- vs over-extension.
 
 ### `perfect_boundary_hit`
 
 ![region_discovery_perfect_boundary_hit.png](../images/region_discovery_perfect_boundary_hit.png)
 
-True positive only when both boundaries match exactly.
-
-Unlike the other three tiers, this one is sweep-based rather than 1:1 matched.
-That prevents fragmented predictions from being miscounted purely because one
-fragment already claimed a GT section in the greedy assignment.
+TP only when both boundaries match exactly. Unlike the other tiers this is
+sweep-based rather than 1:1 matched, which prevents fragmented predictions from
+being miscounted purely because one fragment already claimed a GT section in
+the greedy assignment.
 
 ## Double-Penalty Behavior
 
-This family intentionally uses GT sections and prediction sections as separate
+All tiers intentionally treat GT sections and prediction sections as separate
 objects. When one GT section is split into two predictions, or two GT sections
-are merged into one prediction, you often get both:
-
-- a false negative on the GT side
-- a false positive on the prediction side
-
-That is the right behavior if you want structural section recovery rather than
-base-level overlap alone. The metric is penalizing both the missed GT section
-and the extra unmatched predicted section.
+are merged into one prediction, you often get both a false negative on the GT
+side and a false positive on the prediction side. That is the right behavior if
+you want structural section recovery rather than base-level overlap alone.
 
 ## Interpretation
 
-- high `neighborhood_hit`, low `perfect_boundary_hit`: the model usually finds
-  the right locus but misses exact boundaries
-- high `internal_hit`, lower `full_coverage_hit`: predictions tend to be too
-  short
-- high `full_coverage_hit`, lower `internal_hit`: predictions tend to be too
-  long
+- high `neighborhood_hit` recall, low `perfect_boundary_hit` recall: the model
+  usually finds the right locus but misses exact boundaries
+- high `internal_hit` recall, low `full_coverage_hit` recall: predictions tend
+  to be too short (under-extended)
+- low `internal_hit` recall, high `full_coverage_hit` recall: predictions tend
+  to be too long (over-extended)
+- both `internal_hit` and `full_coverage_hit` recall near `neighborhood_hit`:
+  matched predictions are close to exact even when `perfect_boundary_hit` is
+  lower (a fragmentation effect)
 
 ## Caveats
 
 - These metrics are coding-section metrics. They do not use intron labels.
 - They are not transcript-chain metrics. Two transcripts can have good section
   discovery while still failing strict structural coherence.
-- `perfect_boundary_hit` is stricter and structurally different from the other
-  three tiers because it is not based on the greedy 1:1 assignment. Its
-  TP / FP / FN counts come from the sweep, so absolute counts are not
-  directly comparable to the matched tiers.
+- `perfect_boundary_hit` TP/FP/FN counts come from the sweep, so absolute
+  counts are not directly comparable to the 1:1-matched tiers.
 - Aggregation is micro-averaged across sequences (see {doc}`conventions`):
-  per-sequence counts are summed before the precision/recall ratio is
-  computed, so long sequences dominate the corpus score.
+  per-sequence integer counts are summed before ratios are computed, so long
+  sequences dominate the corpus score.

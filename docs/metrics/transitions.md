@@ -4,7 +4,9 @@ Transition analysis answers a different question from the metric families: what
 happens exactly at label changes, and where does the model introduce spurious
 changes when GT stays stable?
 
-These outputs are always included in aggregated benchmark results as:
+Requested via `EvalMetrics.STATE_TRANSITIONS` (kept in the default metric set, so
+it runs unless an explicit `metrics` list omits it). When enabled, the outputs
+appear in aggregated benchmark results as:
 
 - `transition_failures`
 - `false_transitions`

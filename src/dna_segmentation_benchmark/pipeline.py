@@ -13,8 +13,9 @@ import numpy as np
 
 from .eval.evaluate_predictors import EvalMetrics, benchmark_gt_vs_pred_multiple
 from .eval.global_metrics import compute_global_metrics
+from .feature_roles import FeatureRoleMap, PredFeatureRoleMapInput
 from .io_utils import DEFAULT_TRANSCRIPT_TYPES, collect_gff
-from .label_definition import LabelConfig
+from .label_definition import AnnotationMode, LabelConfig, _DEFAULT_METRICS
 from .transcript_mapping import (
     LocusMatchingMode,
     build_paired_arrays,
@@ -25,73 +26,14 @@ from .transcript_mapping import (
 logger = logging.getLogger(__name__)
 
 
-FeatureTypeInput = str | list[str]
-PredFeatureTypeInput = FeatureTypeInput | dict[str, FeatureTypeInput]
-
-
-def _coerce_feature_types(
-    feature_types: FeatureTypeInput,
-    *,
-    arg_name: str,
-) -> list[str]:
-    """Normalize one feature-type argument to a non-empty list of strings."""
-    if isinstance(feature_types, str):
-        feature_types = [feature_types]
-
-    if not isinstance(feature_types, list) or not feature_types:
-        raise ValueError(f"{arg_name} must be a string or non-empty list of strings.")
-
-    normalized: list[str] = []
-    for feature_type in feature_types:
-        if not isinstance(feature_type, str) or not feature_type:
-            raise ValueError(f"{arg_name} entries must be non-empty strings.")
-        normalized.append(feature_type)
-    return normalized
-
-
-def _normalise_pred_exon_feature_types(
-    pred_names: list[str],
-    pred_exon_feature_types: PredFeatureTypeInput | None,
-    *,
-    default: list[str],
-) -> dict[str, list[str]]:
-    """Return per-predictor exon feature-type lists.
-
-    ``None`` means predictions use the same feature types as GT.  A string or
-    list applies to every predictor.  A dict allows predictor-specific parsing,
-    e.g. ``{"augustus": "CDS", "helixer": "exon"}``.
-    """
-    if pred_exon_feature_types is None:
-        return {name: list(default) for name in pred_names}
-
-    if isinstance(pred_exon_feature_types, dict):
-        return {
-            name: _coerce_feature_types(
-                pred_exon_feature_types.get(name, default),
-                arg_name=f"pred_exon_feature_types[{name!r}]",
-            )
-            for name in pred_names
-        }
-
-    normalized = _coerce_feature_types(
-        pred_exon_feature_types,
-        arg_name="pred_exon_feature_types",
-    )
-    return {name: list(normalized) for name in pred_names}
-
-
-def _pred_global_role_map(
-    pred_feature_role_maps: dict[str, str] | dict[str, dict[str, str]] | None,
+def _get_pred_role_map(
+    pred_feature_role_maps: PredFeatureRoleMapInput,
     pred_name: str,
-) -> dict[str, str] | None:
-    """Return the per-predictor feature-role map for *pred_name*, if any.
-
-    A plain ``{feature_type: role}`` map applies to every predictor; a nested
-    ``{predictor: {feature_type: role}}`` map is indexed by *pred_name*.
-    """
+) -> FeatureRoleMap | None:
+    """Extract the role map for one predictor from the (possibly nested) input."""
     if not pred_feature_role_maps:
         return None
-    if all(isinstance(value, dict) for value in pred_feature_role_maps.values()):
+    if all(isinstance(v, dict) for v in pred_feature_role_maps.values()):
         return pred_feature_role_maps.get(pred_name)  # type: ignore[return-value]
     return pred_feature_role_maps  # type: ignore[return-value]
 
@@ -102,12 +44,10 @@ def benchmark_from_gff(
     label_config: LabelConfig,
     metrics: list[EvalMetrics] | None = None,
     *,
-    gt_exon_feature_types: FeatureTypeInput = "exon",
-    pred_exon_feature_types: PredFeatureTypeInput | None = None,
-    gt_feature_role_map: dict[str, str] | None = None,
-    pred_feature_role_maps: dict[str, str] | dict[str, dict[str, str]] | None = None,
-    exclude_features: list[str] | None = None,
+    gt_feature_role_map: FeatureRoleMap | None = None,
+    pred_feature_role_maps: PredFeatureRoleMapInput = None,
     transcript_types: list[str] | None = None,
+    exclude_features: list[str] | None = None,
     mapping_output_path: str | Path | None = None,
     locus_matching_mode: LocusMatchingMode = LocusMatchingMode.FULL_DISCOVERY,
     infer_introns: bool = False,
@@ -121,10 +61,13 @@ def benchmark_from_gff(
     3. Build paired annotation arrays
     4. Compute all requested metrics
 
-    ``label_config`` defines the integer label semantics used in the produced
-    arrays: background, exon/coding, optional intron, and optional splice-site
-    tokens. Feature-role maps control how GFF/GTF feature names are interpreted
-    during parsing.
+    ``label_config`` defines the integer label semantics.  Feature-role maps
+    control how GFF/GTF feature names are translated to benchmark roles such as
+    ``"exon"``, ``"cds"``, ``"five_prime_utr"``, ``"three_prime_utr"``.  When
+    omitted, mode-specific defaults are used — ``EXON_INTRON`` maps both
+    ``"exon"`` and ``"CDS"`` to the exon role; ``UTR_CDS_INTRON`` maps
+    ``"five_prime_UTR"``, ``"CDS"``, and ``"three_prime_UTR"`` to their
+    respective roles.
 
     Parameters
     ----------
@@ -133,32 +76,26 @@ def benchmark_from_gff(
     pred_paths : dict[str, str | Path]
         ``{predictor_name: path}`` for each prediction file.
     label_config : LabelConfig
-        Token-to-name mapping and semantic label roles.  It does not decide
-        which GFF/GTF feature rows are read as exons.
+        Token-to-name mapping and semantic label roles.
     metrics : list[EvalMetrics] | None
-        Metric groups to compute.  Defaults to
-        ``[REGION_DISCOVERY, NUCLEOTIDE_CLASSIFICATION]``.
-    gt_exon_feature_types : str | list[str]
-        GFF/GTF feature types to treat as exon/coding intervals in the ground
-        truth annotation.  Accepts a single string (``"exon"``) or a list
-        (``["exon", "CDS"]``).  Defaults to ``"exon"``.
-    pred_exon_feature_types : str | list[str] | dict[str, str | list[str]] | None
-        GFF/GTF feature types to treat as exon/coding intervals in prediction
-        annotations.  ``None`` means use ``gt_exon_feature_types`` for every
-        predictor.  A string/list applies to every predictor.  A dict maps
-        predictor name to feature types, e.g. ``{"augustus": "CDS",
-        "helixer": "exon"}``.  Use ``"CDS"`` for tools like Augustus that emit
-        CDS features instead of exon features.
+        Metric groups to compute.  Defaults to ``_DEFAULT_METRICS``
+        (``REGION_DISCOVERY``, ``BOUNDARY_EXACTNESS``,
+        ``NUCLEOTIDE_CLASSIFICATION``) — the same default used by
+        :func:`benchmark_gt_vs_pred_single` /
+        :func:`benchmark_gt_vs_pred_multiple`, so all entry points agree.
     gt_feature_role_map : dict[str, str] | None
-        Explicit GT feature-role map. Takes precedence over
-        ``gt_exon_feature_types``.
+        Maps GT GFF/GTF feature types to benchmark roles.  When ``None``,
+        the mode-specific default is used.
     pred_feature_role_maps : dict[str, str] | dict[str, dict[str, str]] | None
-        Explicit predictor feature-role maps. Takes precedence over
-        ``pred_exon_feature_types``.
-    exclude_features : list[str] | None
-        GFF feature types to ignore (e.g., ``["gene"]``).
+        Maps prediction GFF/GTF feature types to roles.  A flat
+        ``{feature_type: role}`` dict applies to every predictor; a nested
+        ``{predictor_name: {feature_type: role}}`` dict allows predictor-specific
+        parsing.  ``None`` means every predictor uses the GT role map.
     transcript_types : list[str] | None
         Feature types that define transcript boundaries.
+        Defaults to ``["mRNA", "transcript"]``.
+    exclude_features : list[str] | None
+        GFF feature types to ignore (e.g., ``["gene"]``).
     mapping_output_path : str | Path | None
         If given, write the GT-to-prediction mapping table to this path
         (TSV format, similar to gffcompare's ``.loci`` file).
@@ -174,57 +111,57 @@ def benchmark_from_gff(
     Returns
     -------
     dict[str, dict]
-        ``{predictor_name: {"per_transcript": ..., "global": ...}}``
+        ``{predictor_name: {"aggregated": ..., "global": ...}}`` where
+        ``aggregated`` is the corpus-level micro-averaged summary returned by
+        :func:`benchmark_gt_vs_pred_multiple` (not a per-transcript list).
+
+    See Also
+    --------
+    compare_multiple_predictions :
+        Renders comparison plots from these results.  Feed it the per-method
+        ``aggregated`` payloads, e.g.::
+
+            results = benchmark_from_gff(...)
+            figures = compare_multiple_predictions(
+                per_method_benchmark_res={
+                    name: r["aggregated"] for name, r in results.items()
+                },
+                label_config=label_config,
+                metrics_to_eval=metrics,
+            )
+
+        (It also accepts the full ``{"aggregated": ..., "global": ...}``
+        wrapper per method and unwraps it automatically.)
     """
     exclude_features = exclude_features or []
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
     if metrics is None:
-        metrics = [EvalMetrics.REGION_DISCOVERY, EvalMetrics.NUCLEOTIDE_CLASSIFICATION]
+        metrics = list(_DEFAULT_METRICS)
 
-    # Decide how GFF/GTF feature names map to label semantics.  EXON_INTRON
-    # keeps the simple exon-type path unless explicit feature-role maps are
-    # given; UTR_CDS_INTRON always uses feature-role maps (explicit, or the
-    # mode default) because one exon type cannot express UTR/CDS roles.
-    use_role_maps = (
-        label_config.annotation_mode.name != "EXON_INTRON"
-        or gt_feature_role_map is not None
-        or pred_feature_role_maps is not None
-    )
-    if use_role_maps:
-        gt_exon_types = None
-        pred_exon_types_by_name = None
-        gt_map_kwargs = dict(gt_feature_role_map=gt_feature_role_map)
-        pred_map_kwargs = dict(pred_feature_role_maps=pred_feature_role_maps)
-    else:
-        gt_exon_types = _coerce_feature_types(
-            gt_exon_feature_types,
-            arg_name="gt_exon_feature_types",
+    if (
+        gt_feature_role_map is None
+        and label_config.annotation_mode == AnnotationMode.EXON_INTRON
+    ):
+        logger.warning(
+            "EXON_INTRON mode: no feature_role_map supplied — CDS features will be "
+            "painted with exon_label=%d. Use UTR_CDS_INTRON mode for a dedicated CDS label.",
+            label_config.exon_label,
         )
-        pred_exon_types_by_name = _normalise_pred_exon_feature_types(
-            list(pred_paths.keys()),
-            pred_exon_feature_types,
-            default=gt_exon_types,
-        )
-        gt_map_kwargs = dict(exon_types=gt_exon_types)
-        pred_map_kwargs = dict(pred_exon_types=pred_exon_types_by_name)
 
     # 1. Parse files
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
     pred_dfs = {name: collect_gff(str(p), exclude_features=exclude_features) for name, p in pred_paths.items()}
 
     # 2. Map transcripts
-    # Intron-chain mapping is derived from the selected exon-like feature rows.
-    # GT and prediction feature names are independent because references usually
-    # expose "exon" rows while some predictors, such as Augustus, emit "CDS".
     mappings = map_transcripts(
         gt_path=gt_path,
         pred_paths={name: str(p) for name, p in pred_paths.items()},
         label_config=label_config,
         transcript_types=transcript_types,
         exclude_features=exclude_features,
+        gt_feature_role_map=gt_feature_role_map,
+        pred_feature_role_maps=pred_feature_role_maps,
         locus_matching_mode=locus_matching_mode,
-        **gt_map_kwargs,
-        **pred_map_kwargs,
     )
 
     if not mappings:
@@ -239,6 +176,11 @@ def benchmark_from_gff(
     # 3. Build arrays per predictor
     gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
     pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
+    # Real GT loci dropped from per-transcript scoring because the predictor
+    # produced nothing there (BEST_PER_LOCUS only). They still count in the
+    # global metrics, but their absence makes per-transcript P/R optimistic for
+    # skip-prone tools, so the count is surfaced below.
+    dropped_loci: dict[str, int] = {name: 0 for name in pred_paths}
 
     for mapping in mappings:
         gt_arr, pred_arrays = build_paired_arrays(
@@ -247,8 +189,8 @@ def benchmark_from_gff(
             pred_dfs=pred_dfs,
             label_config=label_config,
             transcript_types=transcript_types,
-            **gt_map_kwargs,
-            **pred_map_kwargs,
+            gt_feature_role_map=gt_feature_role_map,
+            pred_feature_role_maps=pred_feature_role_maps,
         )
 
         for pred_name in pred_paths:
@@ -257,6 +199,7 @@ def benchmark_from_gff(
                 if not has_match:
                     continue
             elif locus_matching_mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
+                dropped_loci[pred_name] += 1
                 continue
 
             gt_by_pred[pred_name].append(gt_arr)
@@ -273,7 +216,16 @@ def benchmark_from_gff(
             logger.warning("No mapped transcripts for '%s', skipping.", pred_name)
             continue
 
-        per_transcript = benchmark_gt_vs_pred_multiple(
+        if dropped_loci[pred_name]:
+            logger.info(
+                "BEST_PER_LOCUS: %d GT locus/loci dropped from per-transcript scoring for '%s' "
+                "(predictor produced no match there). They still count in the global metrics; "
+                "per-transcript precision/recall therefore exclude these missed loci.",
+                dropped_loci[pred_name],
+                pred_name,
+            )
+
+        aggregated = benchmark_gt_vs_pred_multiple(
             gt_labels=gt_labels,
             pred_labels=pred_labels,
             label_config=label_config,
@@ -281,20 +233,9 @@ def benchmark_from_gff(
             infer_introns=infer_introns,
         )
 
-        if use_role_maps:
-            pred_role_map = _pred_global_role_map(pred_feature_role_maps, pred_name)
-            global_map_kwargs = dict(
-                gt_exon_types=None,
-                pred_exon_types=None,
-                gt_feature_role_map=gt_feature_role_map,
-                pred_feature_role_map=pred_role_map if pred_role_map is not None else gt_feature_role_map,
-            )
-        else:
-            global_map_kwargs = dict(
-                gt_exon_types=gt_exon_types,
-                pred_exon_types=pred_exon_types_by_name[pred_name],
-            )
+        logger.info("Finished per-transcript benchmarking for '%s', now computing global metrics...", pred_name)
 
+        _pred_role = _get_pred_role_map(pred_feature_role_maps, pred_name)
         global_result = compute_global_metrics(
             gt_df=gt_df,
             pred_df=pred_dfs[pred_name],
@@ -302,11 +243,12 @@ def benchmark_from_gff(
             predictor_name=pred_name,
             label_config=label_config,
             transcript_types=transcript_types,
-            **global_map_kwargs,
+            gt_feature_role_map=gt_feature_role_map,
+            pred_feature_role_map=_pred_role if _pred_role is not None else gt_feature_role_map,
         )
 
         all_results[pred_name] = {
-            "per_transcript": per_transcript,
+            "aggregated": aggregated,
             "global": global_result,
         }
 

@@ -29,6 +29,12 @@ docs/api/generated/
 *.log
 .DS_Store
 .misc/
+misc/
 
 .claude
 .claudeignore
+
+*.nbc
+*.nbi
+.pytest_cache/
+.ruff_cache/

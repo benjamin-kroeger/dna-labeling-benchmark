@@ -11,24 +11,24 @@ The public entry points are:
 
 | Family | Enum | Main question | Key outputs |
 |---|---|---|---|
-| Region Discovery | `REGION_DISCOVERY` | Did the prediction find the right sections? | Precision / recall at four overlap strictness levels (neighborhood, internal, full-coverage, perfect-boundary) |
+| Region Discovery | `REGION_DISCOVERY` | Did the prediction find the right sections? | Precision / recall at four nested detection tiers (neighborhood ⊇ internal / full-coverage ⊇ perfect-boundary) |
 | Boundary Exactness | `BOUNDARY_EXACTNESS` | How accurate are the matched boundaries? | IoU distribution, boundary-residual bias/reliability landscape, terminal-boundary flags |
 | Nucleotide Classification | `NUCLEOTIDE_CLASSIFICATION` | How well does coding vs non-coding separate per base? | Precision / recall / F1 from the nucleotide confusion matrix |
-| Structural Coherence | `STRUCTURAL_COHERENCE` | Is the transcript chain correct as a whole? | Intron/exon chain P/R (strict, subset, superset), transcript match classes, boundary shift distribution, segment count delta, soft exon recall and hallucinated-exon count |
-| Diagnostic Depth | `DIAGNOSTIC_DEPTH` | Where and how severely does the prediction fail structurally? | Segment-length EMD, 100-bin position bias histogram over the coding span |
-| Transition Analysis | *always on* — no enum | Where do label changes fail or appear spuriously? | GT transition confusion matrices, false-transition counts (premature, late, spurious) |
+| Structural Coherence | `STRUCTURAL_COHERENCE` | Is the transcript chain correct as a whole? | Intron/exon chain P/R (strict, subset, superset), transcript match classes, boundary shift distribution, segment count delta, soft exon recall and hallucinated-exon count, donor/acceptor splice-site confusion and P/R (when splice labels are configured) |
+| Diagnostic Depth | `DIAGNOSTIC_DEPTH` | Where and by how much does the prediction's structure diverge? | Segment-length EMD, two 100-bin position-bias histograms (FN/FP) over the coding span |
+| Transition Analysis | `STATE_TRANSITIONS` | Where do label changes fail or appear spuriously? | GT transition confusion matrices, false-transition counts (premature, late, spurious) |
 | INDEL | `INDEL` | What structural mismatch types occur? | Categorised mismatch groups (5′/3′ extensions, whole insertions/deletions, splits, joins) |
-| Frameshift | `FRAMESHIFT` | Is coding frame preserved where GT and prediction overlap? | Per-position reading-frame deviation |
+| Phase Drift | `PHASE_DRIFT` | Does the prediction stay in step by coding-base count where GT and prediction overlap? | Per-position coding-phase drift (modulo 3) |
 
-### A note on "always available"
+### A note on Transition Analysis
 
-Transition Analysis has no entry in
-{py:class}`~dna_segmentation_benchmark.EvalMetrics`. Its outputs
-(`transition_failures` and `false_transitions`) are computed and
-emitted unconditionally on every benchmarking call so that the
-plotting layer can always show a confusion-matrix view, even when no
-explicit enum was passed. To opt out, drop the corresponding figures
-on the consumer side rather than the eval side.
+Transition Analysis is requested via
+{py:attr}`~dna_segmentation_benchmark.EvalMetrics.STATE_TRANSITIONS`. It is kept
+in the default metric set (`_DEFAULT_METRICS`) so its outputs
+(`transition_failures` and `false_transitions`) are emitted — and the plotting
+layer can show a confusion-matrix view — without an explicit request. To skip
+the pass entirely, pass an explicit `metrics` list that omits
+`STATE_TRANSITIONS`.
 
 ## Cross-cutting conventions
 
@@ -39,10 +39,31 @@ detail.
 
 ## Recommended Online Subset
 
-For repeated validation during training, the current W&B integration keeps the
-online scalar set deliberately small:
+For repeated validation during training, the current W&B integration logs
+the following online scalar set per metric family:
 
-- Region Discovery precision/recall
-- Boundary Exactness IoU mean
-- Structural Coherence intron-chain precision/recall
-- Structural Coherence transcript-exact precision/recall
+**Boundary Exactness**
+- IoU mean
+
+**Region Discovery**
+- `neighborhood_hit` precision / recall
+- `internal_hit` precision / recall
+- `full_coverage_hit` precision / recall
+- `perfect_boundary_hit` precision / recall
+
+**Nucleotide Classification**
+- Precision / recall / F1
+
+**Structural Coherence**
+- Intron / exon chain match rates
+- Segment count delta (mean, MAE)
+- Exon recall per transcript (mean)
+- Hallucinated exon count per transcript (mean)
+- Exact match rate
+- Splice-site donor / acceptor precision & recall (when configured)
+
+**Diagnostic Depth**
+- Length EMD (mean, MAE)
+
+Full details in {py:func}`dna_segmentation_benchmark.log_benchmark_scalars` and
+{py:func}`dna_segmentation_benchmark.log_benchmark_all_scalars`.

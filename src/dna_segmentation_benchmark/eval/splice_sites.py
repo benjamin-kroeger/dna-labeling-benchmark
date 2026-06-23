@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 
 from .structure import ExtractedStructure, Segment
 from ..label_definition import LabelConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -21,6 +24,45 @@ class SpliceSiteConfusion:
     acceptor_fp: int = 0
     acceptor_fn: int = 0
 
+    gt_malformed_junctions: int = 0
+    pred_malformed_junctions: int = 0
+
+
+def _extract_junction_pairs(
+    structure: ExtractedStructure,
+    donor_label: int,
+    acceptor_label: int,
+    intron_label: int,
+) -> tuple[list[tuple[Segment, Segment]], int]:
+    """Walk *structure* and return (valid_pairs, malformed_count).
+
+    A valid pair is a DONOR segment followed by zero or more INTRON segments
+    followed by an ACCEPTOR segment.  Donors or acceptors that don't form a
+    valid pair are counted as malformed.
+    """
+    segments = structure.segments
+    pairs: list[tuple[Segment, Segment]] = []
+    malformed = 0
+    i = 0
+    while i < len(segments):
+        seg = segments[i]
+        if seg.label == donor_label:
+            j = i + 1
+            while j < len(segments) and segments[j].label == intron_label:
+                j += 1
+            if j < len(segments) and segments[j].label == acceptor_label:
+                pairs.append((seg, segments[j]))
+                i = j + 1
+                continue
+            else:
+                malformed += 1
+        elif seg.label == acceptor_label:
+            # Acceptor not consumed by a valid donor → malformed
+            malformed += 1
+        i += 1
+    return pairs, malformed
+
+
 def eval_splice_site_junctions(
     gt_structure: ExtractedStructure,
     pred_structure: ExtractedStructure,
@@ -35,25 +77,36 @@ def eval_splice_site_junctions(
     donor_label: int = label_config.splice_donor_label
     acceptor_label: int = label_config.splice_acceptor_label
 
-    gt_donors = gt_structure.filter_by_label(donor_label)
-    gt_acceptors = gt_structure.filter_by_label(acceptor_label)
+    gt_pairs, gt_malformed = _extract_junction_pairs(
+        gt_structure, donor_label, acceptor_label, intron_label
+    )
+    _, pred_malformed = _extract_junction_pairs(
+        pred_structure, donor_label, acceptor_label, intron_label
+    )
 
-    pred_donors = pred_structure.filter_by_label(donor_label)
-    pred_acceptors = pred_structure.filter_by_label(acceptor_label)
+    if gt_malformed > 0:
+        logger.warning(
+            "GT has %d malformed splice junction(s) (donor or acceptor without a valid pair); "
+            "excluded from TP/FP/FN scoring.",
+            gt_malformed,
+        )
+    if pred_malformed > 0:
+        logger.warning(
+            "Prediction has %d malformed splice junction(s) (donor or acceptor without a valid pair).",
+            pred_malformed,
+        )
 
-    if len(gt_donors) != len(gt_acceptors):
-        raise ValueError("There is an uneven amount of donor and acceptor segments in the gt")
+    confusion = SpliceSiteConfusion(
+        gt_malformed_junctions=gt_malformed,
+        pred_malformed_junctions=pred_malformed,
+    )
 
-    gt_introns = gt_structure.filter_by_label(intron_label)
+    pred_donors = set(pred_structure.filter_by_label(donor_label))
+    pred_acceptors = set(pred_structure.filter_by_label(acceptor_label))
+    gt_donors_set = {donor for donor, _ in gt_pairs}
+    gt_acceptors_set = {acceptor for _, acceptor in gt_pairs}
 
-    confusion = SpliceSiteConfusion()
-    for donor, acceptor in zip(gt_donors, gt_acceptors):
-        expected_intron = Segment(label=intron_label, start=donor.end + 1, end=acceptor.start - 1)
-        if expected_intron not in gt_introns:
-            raise AssertionError(
-                f"Expected an intron between donor {donor} and acceptor {acceptor}"
-            )
-
+    for donor, acceptor in gt_pairs:
         donor_hit = donor in pred_donors
         acceptor_hit = acceptor in pred_acceptors
 
@@ -77,8 +130,6 @@ def eval_splice_site_junctions(
         else:
             confusion.acceptor_fn += 1
 
-    gt_donors_set = set(gt_donors)
-    gt_acceptors_set = set(gt_acceptors)
     confusion.donor_fp = sum(1 for d in pred_donors if d not in gt_donors_set)
     confusion.acceptor_fp = sum(1 for a in pred_acceptors if a not in gt_acceptors_set)
 

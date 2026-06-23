@@ -46,6 +46,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
+from scipy.optimize import linear_sum_assignment
 
 from .feature_roles import (
     FeatureRoleMap,
@@ -62,111 +63,6 @@ logger = logging.getLogger(__name__)
 
 # Sentinel prefix for synthetic GT entries created for unmatched predictions.
 _UNMATCHED_PRED_PREFIX = "__unmatched_pred__"
-
-#: GFF feature types used to extract exon intervals for intron-chain
-#: computation.  Override per-call via the ``exon_types`` parameter.
-DEFAULT_EXON_TYPES: list[str] = ["exon"]
-
-FeatureTypeInput = str | list[str]
-PredFeatureTypeInput = FeatureTypeInput | dict[str, FeatureTypeInput]
-
-
-def _coerce_feature_types(
-    feature_types: FeatureTypeInput,
-    *,
-    arg_name: str,
-) -> list[str]:
-    """Normalize a feature-type argument to a non-empty list of strings."""
-    if isinstance(feature_types, str):
-        feature_types = [feature_types]
-
-    if not isinstance(feature_types, list) or not feature_types:
-        raise ValueError(f"{arg_name} must be a string or non-empty list of strings.")
-
-    normalized: list[str] = []
-    for feature_type in feature_types:
-        if not isinstance(feature_type, str) or not feature_type:
-            raise ValueError(f"{arg_name} entries must be non-empty strings.")
-        normalized.append(feature_type)
-    return normalized
-
-
-def _normalise_pred_exon_types(
-    pred_names: list[str],
-    pred_exon_types: PredFeatureTypeInput | None,
-    *,
-    default: list[str],
-) -> dict[str, list[str]]:
-    """Return per-predictor exon-like feature types."""
-    if pred_exon_types is None:
-        return {name: list(default) for name in pred_names}
-
-    if isinstance(pred_exon_types, dict):
-        return {
-            name: _coerce_feature_types(
-                pred_exon_types.get(name, default),
-                arg_name=f"pred_exon_types[{name!r}]",
-            )
-            for name in pred_names
-        }
-
-    normalized = _coerce_feature_types(pred_exon_types, arg_name="pred_exon_types")
-    return {name: list(normalized) for name in pred_names}
-
-
-def _legacy_exon_types_to_feature_role_map(
-    label_config: LabelConfig,
-    exon_types: list[str] | None,
-) -> FeatureRoleMap | None:
-    """Convert old exon-type inputs into an EXON_INTRON-style role map."""
-    if exon_types is None:
-        return None
-    if label_config.annotation_mode.name != "EXON_INTRON":
-        raise ValueError(
-            "exon_types/pred_exon_types cannot express UTR_CDS_INTRON semantics. "
-            "Use explicit feature_role_map inputs instead."
-        )
-    return {feature_type: "exon" for feature_type in exon_types}
-
-
-def _resolve_gt_feature_role_map(
-    label_config: LabelConfig,
-    feature_role_map: FeatureRoleMap | None,
-    exon_types: list[str] | None,
-    *,
-    arg_name: str,
-) -> FeatureRoleMap:
-    """Resolve one GT-style feature-role map from new or legacy inputs."""
-    if feature_role_map is None:
-        feature_role_map = _legacy_exon_types_to_feature_role_map(label_config, exon_types)
-    return normalize_feature_role_map(feature_role_map, label_config, arg_name=arg_name)
-
-
-def _resolve_pred_feature_role_maps(
-    pred_names: list[str],
-    label_config: LabelConfig,
-    pred_feature_role_maps: PredFeatureRoleMapInput,
-    pred_exon_types: PredFeatureTypeInput | None,
-    *,
-    default: FeatureRoleMap,
-) -> dict[str, FeatureRoleMap]:
-    """Resolve per-predictor role maps from new or legacy inputs."""
-    if pred_feature_role_maps is None and pred_exon_types is not None:
-        legacy = _normalise_pred_exon_types(
-            pred_names,
-            pred_exon_types,
-            default=list(default.keys()),
-        )
-        pred_feature_role_maps = {
-            name: _legacy_exon_types_to_feature_role_map(label_config, legacy[name])
-            for name in pred_names
-        }
-    return normalize_pred_feature_role_maps(
-        pred_names,
-        pred_feature_role_maps,
-        default=default,
-        label_config=label_config,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +89,14 @@ class LocusMatchingMode(str, Enum):
         evaluation.
 
         Use this mode for single-transcript tools (Augustus, …).
+
+        Caveat — per-transcript denominator: GT loci where the predictor emits
+        nothing are dropped from the per-transcript metrics entirely (they are
+        not counted as misses there). The global file-level metrics
+        (:func:`compute_global_metrics`) still count them, so per-transcript
+        precision/recall can read optimistically for skip-prone tools relative
+        to the global numbers. ``benchmark_from_gff`` logs the dropped-locus
+        count per predictor; pair the per-transcript and global views.
     """
 
     FULL_DISCOVERY = "full_discovery"
@@ -326,10 +230,26 @@ def _build_intron_chain_index(
         starts = exons["start"].astype(int).tolist()
         ends = exons["end"].astype(int).tolist()
 
-        if len(starts) < 2:
+        # Merge overlapping/adjacent rows before deriving junctions.  The default
+        # EXON_INTRON role map sends both ``exon`` and nested ``CDS`` features to
+        # the exon role, so a GENCODE/RefSeq transcript carries interleaved
+        # exon/CDS rows for the same exon.  Without merging, consecutive
+        # exon→CDS transitions would emit spurious reverse-coordinate "introns"
+        # (e.g. exon [100,200] + CDS [150,200] → (200, 150)) that no prediction
+        # can match, corrupting junction-F1 scoring and the Hungarian assignment.
+        merged: list[tuple[int, int]] = []
+        for start, end in zip(starts, ends):
+            if merged and start <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+
+        if len(merged) < 2:
             index[str(parent_id)] = frozenset()
         else:
-            index[str(parent_id)] = frozenset((ends[i], starts[i + 1]) for i in range(len(starts) - 1))
+            index[str(parent_id)] = frozenset(
+                (merged[i][1], merged[i + 1][0]) for i in range(len(merged) - 1)
+            )
 
     return index
 
@@ -478,6 +398,15 @@ def _compute_assignment_score(gt: _TranscriptInfo, pred: _TranscriptInfo) -> flo
     Hungarian algorithm to find globally optimal assignments, where even a
     cluster of moderate-F1 pairs beats one perfect pair leaving the rest
     unmatched.
+
+    Hard-zero caveat: a multi-exon prediction that overlaps a GT transcript
+    spatially but shares **no** splice junctions scores exactly 0.0 (the
+    single-exon overlap fallback is deliberately not applied) and is left
+    unmatched — pairing structurally incompatible transcripts would produce
+    misleading per-transcript metrics.  Downstream consequence: in
+    ``BEST_PER_LOCUS`` mode, if no prediction shares a junction with the best
+    GT transcript the locus contributes no pair at all, not even a
+    degraded-quality match.
     """
     overlap = _base_overlap(gt.start, gt.end, pred.start, pred.end)
     if overlap == 0:
@@ -534,8 +463,6 @@ def _assign_optimal_locus(
     dict[str, PredictionMatch]
         ``{gt_id: PredictionMatch}`` for every accepted pairing.
     """
-    from scipy.optimize import linear_sum_assignment
-
     n = len(gt_locus)
     m = len(pred_locus)
 
@@ -633,6 +560,12 @@ def _map_strand(
     for pred_name, pred_infos in pred_infos_by_name.items():
         for locus in gt_loci:
             preds_in_locus = _find_preds_overlapping_locus(locus, pred_infos)
+            # A prediction overlapping two GT loci (e.g. spanning an intergenic
+            # gap) must not be assigned — and double-counted — in both.  Once it
+            # is matched in an earlier locus, exclude it from later loci for this
+            # predictor.  Loci are visited in coordinate order, so the earliest
+            # overlapping locus wins.
+            preds_in_locus = [p for p in preds_in_locus if p.gff_id not in matched_pred_ids[pred_name]]
             if not preds_in_locus:
                 continue
             for gt_id, match in _assign_optimal_locus(locus, preds_in_locus, pred_name, mode).items():
@@ -708,14 +641,12 @@ def _process_single_seqid(
     seqid: str,
     gt_df: pd.DataFrame,
     pred_dfs: dict[str, pd.DataFrame],
-    label_config: LabelConfig,
     transcript_types: list[str],
     gt_feature_role_map: FeatureRoleMap,
     mode: LocusMatchingMode,
     pred_feature_role_maps: dict[str, FeatureRoleMap],
 ) -> list[TranscriptMapping]:
     """Build intron-chain indexes for one chromosome, then map per strand."""
-    del label_config  # reserved for future mode-specific mapping validation
     gt_chain_index = _build_intron_chain_index(gt_df, seqid, exonic_feature_types(gt_feature_role_map))
     pred_chain_indices = {
         name: _build_intron_chain_index(df, seqid, exonic_feature_types(pred_feature_role_maps[name]))
@@ -750,8 +681,6 @@ def map_transcripts(
     label_config: LabelConfig | None = None,
     *,
     transcript_types: list[str] | None = None,
-    exon_types: FeatureTypeInput | None = None,
-    pred_exon_types: PredFeatureTypeInput | None = None,
     gt_feature_role_map: FeatureRoleMap | None = None,
     pred_feature_role_maps: PredFeatureRoleMapInput = None,
     exclude_features: list[str] | None = None,
@@ -780,20 +709,11 @@ def map_transcripts(
     transcript_types : list[str] | None
         Feature types that define transcript boundaries.
         Defaults to :data:`~dna_segmentation_benchmark.io_utils.DEFAULT_TRANSCRIPT_TYPES`.
-    exon_types : str | list[str] | None
-        Feature types used to extract exon intervals for GT intron-chain
-        computation.  Defaults to :data:`DEFAULT_EXON_TYPES` (``["exon"]``).
-    pred_exon_types : str | list[str] | dict[str, str | list[str]] | None
-        Feature types used for *prediction* intron-chain computation.
-        When ``None`` (default), falls back to *exon_types*.  A string/list
-        applies to every predictor; a dict maps predictor names to feature
-        types.  Pass ``"CDS"`` when a predictor emits CDS features instead of
-        exon features.
     gt_feature_role_map : dict[str, str] | None
-        Explicit feature-role map for GT parsing. When omitted, a mode-specific
-        default is used, or *exon_types* are converted in EXON_INTRON mode.
+        Maps GT GFF/GTF feature types to benchmark roles.  When ``None``,
+        the mode-specific default is used.
     pred_feature_role_maps : dict[str, str] | dict[str, dict[str, str]] | None
-        Per-predictor feature-role maps. ``None`` means use the GT role map.
+        Per-predictor feature-role maps.  ``None`` means use the GT role map.
     exclude_features : list[str] | None
         Feature types to ignore entirely (e.g. ``["gene"]``).
     locus_matching_mode : LocusMatchingMode
@@ -808,6 +728,14 @@ def map_transcripts(
         unmatched) plus sentinel entries for unmatched predictions.
         In BEST_PER_LOCUS mode: only matched pairs are returned.
     """
+    if locus_matching_mode == LocusMatchingMode.BEST_PER_LOCUS:
+        logger.warning(
+            "BEST_PER_LOCUS mode: GT transcripts with no matching prediction "
+            "are excluded from the output (no null-array FN pairs). Downstream "
+            "precision/recall are therefore inflated relative to FULL_DISCOVERY "
+            "and the two modes are not directly comparable."
+        )
+
     if label_config is None:
         label_config = LabelConfig(
             annotation_mode=AnnotationMode.EXON_INTRON,
@@ -816,26 +744,20 @@ def map_transcripts(
         )
 
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
-    if exon_types is not None:
-        exon_types = _coerce_feature_types(exon_types, arg_name="exon_types")
     exclude_features = exclude_features or []
 
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
     pred_dfs: dict[str, pd.DataFrame] = {
         name: collect_gff(str(path), exclude_features=exclude_features) for name, path in pred_paths.items()
     }
-    gt_feature_role_map = _resolve_gt_feature_role_map(
-        label_config,
-        gt_feature_role_map,
-        exon_types,
-        arg_name="gt_feature_role_map",
+    gt_feature_role_map = normalize_feature_role_map(
+        gt_feature_role_map, label_config, arg_name="gt_feature_role_map"
     )
-    pred_feature_role_maps_by_name = _resolve_pred_feature_role_maps(
+    pred_feature_role_maps_by_name = normalize_pred_feature_role_maps(
         list(pred_paths.keys()),
-        label_config,
         pred_feature_role_maps,
-        pred_exon_types,
         default=gt_feature_role_map,
+        label_config=label_config,
     )
 
     gt_seqids: set[str] = set(gt_df["seqid"].dropna().unique().tolist())
@@ -858,7 +780,6 @@ def map_transcripts(
                 seqid,
                 gt_df,
                 pred_dfs,
-                label_config,
                 transcript_types,
                 gt_feature_role_map,
                 locus_matching_mode,
@@ -888,8 +809,6 @@ def build_paired_arrays(
     pred_dfs: dict[str, pd.DataFrame],
     label_config: LabelConfig,
     transcript_types: list[str] | None = None,
-    exon_types: FeatureTypeInput | None = None,
-    pred_exon_types: PredFeatureTypeInput | None = None,
     gt_feature_role_map: FeatureRoleMap | None = None,
     pred_feature_role_maps: PredFeatureRoleMapInput = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
@@ -924,19 +843,12 @@ def build_paired_arrays(
         Label configuration defining integer tokens.
     transcript_types : list[str] | None
         Feature types that denote transcript boundaries.
-    exon_types : str | list[str] | None
-        Feature types to paint in GT arrays.  If ``None``, paints all child
-        features except transcript-type features.
-    pred_exon_types : str | list[str] | dict[str, str | list[str]] | None
-        Feature types to paint in prediction arrays.  When ``None``
-        (default), falls back to *exon_types*.  A string/list applies to every
-        predictor; a dict maps predictor names to feature types.  Pass
-        ``"CDS"`` when a predictor emits CDS features instead of exon features.
     gt_feature_role_map : dict[str, str] | None
-        Explicit GT feature-role map. Takes precedence over *exon_types*.
+        Maps GT GFF/GTF feature types to benchmark roles.  When ``None``,
+        the mode-specific default is used.
     pred_feature_role_maps : dict[str, str] | dict[str, dict[str, str]] | None
-        Explicit predictor feature-role maps. Takes precedence over
-        *pred_exon_types*.
+        Per-predictor feature-role maps.  ``None`` means every predictor
+        uses the GT role map.
 
     Returns
     -------
@@ -945,22 +857,29 @@ def build_paired_arrays(
         The dict contains an entry for every predictor in *pred_dfs*.
     """
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
-    if exon_types is not None:
-        exon_types = _coerce_feature_types(exon_types, arg_name="exon_types")
-    gt_feature_role_map = _resolve_gt_feature_role_map(
-        label_config,
-        gt_feature_role_map,
-        exon_types,
-        arg_name="gt_feature_role_map",
+    gt_feature_role_map = normalize_feature_role_map(
+        gt_feature_role_map, label_config, arg_name="gt_feature_role_map"
     )
-    pred_feature_role_maps_by_name = _resolve_pred_feature_role_maps(
+    pred_feature_role_maps_by_name = normalize_pred_feature_role_maps(
         list(pred_dfs.keys()),
-        label_config,
         pred_feature_role_maps,
-        pred_exon_types,
         default=gt_feature_role_map,
+        label_config=label_config,
     )
-    array_length = mapping.gt_end - mapping.gt_start + 1
+    # Evaluation window = union of the GT span and every matched prediction's
+    # span.  Sizing to the GT span alone clips a matched prediction whose
+    # terminal exon over-extends past the GT boundary (a routine TSS/TES
+    # difference), which silently zeroes terminal boundary offsets and inflates
+    # boundary exactness / IoU.  All predictors share one gt_array, so the window
+    # must cover every matched prediction; the GT side simply gains background
+    # padding over the extension (no cross-transcript contamination, since each
+    # array is painted from its own transcript's features only).
+    region_start = mapping.gt_start
+    region_end = mapping.gt_end
+    for match in mapping.matched_predictions:
+        region_start = min(region_start, match.start)
+        region_end = max(region_end, match.end)
+    array_length = region_end - region_start + 1
     bg_val = label_config.background_label
 
     # Null array shared across predictors with no match.
@@ -975,7 +894,7 @@ def build_paired_arrays(
             df=gt_df,
             transcript_id=mapping.gt_id,
             seqid=mapping.seqid,
-            region_start=mapping.gt_start,
+            region_start=region_start,
             array_length=array_length,
             label_config=label_config,
             transcript_types=transcript_types,
@@ -994,7 +913,7 @@ def build_paired_arrays(
                 df=pred_df,
                 transcript_id=pred_match.transcript_id,
                 seqid=mapping.seqid,
-                region_start=mapping.gt_start,
+                region_start=region_start,
                 array_length=array_length,
                 label_config=label_config,
                 transcript_types=transcript_types,
@@ -1004,22 +923,13 @@ def build_paired_arrays(
             # Predictor has no match for this GT → null pred array (FN/FP).
             pred_arrays[pred_name] = null_array.copy()
 
+    # Normalise to biological 5'→3' order.  Painting uses genomic left-to-right
+    # coordinates; for minus-strand transcripts that is biologically reversed.
+    if mapping.strand == "-":
+        gt_array = np.ascontiguousarray(gt_array[::-1])
+        pred_arrays = {k: np.ascontiguousarray(v[::-1]) for k, v in pred_arrays.items()}
+
     return gt_array, pred_arrays
-
-
-def _resolve_build_pred_exon_types(
-    pred_name: str,
-    pred_exon_types: PredFeatureTypeInput | None,
-    *,
-    default: list[str] | None,
-) -> list[str] | None:
-    """Resolve prediction feature types for array construction."""
-    if pred_exon_types is None:
-        return default
-    if isinstance(pred_exon_types, dict):
-        value = pred_exon_types.get(pred_name, default)
-        return _coerce_feature_types(value, arg_name=f"pred_exon_types[{pred_name!r}]") if value is not None else None
-    return _coerce_feature_types(pred_exon_types, arg_name="pred_exon_types")
 
 
 # ---------------------------------------------------------------------------
@@ -1056,43 +966,6 @@ def _build_annotation_array_from_df(
     )
 
     mask = (df["seqid"] == seqid) & (df["parent"] == transcript_id)
-    children = df[mask & ~df["type"].isin(transcript_types)][["type", "start", "end"]]
-    paint_feature_rows(arr, children, region_start, feature_role_map, label_config)
-    return arr
-
-
-def _build_region_annotation_array(
-    df: pd.DataFrame,
-    seqid: str,
-    strand: str,
-    region_start: int,
-    array_length: int,
-    label_config: LabelConfig,
-    transcript_types: list[str],
-    feature_role_map: FeatureRoleMap | None = None,
-) -> np.ndarray:
-    """Build a 1-D annotation array from all features in a genomic region.
-
-    Kept for use by :mod:`~dna_segmentation_benchmark.eval.global_metrics`
-    which needs union-of-exons arrays for nucleotide-level global metrics.
-    Not used by :func:`build_paired_arrays` (which is transcript-specific).
-    """
-    bg_val = label_config.background_label
-    arr = np.full(array_length, bg_val, dtype=np.int32)
-    feature_role_map = normalize_feature_role_map(
-        feature_role_map,
-        label_config,
-        arg_name="feature_role_map",
-    )
-
-    region_end = region_start + array_length - 1
-    mask = (
-        (df["seqid"] == seqid)
-        & (df["strand"] == strand)
-        & df["parent"].notna()
-        & (df["start"] <= region_end)
-        & (df["end"] >= region_start)
-    )
     children = df[mask & ~df["type"].isin(transcript_types)][["type", "start", "end"]]
     paint_feature_rows(arr, children, region_start, feature_role_map, label_config)
     return arr

@@ -35,7 +35,7 @@ def plot_ml_metrics_bar(
     -------
     dict[str, Figure]
         Mapping of metric-level name (e.g. ``"neighborhood_hit"``,
-        ``"ts_level_precision"``) to its figure. Iteration order matches
+        ``"ts_level_match_rate"``) to its figure. Iteration order matches
         the order in which levels first appear in ``df_ml_metrics``.
     """
     if df_ml_metrics.empty:
@@ -71,7 +71,7 @@ def plot_ml_metrics_bar(
         # Separate bootstrap stderr entries from the bar-plot metrics
         is_stderr = full_level_df["metric"].str.endswith("_stderr")
         stderr_df = full_level_df[is_stderr]
-        level_df = full_level_df[~is_stderr].copy()
+        level_df = full_level_df[~is_stderr].dropna(subset=["Score"])
 
         # Build lookup: (method_name, base_metric) -> stderr value
         stderr_lookup: dict[tuple, float] = {}

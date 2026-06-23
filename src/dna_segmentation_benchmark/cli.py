@@ -223,6 +223,24 @@ def _parse_pred_feature_role_specs(
     return by_predictor
 
 
+def _resolve_pred_exon_types(
+    parsed: str | list[str] | dict[str, str | list[str]] | None,
+    pred_names: list[str],
+    default: list[str],
+) -> dict[str, list[str]]:
+    """Normalize ``--pred-exon-feature-type`` specs into per-predictor lists."""
+    if parsed is None:
+        return {name: list(default) for name in pred_names}
+    if isinstance(parsed, dict):
+        result: dict[str, list[str]] = {}
+        for name in pred_names:
+            v = parsed.get(name, default)
+            result[name] = [v] if isinstance(v, str) else list(v)
+        return result
+    types = [parsed] if isinstance(parsed, str) else list(parsed)
+    return {name: list(types) for name in pred_names}
+
+
 def _pred_role_map_for(
     pred_role_maps: dict[str, str] | dict[str, dict[str, str]] | None,
     pred_name: str,
@@ -280,9 +298,20 @@ def cli():
 @click.option(
     "--gt",
     "gt_path",
-    required=True,
+    required=False,
+    default=None,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to ground-truth annotations (.gff3 or .gtf file).",
+    help="Path to ground-truth annotations (.gff3 or .gtf file). Omit when using --dataset.",
+)
+@click.option(
+    "--dataset",
+    "dataset",
+    type=str,
+    default=None,
+    help=(
+        "Registry dataset name to use as ground truth (downloaded on demand). "
+        "Mutually exclusive with --gt; see 'dna-benchmark datasets list'."
+    ),
 )
 @click.option(
     "--pred",
@@ -412,7 +441,8 @@ def cli():
     ),
 )
 def run(
-    gt_path: Path,
+    gt_path: Path | None,
+    dataset: str | None,
     pred_specs: tuple[str, ...],
     config_path: Path,
     exclude_features: tuple[str, ...],
@@ -435,10 +465,20 @@ def run(
         export_mapping_table,
         map_transcripts,
     )
-    from .pipeline import (
-        _coerce_feature_types,
-        _normalise_pred_exon_feature_types,
-    )
+
+    # ------------------------------------------------------------------
+    # 0. Resolve ground truth: an explicit --gt path or a registry --dataset.
+    # ------------------------------------------------------------------
+    if dataset:
+        if gt_path is not None:
+            raise click.BadParameter("Pass either --gt or --dataset, not both.", param_hint="--dataset")
+        from .datasets import load_dataset
+
+        loaded = load_dataset(dataset)
+        gt_path = loaded.annotation
+        click.echo(f"Dataset '{dataset}': using GT annotation {gt_path}")
+    elif gt_path is None:
+        raise click.BadParameter("Provide ground truth via --gt PATH or --dataset NAME.", param_hint="--gt")
 
     # ------------------------------------------------------------------
     # 1. Parse inputs
@@ -485,18 +525,16 @@ def run(
         gt_map_kwargs = dict(gt_feature_role_map=gt_role_map)
         pred_map_kwargs = dict(pred_feature_role_maps=pred_role_maps)
     else:
-        gt_exon_types = _coerce_feature_types(
-            list(gt_exon_feature_types),
-            arg_name="--gt-exon-feature-type",
+        gt_exon_types = list(gt_exon_feature_types)
+        pred_exon_feature_types_parsed = _parse_pred_exon_feature_specs(pred_exon_feature_specs)
+        pred_exon_types_by_name = _resolve_pred_exon_types(
+            pred_exon_feature_types_parsed, list(pred_paths.keys()), gt_exon_types
         )
-        pred_exon_feature_types = _parse_pred_exon_feature_specs(pred_exon_feature_specs)
-        pred_exon_types_by_name = _normalise_pred_exon_feature_types(
-            list(pred_paths.keys()),
-            pred_exon_feature_types,
-            default=gt_exon_types,
-        )
-        gt_map_kwargs = dict(exon_types=gt_exon_types)
-        pred_map_kwargs = dict(pred_exon_types=pred_exon_types_by_name)
+        # Convert explicit exon-type lists to role maps (new internal API).
+        gt_role_map = {ft: "exon" for ft in gt_exon_types}
+        pred_role_maps = {name: {ft: "exon" for ft in types} for name, types in pred_exon_types_by_name.items()}
+        gt_map_kwargs = dict(gt_feature_role_map=gt_role_map)
+        pred_map_kwargs = dict(pred_feature_role_maps=pred_role_maps)
 
     # ------------------------------------------------------------------
     # 2. Read GFF files once into memory
@@ -589,7 +627,7 @@ def run(
             f"pred_features={pred_feature_desc}"
         )
 
-        per_transcript = benchmark_gt_vs_pred_multiple(
+        aggregated = benchmark_gt_vs_pred_multiple(
             gt_labels=gt_labels,
             pred_labels=pred_labels,
             label_config=label_config,
@@ -600,23 +638,10 @@ def run(
 
         # Individual mode returns a list, not a dict — skip global aggregation.
         if individual:
-            all_results[pred_name] = per_transcript
+            all_results[pred_name] = aggregated
             continue
 
-        if use_role_maps:
-            pred_role_map = _pred_role_map_for(pred_role_maps, pred_name)
-            global_map_kwargs = dict(
-                gt_exon_types=None,
-                pred_exon_types=None,
-                gt_feature_role_map=gt_role_map,
-                pred_feature_role_map=pred_role_map if pred_role_map is not None else gt_role_map,
-            )
-        else:
-            global_map_kwargs = dict(
-                gt_exon_types=gt_exon_types,
-                pred_exon_types=pred_exon_types_by_name[pred_name],
-            )
-
+        _pred_role_map = _pred_role_map_for(pred_role_maps, pred_name)
         global_result = compute_global_metrics(
             gt_df=gt_df,
             pred_df=pred_dfs[pred_name],
@@ -624,11 +649,12 @@ def run(
             predictor_name=pred_name,
             label_config=label_config,
             transcript_types=tt_list,
-            **global_map_kwargs,
+            gt_feature_role_map=gt_role_map,
+            pred_feature_role_map=_pred_role_map if _pred_role_map is not None else gt_role_map,
         )
 
         all_results[pred_name] = {
-            "per_transcript": per_transcript,
+            "aggregated": aggregated,
             "global": global_result,
         }
 
@@ -685,7 +711,7 @@ _TEMPLATE_HINTS = {
     ),
     "utr_cds_intron": (
         "# Distinct 5' UTR / CDS / 3' UTR classes; enables CDS-scoped metrics\n"
-        "# and FRAMESHIFT. Map GFF/GTF feature names to roles with CLI flags:\n"
+        "# and PHASE_DRIFT. Map GFF/GTF feature names to roles with CLI flags:\n"
         "#   --gt-feature-role five_prime_UTR:five_prime_utr\n"
         "#   --gt-feature-role CDS:cds\n"
         "#   --gt-feature-role three_prime_UTR:three_prime_utr\n"
@@ -725,3 +751,72 @@ def init_config(mode: str, output_path: Path):
     output_path.write_text(content)
     click.echo(f"Template config ({template['annotation_mode']}) written to {output_path}")
     click.echo("Edit the file to match your label set, then use: dna-benchmark run --config " + str(output_path))
+
+
+# ------------------------------------------------------------------
+# `datasets` command group
+# ------------------------------------------------------------------
+
+
+@cli.group()
+def datasets():
+    """List, inspect, and download benchmark datasets from the registry."""
+
+
+@datasets.command("list")
+def datasets_list():
+    """List all datasets available in the registry."""
+    from .datasets import get_dataset_info, list_datasets
+
+    names = list_datasets()
+    if not names:
+        click.echo("No datasets registered.")
+        return
+    for name in names:
+        spec = get_dataset_info(name)
+        summary = (spec.description.strip().splitlines() or [""])[0]
+        click.echo(f"{name}\t{summary}")
+
+
+@datasets.command("info")
+@click.argument("name")
+def datasets_info(name: str):
+    """Show details for one dataset without downloading it."""
+    from .datasets import get_dataset_info
+
+    try:
+        spec = get_dataset_info(name)
+    except KeyError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"name:        {spec.name}")
+    click.echo(f"description: {spec.description.strip()}")
+    host = "sandbox.zenodo.org" if spec.sandbox else "zenodo.org"
+    click.echo(f"record:      {spec.record_id} ({host})")
+    if spec.assembly:
+        click.echo(f"assembly:    {spec.assembly}")
+    if spec.license:
+        click.echo(f"license:     {spec.license}")
+    if spec.citation:
+        click.echo(f"citation:    {spec.citation}")
+    click.echo(f"fasta:       {spec.fasta.filename} ({spec.fasta.checksum})")
+    click.echo(f"annotation:  {spec.annotation.filename} ({spec.annotation.checksum})")
+    if spec.labels:
+        click.echo(f"labels:      {spec.labels.filename} ({spec.labels.checksum})")
+
+
+@datasets.command("get")
+@click.argument("name")
+def datasets_get(name: str):
+    """Download (or reuse cached) a dataset and print resolved file paths."""
+    from .datasets import load_dataset
+
+    try:
+        ds = load_dataset(name)
+    except KeyError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"fasta:      {ds.fasta}")
+    click.echo(f"annotation: {ds.annotation}")
+    if ds.labels:
+        click.echo(f"labels:     {ds.labels}")
