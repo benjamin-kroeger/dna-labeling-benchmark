@@ -236,12 +236,25 @@ def _per_method_boundary_heatmap(
     boundary_labels = [_pretty_boundary(b) for b in boundaries]
     event_labels = [_pretty_event(e) for e in events]
 
-    panel_w = max(5.0, 1.2 * len(events))
-    height = max(3.6, 0.8 * len(boundaries) + 1.6)
-    fig_width = panel_w * len(methods) + 1.5
+    # Cell-based sizing: size the figure from a fixed square cell plus fixed
+    # inch margins. The old width-per-event (1.2 in) made each panel ~9.6 in
+    # wide, so cells stretched into wide rectangles and the default wspace left
+    # ~2 in gaps between panels — a very flat, white-space-heavy strip.
+    n_ev, n_b, n_m = len(events), len(boundaries), len(methods)
+    cell_in = 0.7  # side length of one heatmap cell
+    left_in = 2.3  # long y-tick labels on the first panel
+    right_in = 1.4  # colourbar + its label
+    top_in = 1.2  # suptitle + per-panel titles
+    bottom_in = 1.5  # rotated x-tick labels + axis label
+    wspace_in = 0.4  # gap between method panels
+
+    panel_w_in = cell_in * n_ev
+    fig_width = left_in + panel_w_in * n_m + wspace_in * (n_m - 1) + right_in
+    height = bottom_in + cell_in * n_b + top_in
     if metadata is not None:
-        # The pictogram panel claims ~22% of the final width; widen the figure so
-        # the heatmaps and colourbar keep their size instead of being squeezed.
+        # The pictogram panel claims ~25% of the final width; widen the figure so
+        # the heatmaps and colourbar keep their size after _add_pictogram_panel
+        # rescales them into the left content area.
         fig_width /= 0.75
     # Note: no sharey — a shared y-axis lets a later panel's ``yticklabels=False``
     # clear the boundary labels on panel 0.  All panels have identical row counts,
@@ -281,10 +294,20 @@ def _per_method_boundary_heatmap(
         plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
         plt.setp(ax.get_yticklabels(), rotation=0)
 
-    # subplots_adjust instead of tight_layout: tight_layout re-expands axes after
-    # the colorbar has already stolen space, pushing the bar into the last panel.
-    fig.subplots_adjust(bottom=0.2, top=0.84)
-    fig.colorbar(axes[-1].collections[0], ax=list(axes), location="right", shrink=0.8, label=cbar_label)
+    # Explicit inch-based margins (converted to fractions) keep the panels tight
+    # and the cells square; subplots_adjust because tight_layout would re-expand
+    # the axes after the colourbar reserved its margin.
+    left = left_in / fig_width
+    right = 1 - right_in / fig_width
+    bottom = bottom_in / height
+    top = 1 - top_in / height
+    fig.subplots_adjust(left=left, right=right, bottom=bottom, top=top, wspace=wspace_in / panel_w_in)
+
+    # Dedicated colourbar axes in the reserved right margin. fig.colorbar(
+    # ax=list(axes)) would instead steal width from the panels and squash the
+    # square cells.
+    cbar_ax = fig.add_axes([right + 0.012, bottom, 0.16 / fig_width, top - bottom])
+    fig.colorbar(axes[-1].collections[0], cax=cbar_ax, label=cbar_label)
     fig.suptitle(f"{title} — {class_name}", fontsize=15)
     _add_pictogram_panel(fig, metadata, logger=logger)
 
