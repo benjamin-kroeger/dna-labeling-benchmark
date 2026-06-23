@@ -1,0 +1,5 @@
+/* Widen the main content area. sphinx_rtd_theme caps it at 800px, which
+   leaves the right half of wide screens empty. Bump as desired. */
+.wy-nav-content {
+    max-width: 1100px;
+}
