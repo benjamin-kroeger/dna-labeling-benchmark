@@ -49,6 +49,7 @@ dev = [
     "pyarrow>=23.0.1",
     "pytest>=8.3.5",
     "ruff>=0.11.2",
+    "sphinx-autobuild>=2025.8.25",
 ]
 
 [build-system]

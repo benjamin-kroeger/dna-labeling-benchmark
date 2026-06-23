@@ -237,8 +237,12 @@ def _per_method_boundary_heatmap(
     event_labels = [_pretty_event(e) for e in events]
 
     panel_w = max(5.0, 1.2 * len(events))
-    height = max(5.0, 0.9 * len(boundaries) + 2.5)
+    height = max(3.6, 0.8 * len(boundaries) + 1.6)
     fig_width = panel_w * len(methods) + 1.5
+    if metadata is not None:
+        # The pictogram panel claims ~22% of the final width; widen the figure so
+        # the heatmaps and colourbar keep their size instead of being squeezed.
+        fig_width /= 0.75
     # Note: no sharey — a shared y-axis lets a later panel's ``yticklabels=False``
     # clear the boundary labels on panel 0.  All panels have identical row counts,
     # so they line up without sharing.
@@ -279,7 +283,7 @@ def _per_method_boundary_heatmap(
 
     # subplots_adjust instead of tight_layout: tight_layout re-expands axes after
     # the colorbar has already stolen space, pushing the bar into the last panel.
-    fig.subplots_adjust(bottom=0.28, top=0.88)
+    fig.subplots_adjust(bottom=0.2, top=0.84)
     fig.colorbar(axes[-1].collections[0], ax=list(axes), location="right", shrink=0.8, label=cbar_label)
     fig.suptitle(f"{title} — {class_name}", fontsize=15)
     _add_pictogram_panel(fig, metadata, logger=logger)
