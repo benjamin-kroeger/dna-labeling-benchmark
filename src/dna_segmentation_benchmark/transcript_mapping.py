@@ -230,10 +230,26 @@ def _build_intron_chain_index(
         starts = exons["start"].astype(int).tolist()
         ends = exons["end"].astype(int).tolist()
 
-        if len(starts) < 2:
+        # Merge overlapping/adjacent rows before deriving junctions.  The default
+        # EXON_INTRON role map sends both ``exon`` and nested ``CDS`` features to
+        # the exon role, so a GENCODE/RefSeq transcript carries interleaved
+        # exon/CDS rows for the same exon.  Without merging, consecutive
+        # exon→CDS transitions would emit spurious reverse-coordinate "introns"
+        # (e.g. exon [100,200] + CDS [150,200] → (200, 150)) that no prediction
+        # can match, corrupting junction-F1 scoring and the Hungarian assignment.
+        merged: list[tuple[int, int]] = []
+        for start, end in zip(starts, ends):
+            if merged and start <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+
+        if len(merged) < 2:
             index[str(parent_id)] = frozenset()
         else:
-            index[str(parent_id)] = frozenset((ends[i], starts[i + 1]) for i in range(len(starts) - 1))
+            index[str(parent_id)] = frozenset(
+                (merged[i][1], merged[i + 1][0]) for i in range(len(merged) - 1)
+            )
 
     return index
 
@@ -544,6 +560,12 @@ def _map_strand(
     for pred_name, pred_infos in pred_infos_by_name.items():
         for locus in gt_loci:
             preds_in_locus = _find_preds_overlapping_locus(locus, pred_infos)
+            # A prediction overlapping two GT loci (e.g. spanning an intergenic
+            # gap) must not be assigned — and double-counted — in both.  Once it
+            # is matched in an earlier locus, exclude it from later loci for this
+            # predictor.  Loci are visited in coordinate order, so the earliest
+            # overlapping locus wins.
+            preds_in_locus = [p for p in preds_in_locus if p.gff_id not in matched_pred_ids[pred_name]]
             if not preds_in_locus:
                 continue
             for gt_id, match in _assign_optimal_locus(locus, preds_in_locus, pred_name, mode).items():
@@ -844,7 +866,20 @@ def build_paired_arrays(
         default=gt_feature_role_map,
         label_config=label_config,
     )
-    array_length = mapping.gt_end - mapping.gt_start + 1
+    # Evaluation window = union of the GT span and every matched prediction's
+    # span.  Sizing to the GT span alone clips a matched prediction whose
+    # terminal exon over-extends past the GT boundary (a routine TSS/TES
+    # difference), which silently zeroes terminal boundary offsets and inflates
+    # boundary exactness / IoU.  All predictors share one gt_array, so the window
+    # must cover every matched prediction; the GT side simply gains background
+    # padding over the extension (no cross-transcript contamination, since each
+    # array is painted from its own transcript's features only).
+    region_start = mapping.gt_start
+    region_end = mapping.gt_end
+    for match in mapping.matched_predictions:
+        region_start = min(region_start, match.start)
+        region_end = max(region_end, match.end)
+    array_length = region_end - region_start + 1
     bg_val = label_config.background_label
 
     # Null array shared across predictors with no match.
@@ -859,7 +894,7 @@ def build_paired_arrays(
             df=gt_df,
             transcript_id=mapping.gt_id,
             seqid=mapping.seqid,
-            region_start=mapping.gt_start,
+            region_start=region_start,
             array_length=array_length,
             label_config=label_config,
             transcript_types=transcript_types,
@@ -878,7 +913,7 @@ def build_paired_arrays(
                 df=pred_df,
                 transcript_id=pred_match.transcript_id,
                 seqid=mapping.seqid,
-                region_start=mapping.gt_start,
+                region_start=region_start,
                 array_length=array_length,
                 label_config=label_config,
                 transcript_types=transcript_types,
