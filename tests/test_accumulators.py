@@ -37,6 +37,18 @@ def test_summarise_counts_matches_compute_summary_statistics():
         assert got == expected
 
 
+def test_summarise_counts_includes_f1():
+    # Regression: chain/region tiers used to drop f1 because Stat.f1 stayed None.
+    # summarise_counts must now emit a point f1 = 2pr/(p+r) for any counts with
+    # both fp and fn present.
+    got = summarise_counts([Counts(tp=3, fp=1, fn=1)]).to_dict()
+    assert got["f1"] == 0.75  # p = r = 3/4 -> f1 = 3/4
+
+    # Degenerate (no positives) -> f1 present and 0.0, not absent.
+    zero = summarise_counts([Counts(tp=0, fp=0, fn=0)]).to_dict()
+    assert zero["f1"] == 0.0
+
+
 def test_transitions_accumulator_sums_matrices_and_counts():
     def fragment(v):
         return {

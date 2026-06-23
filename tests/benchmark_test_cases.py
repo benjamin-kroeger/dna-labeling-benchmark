@@ -258,7 +258,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CUSTOM_CONFIG,
         [EvalMetrics.INDEL],
         {
-            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"5_prime_extensions": [3], "5_prime_deletions": [1]}, "internal_exon": {"whole_insertions": [4], "3_prime_extensions": [2]}, "three_prime_terminal_exon": {"3_prime_deletions": [3]}, "single_exon_gene": {"whole_deletions": [2]}}},
+            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"5_prime_extensions": [3], "5_prime_deletions": [1]}, "internal_exon": {"whole_insertions": [4]}, "three_prime_terminal_exon": {"3_prime_deletions": [3], "3_prime_extensions": [2]}, "single_exon_gene": {"whole_deletions": [2]}}},
         },
         id='Different_label_test',
     ),
@@ -470,7 +470,7 @@ MULTI_SEQUENCE_TEST_CASES = [
         [EvalMetrics.INDEL, EvalMetrics.REGION_DISCOVERY, EvalMetrics.BOUNDARY_EXACTNESS, EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
         {
             "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"whole_deletions": [5]}, "internal_exon": {"whole_deletions": [5]}, "three_prime_terminal_exon": {"whole_deletions": [2]}}, "junction_opportunities": {"five_prime_terminal_exon": 1, "internal_exon": 4, "three_prime_terminal_exon": 1}, "n_gt_segments": 3, "n_pred_segments": 0},
-            "REGION_DISCOVERY": {"neighborhood_hit": {"precision": 0.0, "recall": 0.0}, "internal_hit": {"precision": 0.0, "recall": 0.0}, "full_coverage_hit": {"precision": 0.0, "recall": 0.0}, "perfect_boundary_hit": {"precision": 0.0, "recall": 0.0}},
+            "REGION_DISCOVERY": {"neighborhood_hit": {"precision": 0.0, "recall": 0.0, "f1": 0.0}, "internal_hit": {"precision": 0.0, "recall": 0.0, "f1": 0.0}, "full_coverage_hit": {"precision": 0.0, "recall": 0.0, "f1": 0.0}, "perfect_boundary_hit": {"precision": 0.0, "recall": 0.0, "f1": 0.0}},
             "BOUNDARY_EXACTNESS": {"first_sec_correct_3_prime_boundary": [0], "last_sec_correct_5_prime_boundary": [0], "iou_scores": [], "iou_stats": {"count": 0, "mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}},
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"precision": 0.0, "recall": 0.0, "f1": 0.0}},
         },

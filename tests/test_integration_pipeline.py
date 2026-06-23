@@ -222,26 +222,51 @@ def _gene_a_pred(gencode_gtf, gff3_tools, tmp_path, mutator=None, name="pred.gff
     return gff3_tools.write_gff3(subset, tmp_path / name)
 
 
-def _gene_a_recall(gencode_gtf, pred_path, label_config, metrics, infer_introns=False):
+def _gene_a_recall(
+    gencode_gtf,
+    pred_path,
+    label_config,
+    metrics,
+    infer_introns=False,
+    locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
+):
     results = benchmark_from_gff(
         gt_path=gencode_gtf,
         pred_paths={"pred": pred_path},
         label_config=label_config,
         metrics=metrics,
-        locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
+        locus_matching_mode=locus_matching_mode,
         infer_introns=infer_introns,
     )
     return results["pred"]["aggregated"]
 
 
 def test_exon_skipping_reduces_recall(gencode_gtf, exon_intron_config, gff3_tools, tmp_path):
-    """Dropping an internal exon lowers recall and breaks the exact chain match."""
+    """Dropping an internal exon lowers recall and breaks the exact chain match.
+
+    Skipping an internal exon of a 3-exon transcript creates a novel junction
+    that shares nothing with the reference intron chain, so under junction-based
+    matching it is an unmatched isoform rather than a degraded match.  Evaluated
+    with ``FULL_DISCOVERY`` against the single-gene GT so the missed reference
+    transcript (recall collapses) and the broken chain (no exact match) are both
+    measurable; ``BEST_PER_LOCUS`` would simply drop the locus entirely.
+    """
+    gene_a_gt = gff3_tools.write_gff3(
+        gff3_tools.transcript_subset(collect_gff(gencode_gtf), gff3_tools.target_transcript),
+        tmp_path / "gene_a_gt.gff3",
+    )
     perfect = _gene_a_pred(gencode_gtf, gff3_tools, tmp_path, name="perfect.gff3")
     skipped = _gene_a_pred(gencode_gtf, gff3_tools, tmp_path, gff3_tools.drop_internal_exon, "skip.gff3")
 
     metrics = [EvalMetrics.NUCLEOTIDE_CLASSIFICATION, EvalMetrics.STRUCTURAL_COHERENCE]
-    perfect_agg = _gene_a_recall(gencode_gtf, perfect, exon_intron_config, metrics, infer_introns=True)
-    skipped_agg = _gene_a_recall(gencode_gtf, skipped, exon_intron_config, metrics, infer_introns=True)
+    perfect_agg = _gene_a_recall(
+        gene_a_gt, perfect, exon_intron_config, metrics,
+        infer_introns=True, locus_matching_mode=LocusMatchingMode.FULL_DISCOVERY,
+    )
+    skipped_agg = _gene_a_recall(
+        gene_a_gt, skipped, exon_intron_config, metrics,
+        infer_introns=True, locus_matching_mode=LocusMatchingMode.FULL_DISCOVERY,
+    )
 
     assert perfect_agg["NUCLEOTIDE_CLASSIFICATION"]["nucleotide"]["recall"] == pytest.approx(1.0)
     assert skipped_agg["NUCLEOTIDE_CLASSIFICATION"]["nucleotide"]["recall"] < 1.0
