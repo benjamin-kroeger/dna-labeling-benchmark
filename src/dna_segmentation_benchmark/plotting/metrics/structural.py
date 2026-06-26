@@ -1,7 +1,7 @@
 """Plotting functions for STRUCTURAL_COHERENCE metrics.
 
 Provides visualisations for intron-chain precision/recall, per-transcript
-soft exon metrics (recall + hallucinations), transcript match
+exon recovery (recall + precision + false-exon count), transcript match
 classification, segment count delta, and boundary shift distributions.
 """
 
@@ -521,40 +521,40 @@ def plot_boundary_shift_distribution(
 
 
 # ---------------------------------------------------------------------------
-# Per-transcript soft exon metrics (recall distribution + hallucination count)
+# Per-transcript exon recovery (recall + precision distributions, false count)
 # ---------------------------------------------------------------------------
 
 
-def plot_per_transcript_soft_exon_metrics(
+def plot_per_transcript_exon_recovery(
     df_sc: pd.DataFrame,
     class_name: str,
     save_path: Optional[Path] = None,
     metadata: Optional[PlotMetadata] = None,
 ) -> Optional[plt.Figure]:
-    """Two-panel histogram of per-transcript soft structural metrics.
+    """Three-panel histogram of per-transcript exon-recovery metrics.
 
-    Complements the strict all-or-nothing ``intron_chain`` metric with a
+    Complements the strict all-or-nothing ``exon_chain`` tiers with a
     distribution view: "how many transcripts got 90% of their exons
-    right" vs "how many got none". The hallucination panel exposes the
-    precision side — how many spurious predicted exons the model emits
-    per transcript — without conflating it with boundary errors.
+    right" vs "how many got none". Recall and precision are the two
+    symmetric fraction axes; the false-exon panel exposes the absolute
+    spurious-exon burden the binary tiers collapse into a single FP.
 
     Panels
     ------
-    Left  : histogram of per-transcript **exon recall** — the fraction
-            of GT exons whose ``(start, end)`` was recovered exactly.
-            Continuous in [0, 1]; bins of width 0.05.
-    Right : histogram of per-transcript **hallucinated exon count** —
-            predicted exons whose ``(start, end)`` is not present in GT.
-            Integer ≥ 0; discrete bins of width 1.
+    Left   : per-transcript **exon recall** — fraction of GT exons whose
+             ``(start, end)`` was recovered exactly. Continuous in [0, 1].
+    Middle : per-transcript **exon precision** — fraction of predicted exons
+             whose ``(start, end)`` is an exact GT match. Continuous in [0, 1].
+    Right  : per-transcript **false exon count** — predicted exons whose
+             ``(start, end)`` is not present in GT. Integer ≥ 0; bins of width 1.
 
     Parameters
     ----------
     df_sc : pd.DataFrame
         Long-format DataFrame filtered to STRUCTURAL_COHERENCE rows.
         The rows with ``metric_key`` in
-        ``{"exon_recall_per_transcript",
-        "hallucinated_exon_count_per_transcript"}`` must carry raw
+        ``{"exon_recall_per_transcript", "exon_precision_per_transcript",
+        "false_exon_count_per_transcript"}`` must carry raw
         per-sequence value lists.
     class_name : str
         Human-readable class name.
@@ -568,7 +568,8 @@ def plot_per_transcript_soft_exon_metrics(
     Figure | None
     """
     recall_rows: list[dict] = []
-    hallucination_rows: list[dict] = []
+    precision_rows: list[dict] = []
+    false_exon_rows: list[dict] = []
     for _, row in df_sc.iterrows():
         key = row["metric_key"]
         val = row["value"]
@@ -580,63 +581,71 @@ def plot_per_transcript_soft_exon_metrics(
                 if v is None:
                     continue
                 recall_rows.append({"method": method, "value": float(v)})
-        elif key == "hallucinated_exon_count_per_transcript":
+        elif key == "exon_precision_per_transcript":
             for v in val:
                 if v is None:
                     continue
-                hallucination_rows.append({"method": method, "value": int(v)})
+                precision_rows.append({"method": method, "value": float(v)})
+        elif key == "false_exon_count_per_transcript":
+            for v in val:
+                if v is None:
+                    continue
+                false_exon_rows.append({"method": method, "value": int(v)})
 
-    if not recall_rows and not hallucination_rows:
+    if not recall_rows and not precision_rows and not false_exon_rows:
         return None
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=(20, 6), constrained_layout=True)
 
-    # Panel 1 — per-transcript exon recall distribution
-    if recall_rows:
-        df_recall = pd.DataFrame(recall_rows)
-        recall_bins = np.linspace(0.0, 1.0, 21)
-        sns.histplot(
-            data=df_recall,
-            x="value",
-            hue="method",
-            bins=recall_bins,
-            multiple="layer",
-            element="step",
-            alpha=0.4,
-            ax=axes[0],
-        )
-        axes[0].set_xlim(0.0, 1.0)
-    else:
-        axes[0].set_visible(False)
-    axes[0].set_xlabel("Fraction of GT exons exactly recovered", labelpad=8)
-    axes[0].set_ylabel("Transcripts")
-    axes[0].set_title("Per-transcript Exon Recall", pad=10)
+    # Panels 1 & 2 — per-transcript exon recall / precision distributions
+    fraction_bins = np.linspace(0.0, 1.0, 21)
+    for ax, rows, xlabel, title in (
+        (axes[0], recall_rows, "Fraction of GT exons exactly recovered", "Per-transcript Exon Recall"),
+        (axes[1], precision_rows, "Fraction of predicted exons that are exact GT matches", "Per-transcript Exon Precision"),
+    ):
+        if rows:
+            sns.histplot(
+                data=pd.DataFrame(rows),
+                x="value",
+                hue="method",
+                bins=fraction_bins,
+                multiple="layer",
+                element="step",
+                alpha=0.4,
+                ax=ax,
+            )
+            ax.set_xlim(0.0, 1.0)
+        else:
+            ax.set_visible(False)
+        ax.set_xlabel(xlabel, labelpad=8)
+        ax.set_ylabel("Transcripts")
+        ax.set_title(title, pad=10)
 
-    # Panel 2 — per-transcript hallucinated exon count distribution
-    if hallucination_rows:
-        df_hallu = pd.DataFrame(hallucination_rows)
-        max_count = int(df_hallu["value"].max())
+    # Panel 3 — per-transcript false exon count distribution
+    if false_exon_rows:
+        df_false = pd.DataFrame(false_exon_rows)
+        max_count = int(df_false["value"].max())
         # Discrete integer bins [0, 1, 2, ..., max+1]
-        hallu_bins = np.arange(-0.5, max_count + 1.5, 1)
+        false_bins = np.arange(-0.5, max_count + 1.5, 1)
         sns.histplot(
-            data=df_hallu,
+            data=df_false,
             x="value",
             hue="method",
-            bins=hallu_bins,
+            bins=false_bins,
             multiple="layer",
             element="step",
             alpha=0.4,
-            ax=axes[1],
+            ax=axes[2],
         )
-        axes[1].xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+        axes[2].xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     else:
-        axes[1].set_visible(False)
-    axes[1].set_xlabel("Hallucinated exons per transcript", labelpad=8)
-    axes[1].set_ylabel("Transcripts")
-    axes[1].set_title("Per-transcript Hallucinated Exon Count", pad=10)
+        axes[2].set_visible(False)
+    axes[2].set_xlabel("False exons per transcript", labelpad=8)
+    axes[2].set_ylabel("Transcripts")
+    axes[2].set_title("Per-transcript False Exon Count", pad=10)
 
     fig.suptitle(
-        f"{class_name} — Per-transcript Soft Exon Metrics",
+        f"{class_name} — Per-transcript Exon Recovery",
         fontsize=13,
     )
 

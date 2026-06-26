@@ -364,7 +364,8 @@ class StructuralAccumulator:
     exon_chains: dict = field(default_factory=lambda: defaultdict(list))
     intron_chains: dict = field(default_factory=lambda: defaultdict(list))
     exon_recall: list = field(default_factory=list)
-    hallucinated: list = field(default_factory=list)
+    exon_precision: list = field(default_factory=list)
+    false_exon_count: list = field(default_factory=list)
     segment_count_delta: list = field(default_factory=list)
     transcript_match_class: list = field(default_factory=list)
     boundary_shift_count: list = field(default_factory=list)
@@ -384,8 +385,10 @@ class StructuralAccumulator:
                 self.exon_chains[key].append(_coerce_counts(group[key]))
         if "exon_recall_per_transcript" in group:
             self.exon_recall.append(group["exon_recall_per_transcript"])
-        if "hallucinated_exon_count_per_transcript" in group:
-            self.hallucinated.append(group["hallucinated_exon_count_per_transcript"])
+        if "exon_precision_per_transcript" in group:
+            self.exon_precision.append(group["exon_precision_per_transcript"])
+        if "false_exon_count_per_transcript" in group:
+            self.false_exon_count.append(group["false_exon_count_per_transcript"])
         if "segment_count_delta" in group:
             self.segment_count_delta.append(group["segment_count_delta"])
         if "transcript_match_class" in group:
@@ -409,11 +412,13 @@ class StructuralAccumulator:
             for key in self.SPLICE_FIELDS:
                 self.splice_sums[key] = self.splice_sums.get(key, 0) + ss[key]
 
-    def _soft_metrics(self, payload: dict) -> None:
+    def _recovery_metrics(self, payload: dict) -> None:
         if self.exon_recall:
             payload["exon_recall_per_transcript"] = list(self.exon_recall)
-        if self.hallucinated:
-            payload["hallucinated_exon_count_per_transcript"] = list(self.hallucinated)
+        if self.exon_precision:
+            payload["exon_precision_per_transcript"] = list(self.exon_precision)
+        if self.false_exon_count:
+            payload["false_exon_count_per_transcript"] = list(self.false_exon_count)
         if self.transcript_match_class:
             payload["transcript_match_class"] = list(self.transcript_match_class)
         if self.boundary_shift_count:
@@ -442,7 +447,7 @@ class StructuralAccumulator:
         }
         if self.segment_count_delta:
             group["segment_count_delta"] = list(self.segment_count_delta)
-        self._soft_metrics(group)
+        self._recovery_metrics(group)
         for key, counts in self.intron_chains.items():
             group[key] = list(counts)
         if self._splice_seen:
@@ -466,7 +471,7 @@ class StructuralAccumulator:
             total = sum(counts.values())
             group["transcript_match_distribution"] = dict(counts)
             group["exact_match_rate"] = counts.get("exact", 0) / total if total > 0 else 0.0
-        self._soft_metrics(group)
+        self._recovery_metrics(group)
         for key, counts in self.intron_chains.items():
             group[key] = summarise_counts(counts).to_dict()
         if self._splice_seen:

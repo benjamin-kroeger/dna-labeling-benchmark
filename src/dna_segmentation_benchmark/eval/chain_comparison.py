@@ -20,8 +20,9 @@ Metrics
   plots.  Reported only when GT and prediction have the same segment count
   (i.e. the chain topology is correct), so the offsets describe junction
   placement *conditioned on* getting the exon count right.
-* **Per-transcript exon recall** — fraction of GT exons exactly recovered.
-* **Per-transcript hallucinated exon count** — predicted exons absent from GT.
+* **Per-transcript exon recall / precision** — fraction of GT exons exactly
+  recovered, and fraction of predicted exons that are exact GT matches.
+* **Per-transcript false exon count** — predicted exons absent from GT.
 """
 
 from __future__ import annotations
@@ -107,8 +108,8 @@ def compute_intron_chain_metrics(
     across transcripts, the resulting precision/recall is the *fraction of
     transcripts with an exact intron-chain match* — **not** the fraction of
     individual introns correctly predicted.  For an intron-level gradation of
-    "nearly right" chains, see the per-transcript soft-exon scalars in
-    :func:`_compute_per_transcript_exon_soft_metrics`.
+    "nearly right" chains, see the per-transcript exon-recovery scalars in
+    :func:`_compute_exon_recovery_from_segments`.
 
     Returns
     -------
@@ -183,7 +184,7 @@ def compute_scoped_chain_metrics(
         "exon_chain_superset": Counts(tp=1) if superset else Counts(fp=1, fn=1),
     }
     chain_metrics.update(_compute_boundary_shift_from_segments(gt_segs, pred_segs))
-    chain_metrics.update(_compute_soft_metrics_from_segments(gt_segs, pred_segs))
+    chain_metrics.update(_compute_exon_recovery_from_segments(gt_segs, pred_segs))
 
     match_cls = _classify_segment_match(gt_segs, pred_segs)
     if match_cls is not None:
@@ -261,38 +262,22 @@ def _raise_if_introns_missing_but_inferable(
 
 
 # ---------------------------------------------------------------------------
-# Per-transcript structural soft metrics (distribution view)
+# Per-transcript exon recovery (distribution view)
 # ---------------------------------------------------------------------------
 
 
-def _compute_per_transcript_exon_soft_metrics(
-        gt_structure: ExtractedStructure,
-        pred_structure: ExtractedStructure,
-        label_config: LabelConfig,
-) -> dict:
-    """Per-transcript continuous exon-recovery metrics.
-
-    Returns
-    -------
-    dict
-        ``exon_recall_per_transcript`` — fraction of GT exons whose exact
-        ``(start, end)`` tuple appears in the prediction.  In [0, 1].
-        ``hallucinated_exon_count_per_transcript`` — number of predicted exons
-        whose ``(start, end)`` does not match any GT exon.  Integer ≥ 0.
-        Empty dict when GT has no exons.
-    """
-
-    gt_exons = _segments_for_scope(gt_structure, BenchmarkScope.TRANSCRIPT_EXON, label_config)
-    pred_exons = _segments_for_scope(pred_structure, BenchmarkScope.TRANSCRIPT_EXON, label_config)
-
-    return _compute_soft_metrics_from_segments(gt_exons, pred_exons)
-
-
-def _compute_soft_metrics_from_segments(
+def _compute_exon_recovery_from_segments(
         gt_exons: tuple[Segment, ...],
         pred_exons: tuple[Segment, ...],
 ) -> dict:
-    """Per-transcript recall and hallucination counts for a scope segment set."""
+    """Per-transcript exon recall, precision, and false-exon count for a scope.
+
+    Recall and precision are fractions in [0, 1] over exactly-matched
+    ``(start, end)`` exons; ``false_exon_count`` is the raw number of predicted
+    exons with no exact GT match.  Precision is ``0.0`` when the prediction has
+    no exons in scope (no true positives to credit).  Empty dict when GT has no
+    exons in scope.
+    """
     gt_set: set[tuple[int, int]] = {(s.start, s.end) for s in gt_exons}
     pred_set: set[tuple[int, int]] = {(s.start, s.end) for s in pred_exons}
 
@@ -302,7 +287,8 @@ def _compute_soft_metrics_from_segments(
     shared = gt_set & pred_set
     return {
         "exon_recall_per_transcript": len(shared) / len(gt_set),
-        "hallucinated_exon_count_per_transcript": len(pred_set - gt_set),
+        "exon_precision_per_transcript": len(shared) / len(pred_set) if pred_set else 0.0,
+        "false_exon_count_per_transcript": len(pred_set - gt_set),
     }
 
 

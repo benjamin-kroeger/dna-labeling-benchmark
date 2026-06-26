@@ -159,14 +159,17 @@ def benchmark_gt_vs_pred_single(
           exact chain match*, **not** the fraction of individual introns
           recovered.  A tool that recovers 9 of 10 introns in every transcript
           scores 0 here.  (For intron-level gradation use the per-transcript
-          soft-exon scalars below.)
+          exon-recovery scalars below.)
         * ``exon_chain`` / ``exon_chain_subset`` / ``exon_chain_superset``
           — same whole-chain set semantics applied to coding (exon) segments.
           Subset: pred ⊆ GT (all pred exons are real, may miss some GT).
           Superset: pred ⊇ GT (every GT exon found, may have extras).
         * ``exon_recall_per_transcript`` — float in [0, 1]: fraction of
           GT exons whose ``(start, end)`` was recovered exactly.
-        * ``hallucinated_exon_count_per_transcript`` — int ≥ 0: number
+        * ``exon_precision_per_transcript`` — float in [0, 1]: fraction of
+          predicted exons whose ``(start, end)`` is an exact GT match
+          (``0.0`` when the prediction has no exons in scope).
+        * ``false_exon_count_per_transcript`` — int ≥ 0: number
           of predicted exons whose ``(start, end)`` is absent from GT.
         * ``segment_count_delta`` — ``pred_count - gt_count``
           (positive = over-segmentation).

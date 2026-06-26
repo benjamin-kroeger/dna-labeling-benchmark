@@ -8,16 +8,22 @@ global metrics aggregate over *all* transcripts — including unmatched ones —
 so false-positive predictions and missed reference transcripts both contribute
 to the final numbers.
 
-Four metric groups are computed, each answering a distinct question:
+Six metric groups are computed, each answering a distinct question:
 
 * ``nucleotide``  — *"At the base level, how accurate is the exon coverage?"*
   Union-based: each genomic base is counted once regardless of isoform count.
   Equivalent to gffcompare's nucleotide sensitivity/precision.
 
 * ``exon``  — *"How many exons are exactly reconstructed?"*
-  Per-transcript counting (gffcompare style): a shared exon between two
-  isoforms counts once per isoform.  An exon is matched when any transcript
-  on the opposite side carries the identical (seqid, strand, start, end).
+  De-duplicated counting: each unique ``(seqid, strand, start, end)``
+  interval is counted **once across all transcripts**, regardless of how
+  many isoforms share it.  This diverges from gffcompare's per-isoform
+  counting; see :func:`_compute_global_exon_metrics` for the rationale.
+
+* ``exon_lenient``  — *"Exon recovery with TSS/TES boundary leniency."*
+  Terminal-exon outer boundaries are not required to match (gffcompare
+  default ``=``); only internal splice-site boundaries must be exact.
+  See :func:`_compute_global_exon_lenient_metrics`.
 
 * ``transcript``  — *"How many transcripts are recovered?"*
   Sensitivity = matched ref transcripts / total ref transcripts.

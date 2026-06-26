@@ -41,7 +41,7 @@ from .metrics.structural import (
     plot_transcript_match_distribution,
     plot_segment_count_delta,
     plot_boundary_shift_distribution,
-    plot_per_transcript_soft_exon_metrics,
+    plot_per_transcript_exon_recovery,
 )
 from .metrics.transitions import plot_transition_matrices, plot_false_transitions
 from .metrics.splice_sites import plot_splice_site_confusion_matrices, plot_splice_site_pr_bar
@@ -457,14 +457,14 @@ def compare_multiple_predictions(
             if fig is not None:
                 figures[_figure_key("boundary_shift_dist", scope, default_scope)] = fig
 
-            fig = plot_per_transcript_soft_exon_metrics(
+            fig = plot_per_transcript_exon_recovery(
                 df_sc_scope,
                 class_name,
-                save_path=(output_dir / f"per_transcript_soft_exon{'' if scope == default_scope else f'_{scope}'}.png") if output_dir else None,
-                metadata=PLOT_METADATA.get("per_transcript_soft_exon"),
+                save_path=(output_dir / f"per_transcript_exon_recovery{'' if scope == default_scope else f'_{scope}'}.png") if output_dir else None,
+                metadata=PLOT_METADATA.get("per_transcript_exon_recovery"),
             )
             if fig is not None:
-                figures[_figure_key("per_transcript_soft_exon", scope, default_scope)] = fig
+                figures[_figure_key("per_transcript_exon_recovery", scope, default_scope)] = fig
 
     # ---- Diagnostic depth plots ----------------------------------------
     if EvalMetrics.DIAGNOSTIC_DEPTH in metrics_to_eval:

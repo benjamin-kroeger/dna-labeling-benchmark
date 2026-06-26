@@ -102,7 +102,8 @@ def test_log_benchmark_scalars_logs_only_selected_online_metrics(monkeypatch):
             "exon_chain": {"precision": 0.35, "recall": 0.25},
             "segment_count_delta": {"mean": 1.0, "mae": 1.5},
             "exon_recall_per_transcript": [0.5, 1.0, 0.0, 0.75],
-            "hallucinated_exon_count_per_transcript": [0, 1, 2, 1],
+            "exon_precision_per_transcript": [0.25, 0.5, 0.5, 0.75],
+            "false_exon_count_per_transcript": [0, 1, 2, 1],
             "exact_match_rate": 0.25,
         },
         "NUCLEOTIDE_CLASSIFICATION": {
@@ -134,14 +135,16 @@ def test_log_benchmark_scalars_logs_only_selected_online_metrics(monkeypatch):
         "val/struct_coherence/segment_count_delta/mean",
         "val/struct_coherence/segment_count_delta/mae",
         "val/struct_coherence/exon_recall_per_transcript/mean",
-        "val/struct_coherence/hallucinated_exon_count_per_transcript/mean",
+        "val/struct_coherence/exon_precision_per_transcript/mean",
+        "val/struct_coherence/false_exon_count_per_transcript/mean",
         "val/struct_coherence/exact_match_rate",
         "val/nucleotide_classification/nucleotide/precision",
         "val/nucleotide_classification/nucleotide/recall",
         "val/nucleotide_classification/nucleotide/f1",
     }
     assert logged["val/struct_coherence/exon_recall_per_transcript/mean"] == 0.5625
-    assert logged["val/struct_coherence/hallucinated_exon_count_per_transcript/mean"] == 1.0
+    assert logged["val/struct_coherence/exon_precision_per_transcript/mean"] == 0.5
+    assert logged["val/struct_coherence/false_exon_count_per_transcript/mean"] == 1.0
     assert logged["val/nucleotide_classification/nucleotide/f1"] == 0.97
 
 

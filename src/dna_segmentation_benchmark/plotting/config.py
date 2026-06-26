@@ -252,20 +252,22 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Error bars: standard deviation across sequences",
         ),
     ),
-    "per_transcript_soft_exon": PlotMetadata(
-        display_name="Per-transcript Soft Exon Metrics",
+    "per_transcript_exon_recovery": PlotMetadata(
+        display_name="Per-transcript Exon Recovery",
         description="Continuous per-transcript view of structural quality, "
-        "complementing the strict all-or-nothing intron_chain and "
+        "complementing the strict all-or-nothing exon_chain tiers and "
         "the corpus-averaged perfect_boundary_hit metrics.",
         bullet_points=(
-            "Left: fraction of GT exons whose (start, end) is recovered exactly "
-            "— a transcript with 9/10 exons right scores 0.9",
+            "Left: exon recall — fraction of GT exons whose (start, end) is "
+            "recovered exactly; a transcript with 9/10 exons right scores 0.9",
+            "Middle: exon precision — fraction of predicted exons whose "
+            "(start, end) is an exact GT match",
             "Right: count of predicted exons per transcript whose (start, end) "
-            "does not match any GT exon (hallucinations)",
+            "does not match any GT exon (false exons)",
             "Histograms are overlayed across methods for direct comparison",
         ),
         caveat="Only transcripts with at least one GT exon are included. "
-        "A near-zero recall mass with a fat right tail of hallucinations "
+        "A near-zero recall mass with a fat right tail of false exons "
         "indicates a model that guesses without recovering true structure.",
     ),
     # --- Exon chain P/R tiers ---
