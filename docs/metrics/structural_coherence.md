@@ -48,7 +48,7 @@ all-or-nothing tiers — they are the same number (and equal to F1). Reporting
 them as two separate plots produced the same figure twice, so the benchmark
 collapses them into a single per-tier **match rate**. The precision-vs-recall
 question you actually care about is answered by the tiers themselves:
-`{chain}_subset` is the precision-flavoured view (penalises hallucinated
+`{chain}_subset` is the precision-flavoured view (penalises false
 boundaries) and `{chain}_superset` is the recall-flavoured view (penalises
 missed boundaries).
 
@@ -234,13 +234,14 @@ single raw count) to expose both the direction and the consistency of the bias.
 
 ---
 
-## Soft Exon Metrics
+## Exon Recovery
 
-The strict chain score is deliberately all-or-nothing. The soft exon metrics
+The strict chain score is deliberately all-or-nothing. The exon-recovery metrics
 add a distributional view that quantifies *how far off* a prediction is even
-when the strict score fails.
+when the strict score fails. Matching is still exact `(start, end)` identity —
+the gradation is in the fraction matched, not in any boundary tolerance.
 
-![Soft exon metrics](../images/per_transcript_soft_exon.png)
+![Exon recovery](../images/per_transcript_exon_recovery.png)
 
 ### Exon recall per transcript
 
@@ -252,19 +253,30 @@ A value of 1.0 means every GT exon boundary was reproduced exactly. Lower
 values indicate how many GT exons are systematically missed, regardless of
 whether the overall chain score is a pass or fail.
 
-### Hallucinated exon count per transcript
+### Exon precision per transcript
 
-`hallucinated_exon_count_per_transcript` is the number of predicted exons that
-have no exact counterpart in the GT set, computed per transcript pair.
+`exon_precision_per_transcript` is the fraction of predicted exons whose
+`(start, end)` is an exact GT match, the symmetric precision partner to recall.
+It is `0.0` when the prediction has no exons in scope.
+
+A value of 1.0 means every predicted exon is real. Lower values indicate that
+the predictor emits exons not present in the reference.
+
+### False exon count per transcript
+
+`false_exon_count_per_transcript` is the number of predicted exons that
+have no exact counterpart in the GT set, computed per transcript pair. It is the
+absolute spurious-exon burden that the precision ratio hides (two false exons
+mean very different things in a 2-exon and a 40-exon transcript).
 
 Higher values indicate that the predictor invents exon boundaries not present
 in the reference. Note that this count is independent of recall: a method can
-simultaneously recover all GT exons (high recall) while also hallucinating
-additional ones (high hallucination count).
+simultaneously recover all GT exons (high recall) while also adding spurious
+ones (high false-exon count).
 
-### Reading the two metrics together
+### Reading the metrics together
 
-| Exon recall | Hallucinated count | Interpretation |
+| Exon recall | False count | Interpretation |
 |---|---|---|
 | High | Low | Mostly correct transcript recovery. |
 | High | High | GT structure is covered but the predictor also invents extra exons. |
@@ -356,5 +368,5 @@ biological splicing error.
 - Good Region Discovery scores do not guarantee good Structural Coherence. A
   model can recover many individual sections while still assembling the wrong
   transcript chain.
-- Soft exon metrics operate on exact coding-segment boundaries, not fuzzy
+- Exon-recovery metrics operate on exact coding-segment boundaries, not fuzzy
   overlaps.

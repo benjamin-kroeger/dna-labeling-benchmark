@@ -4,7 +4,7 @@
 
 Diagnostic evaluation toolkit for nucleotide-level DNA segmentation models (gene finders like Augustus, Helixer, Tiberius, SegmentNT) against reference annotations (e.g., GENCODE).
 
-Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **strict intron chain plus per-transcript soft exon distributions**, **transcript match classification**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
+Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **strict intron chain plus per-transcript exon recovery distributions**, **transcript match classification**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
 
 For continuity with existing tooling, the GFF pipeline also reports a **gffcompare-compatible baseline layer** (nucleotide / exon / transcript / gene sensitivity & precision) under each predictor's `global` results; the diagnostics above are the value this toolkit adds on top of that baseline.
 
@@ -169,7 +169,7 @@ Classifies every contiguous mismatch region into one of 8 structural error types
 
 ![INDEL error counts](docs/images/indel_counts.png)
 
-![INDEL error lengths](docs/images/indel_lengths.png)
+![INDEL error lengths (internal exons)](docs/images/indel_lengths_internal_exon.png)
 
 ---
 
@@ -181,20 +181,19 @@ Evaluates the predicted segment chain **as a whole** -- not per-section, but as 
 
 `intron_chain` emits per-sequence `tp/fp/fn ∈ {0, 1}`: a sequence counts as TP **only if** the entire set of GT introns equals the set of predicted introns. Aggregated across sequences this becomes the familiar corpus precision/recall — directly comparable to gffcompare's intron-chain P/R.
 
-![Intron chain precision](docs/images/transcript_intron_exon_chain_precision.png)
+![Intron/exon chain match rate](docs/images/transcript_match_rate.png)
 
-![Intron chain recall](docs/images/transcript_intron_exon_chain_recall.png)
+#### Per-transcript Exon Recovery
 
-#### Per-transcript Soft Exon Metrics
-
-The binary `intron_chain` metric hides "nearly right" predictions — a transcript with 9 of 10 exons correct scores the same as one with 0 correct. Two complementary per-transcript scalars surface this gradation and are kept as **raw per-sequence lists** so plotting can draw the distribution across transcripts:
+The binary `intron_chain` metric hides "nearly right" predictions — a transcript with 9 of 10 exons correct scores the same as one with 0 correct. Three complementary per-transcript scalars surface this gradation and are kept as **raw per-sequence lists** so plotting can draw the distribution across transcripts:
 
 - `exon_recall_per_transcript` — fraction in `[0, 1]` of GT exons whose `(start, end)` was recovered exactly. A transcript with 9/10 exons right scores `0.9`. Transcripts with zero GT exons are excluded.
-- `hallucinated_exon_count_per_transcript` — integer ≥ 0: predicted exons whose `(start, end)` is absent from GT. Captures the precision side without conflating it with boundary errors.
+- `exon_precision_per_transcript` — fraction in `[0, 1]` of predicted exons whose `(start, end)` is an exact GT match (`0.0` when the prediction has no exons in scope). The symmetric precision partner to recall.
+- `false_exon_count_per_transcript` — integer ≥ 0: predicted exons whose `(start, end)` is absent from GT. The absolute spurious-exon burden a ratio hides.
 
-![Per-transcript soft exon metrics](docs/images/per_transcript_soft_exon.png)
+![Per-transcript exon recovery](docs/images/per_transcript_exon_recovery.png)
 
-Rendered as two overlayed histograms; a fat left tail of recall combined with a fat right tail of hallucinations flags a model that guesses rather than recovering true structure.
+Rendered as three overlayed histograms; a fat left tail of recall combined with a fat right tail of false exons flags a model that guesses rather than recovering true structure.
 
 #### Transcript Match Classification
 
@@ -270,7 +269,7 @@ so it runs unless you pass an explicit `metrics` list that omits it). Two analys
 - **GT Transition Confusion Matrices**: At every position where GT changes label, what did the predictor do? One heatmap per source label.
 - **False Transition Analysis**: At positions where GT is stable (no label change), did the predictor introduce a spurious transition? Each false transition is classified into *late-catchup*, *premature*, or *spurious* using lookbehind/lookahead context.
 
-![GT transition confusion matrices](docs/images/transition_confusion_matrices.png)
+![GT transition confusion matrices](docs/images/Method_A_transition_matrices.png)
 
 ![False transitions](docs/images/false_transitions.png)
 

@@ -27,6 +27,8 @@ from dna_segmentation_benchmark import (
 run = init_wandb_with_presets(
     project="dna-benchmark",
     run_name="validation",
+    label_config=BEND_LABEL_CONFIG,
+    classes=[0],
 )
 
 results = benchmark_gt_vs_pred_multiple(
@@ -75,7 +77,8 @@ metric was in the result:
   rate is logged),
   `struct_coherence/segment_count_delta/{mean,mae}`,
   `struct_coherence/exon_recall_per_transcript/mean`,
-  `struct_coherence/hallucinated_exon_count_per_transcript/mean`,
+  `struct_coherence/exon_precision_per_transcript/mean`,
+  `struct_coherence/false_exon_count_per_transcript/mean`,
   `struct_coherence/exact_match_rate`,
   `struct_coherence/splice_site_results/{donor,acceptor}_{precision,recall}`
 - `diagnostic_depth/length_emd/{mean,mae}`

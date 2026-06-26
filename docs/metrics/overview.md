@@ -14,7 +14,7 @@ The public entry points are:
 | Region Discovery | `REGION_DISCOVERY` | Did the prediction find the right sections? | Precision / recall at four nested detection tiers (neighborhood ⊇ internal / full-coverage ⊇ perfect-boundary) |
 | Boundary Exactness | `BOUNDARY_EXACTNESS` | How accurate are the matched boundaries? | IoU distribution, boundary-residual bias/reliability landscape, terminal-boundary flags |
 | Nucleotide Classification | `NUCLEOTIDE_CLASSIFICATION` | How well does coding vs non-coding separate per base? | Precision / recall / F1 from the nucleotide confusion matrix |
-| Structural Coherence | `STRUCTURAL_COHERENCE` | Is the transcript chain correct as a whole? | Intron/exon chain P/R (strict, subset, superset), transcript match classes, boundary shift distribution, segment count delta, soft exon recall and hallucinated-exon count, donor/acceptor splice-site confusion and P/R (when splice labels are configured) |
+| Structural Coherence | `STRUCTURAL_COHERENCE` | Is the transcript chain correct as a whole? | Intron/exon chain P/R (strict, subset, superset), transcript match classes, boundary shift distribution, segment count delta, per-transcript exon recovery (recall, precision, false-exon count), donor/acceptor splice-site confusion and P/R (when splice labels are configured) |
 | Diagnostic Depth | `DIAGNOSTIC_DEPTH` | Where and by how much does the prediction's structure diverge? | Segment-length EMD, two 100-bin position-bias histograms (FN/FP) over the coding span |
 | Transition Analysis | `STATE_TRANSITIONS` | Where do label changes fail or appear spuriously? | GT transition confusion matrices, false-transition counts (premature, late, spurious) |
 | INDEL | `INDEL` | What structural mismatch types occur? | Categorised mismatch groups (5′/3′ extensions, whole insertions/deletions, splits, joins) |
@@ -58,7 +58,8 @@ the following online scalar set per metric family:
 - Intron / exon chain match rates
 - Segment count delta (mean, MAE)
 - Exon recall per transcript (mean)
-- Hallucinated exon count per transcript (mean)
+- Exon precision per transcript (mean)
+- False exon count per transcript (mean)
 - Exact match rate
 - Splice-site donor / acceptor precision & recall (when configured)
 
