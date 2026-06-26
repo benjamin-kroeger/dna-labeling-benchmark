@@ -12,9 +12,11 @@ import numpy as np
 import pytest
 
 from dna_segmentation_benchmark.io_utils import (
+    _detect_format,
     collect_gff,
     read_gff_to_arrays,
 )
+from pathlib import Path
 from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
 
 
@@ -262,3 +264,47 @@ def test_collect_gff_excludes_features(hierarchical_gff):
 
     assert gene_count > 0
     assert len(df_no_gene) == len(df_all) - gene_count
+
+
+# ------------------------------------------------------------------
+# Tests: content-based format detection (extension is unreliable)
+# ------------------------------------------------------------------
+
+
+def test_detect_format_sniffs_content(tmp_path):
+    """Format follows the attribute syntax, not the file extension."""
+    # GFF3 content (ID=/Parent=) carrying a .gtf name (the Helixer/AnnEvo case).
+    gff3_as_gtf = tmp_path / "pred.gtf"
+    gff3_as_gtf.write_text(
+        "##gff-version 3\n"
+        "c1\tX\tmRNA\t1\t30\t.\t+\t.\tID=tx1\n"
+        "c1\tX\tCDS\t1\t30\t.\t+\t0\tID=c1;Parent=tx1\n"
+    )
+    assert _detect_format(gff3_as_gtf) == "gff3"
+
+    # GTF content (key "value") carrying a .gff name.
+    gtf_as_gff = tmp_path / "pred.gff"
+    gtf_as_gff.write_text(
+        'c1\tX\ttranscript\t1\t30\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'
+        'c1\tX\tCDS\t1\t30\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+    )
+    assert _detect_format(gtf_as_gff) == "gtf"
+
+
+def test_collect_gff_misnamed_gff3_populates_ids(tmp_path):
+    """Regression: GFF3 content under a .gtf name must parse with IDs intact.
+
+    Previously the .gtf extension forced the GTF parser, which found no
+    gene_id/transcript_id, leaving gff_id/parent all-null so the predictor
+    mapped to nothing.
+    """
+    f = tmp_path / "helixer_like.gtf"
+    f.write_text(
+        "##gff-version 3\n"
+        "c1\tHelixer\tmRNA\t1\t30\t.\t+\t.\tID=tx1\n"
+        "c1\tHelixer\texon\t1\t30\t.\t+\t.\tID=e1;Parent=tx1\n"
+        "c1\tHelixer\tCDS\t1\t30\t.\t+\t0\tID=c1;Parent=tx1\n"
+    )
+    df = collect_gff(str(f))
+    assert df["gff_id"].notna().any()
+    assert (df["parent"] == "tx1").sum() == 2  # exon + CDS point to the mRNA

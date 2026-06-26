@@ -44,6 +44,8 @@ Six metric groups are computed, each answering a distinct question:
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 import numpy as np
 import pandas as pd
 
@@ -51,6 +53,11 @@ from ..feature_roles import FeatureRoleMap, feature_types_for_scope, normalize_f
 from ..label_definition import BenchmarkScope
 from ..label_definition import LabelConfig
 from ..transcript_mapping import TranscriptMapping
+
+# (seqid, strand) -> rows. Pre-built once in compute_global_metrics so the
+# per-scope / per-region / per-locus helpers slice in O(1) instead of masking
+# the whole DataFrame on every call.
+_SSIndex = dict[tuple[str, str], pd.DataFrame]
 
 
 # ---------------------------------------------------------------------------
@@ -106,10 +113,18 @@ def compute_global_metrics(
         pred_feature_role_map, label_config, arg_name="pred_feature_role_map"
     )
 
+    # Pre-group once for O(1) (seqid, strand) slices, reused across every scope,
+    # region and locus below.  ``observed=True`` is required because seqid/strand
+    # are categorical (default would emit the empty category Cartesian product).
+    gt_by_ss = {k: v for k, v in gt_df.groupby(["seqid", "strand"], sort=False, observed=True)}
+    pred_by_ss = {k: v for k, v in pred_df.groupby(["seqid", "strand"], sort=False, observed=True)}
+    empty_df = gt_df.iloc[0:0]
+
     return {
         "nucleotide": _compute_global_nucleotide_metrics(
-            gt_df,
-            pred_df,
+            gt_by_ss,
+            pred_by_ss,
+            empty_df,
             label_config,
             gt_feature_role_map,
             pred_feature_role_map,
@@ -134,8 +149,8 @@ def compute_global_metrics(
             predictor_name,
         ),
         "gene": _compute_gene_level_metrics(
-            gt_df,
-            pred_df,
+            gt_by_ss,
+            pred_by_ss,
             mappings,
             predictor_name,
             transcript_types,
@@ -153,8 +168,9 @@ def compute_global_metrics(
 
 
 def _compute_global_nucleotide_metrics(
-    gt_df: pd.DataFrame,
-    pred_df: pd.DataFrame,
+    gt_by_ss: _SSIndex,
+    pred_by_ss: _SSIndex,
+    empty_df: pd.DataFrame,
     label_config: LabelConfig,
     gt_feature_role_map: FeatureRoleMap,
     pred_feature_role_map: FeatureRoleMap,
@@ -172,47 +188,38 @@ def _compute_global_nucleotide_metrics(
     """
     results: dict[str, dict] = {}
     bg_val = label_config.background_label
-    all_seqids = set(gt_df["seqid"].dropna().unique()) | set(pred_df["seqid"].dropna().unique())
+    all_seqids = {s for (s, _strand) in gt_by_ss} | {s for (s, _strand) in pred_by_ss}
 
     for scope in label_config.available_scopes():
         scope_label = min(label_config.scope_tokens(scope))
+        ref_scope_types = feature_types_for_scope(gt_feature_role_map, label_config, scope)
+        pred_scope_types = feature_types_for_scope(pred_feature_role_map, label_config, scope)
         total_tp = total_fp = total_fn = 0
 
         for seqid in sorted(all_seqids):
             for strand in ("+", "-"):
-                ref_spans = _get_transcript_spans(gt_df, seqid, strand, transcript_types)
-                pred_spans = _get_transcript_spans(pred_df, seqid, strand, transcript_types)
+                gt_sub = gt_by_ss.get((seqid, strand), empty_df)
+                pred_sub = pred_by_ss.get((seqid, strand), empty_df)
+                ref_spans = _get_transcript_spans(gt_sub, transcript_types)
+                pred_spans = _get_transcript_spans(pred_sub, transcript_types)
 
                 all_spans = ref_spans + pred_spans
                 if not all_spans:
                     continue
 
+                # Extract scope feature coordinates once for this (seqid, strand);
+                # the per-region union build then only does numpy selection.
+                ref_starts, ref_ends = _scope_feature_intervals(gt_sub, ref_scope_types)
+                pred_starts, pred_ends = _scope_feature_intervals(pred_sub, pred_scope_types)
+
                 for region_start, region_end in _merge_intervals(all_spans):
                     length = region_end - region_start + 1
 
                     ref_arr = _build_scope_union_array(
-                        gt_df,
-                        seqid,
-                        strand,
-                        region_start,
-                        length,
-                        gt_feature_role_map,
-                        label_config,
-                        scope,
-                        scope_label,
-                        bg_val,
+                        ref_starts, ref_ends, region_start, length, scope_label, bg_val
                     )
                     pred_arr = _build_scope_union_array(
-                        pred_df,
-                        seqid,
-                        strand,
-                        region_start,
-                        length,
-                        pred_feature_role_map,
-                        label_config,
-                        scope,
-                        scope_label,
-                        bg_val,
+                        pred_starts, pred_ends, region_start, length, scope_label, bg_val
                     )
 
                     ref_exonic = ref_arr == scope_label
@@ -435,8 +442,8 @@ def _compute_transcript_level_metrics(
 
 
 def _compute_gene_level_metrics(
-    gt_df: pd.DataFrame,
-    pred_df: pd.DataFrame,
+    gt_by_ss: _SSIndex,
+    pred_by_ss: _SSIndex,
     mappings: list[TranscriptMapping],
     predictor_name: str,
     transcript_types: list[str],
@@ -462,8 +469,8 @@ def _compute_gene_level_metrics(
         if m.predictor_name == predictor_name
     }
 
-    gt_locus_count, gt_locus_matched = _count_matched_loci(gt_df, transcript_types, matched_gt_ids)
-    pred_locus_count, pred_locus_matched = _count_matched_loci(pred_df, transcript_types, matched_pred_ids)
+    gt_locus_count, gt_locus_matched = _count_matched_loci(gt_by_ss, transcript_types, matched_gt_ids)
+    pred_locus_count, pred_locus_matched = _count_matched_loci(pred_by_ss, transcript_types, matched_pred_ids)
 
     sensitivity = gt_locus_matched / gt_locus_count if gt_locus_count > 0 else 0.0
     precision = pred_locus_matched / pred_locus_count if pred_locus_count > 0 else 0.0
@@ -548,11 +555,11 @@ def _compute_locus_isoform_metrics(
 
 
 def _count_matched_loci(
-    df: pd.DataFrame,
+    by_ss: _SSIndex,
     transcript_types: list[str],
     matched_ids: set[str],
 ) -> tuple[int, int]:
-    """Count total loci and matched loci in a GFF DataFrame.
+    """Count total loci and matched loci in a pre-grouped GFF DataFrame.
 
     Returns
     -------
@@ -561,15 +568,16 @@ def _count_matched_loci(
     """
     locus_count = locus_matched = 0
 
-    for seqid in sorted(df["seqid"].dropna().unique()):
-        for strand in ("+", "-"):
-            spans_with_ids = _get_transcript_spans_with_ids(df, seqid, strand, transcript_types)
-            if not spans_with_ids:
-                continue
-            for locus_ids in _cluster_into_loci(spans_with_ids):
-                locus_count += 1
-                if any(tid in matched_ids for tid in locus_ids):
-                    locus_matched += 1
+    for (_seqid, strand), sub_df in by_ss.items():
+        if strand not in ("+", "-"):
+            continue
+        spans_with_ids = _get_transcript_spans_with_ids(sub_df, transcript_types)
+        if not spans_with_ids:
+            continue
+        for locus_ids in _cluster_into_loci(spans_with_ids):
+            locus_count += 1
+            if any(tid in matched_ids for tid in locus_ids):
+                locus_matched += 1
 
     return locus_count, locus_matched
 
@@ -580,39 +588,31 @@ def _count_matched_loci(
 
 
 def _get_transcript_spans(
-    df: pd.DataFrame,
-    seqid: str,
-    strand: str,
+    sub_df: pd.DataFrame,
     transcript_types: list[str],
 ) -> list[tuple[int, int]]:
-    """Return ``(start, end)`` for all transcripts on a seqid+strand."""
+    """Return ``(start, end)`` for all transcripts in a (seqid, strand) slice."""
     mask = (
-        (df["seqid"] == seqid)
-        & (df["strand"] == strand)
-        & df["type"].isin(transcript_types)
-        & df["start"].notna()
-        & df["end"].notna()
+        sub_df["type"].isin(transcript_types)
+        & sub_df["start"].notna()
+        & sub_df["end"].notna()
     )
-    rows = df[mask]
+    rows = sub_df[mask]
     return list(zip(rows["start"].astype(int), rows["end"].astype(int)))
 
 
 def _get_transcript_spans_with_ids(
-    df: pd.DataFrame,
-    seqid: str,
-    strand: str,
+    sub_df: pd.DataFrame,
     transcript_types: list[str],
 ) -> list[tuple[int, int, str]]:
-    """Return ``(start, end, gff_id)`` for all transcripts on a seqid+strand."""
+    """Return ``(start, end, gff_id)`` for transcripts in a (seqid, strand) slice."""
     mask = (
-        (df["seqid"] == seqid)
-        & (df["strand"] == strand)
-        & df["type"].isin(transcript_types)
-        & df["start"].notna()
-        & df["end"].notna()
-        & df["gff_id"].notna()
+        sub_df["type"].isin(transcript_types)
+        & sub_df["start"].notna()
+        & sub_df["end"].notna()
+        & sub_df["gff_id"].notna()
     )
-    rows = df[mask]
+    rows = sub_df[mask]
     return list(
         zip(
             rows["start"].astype(int),
@@ -697,34 +697,48 @@ def _collect_scoped_transcript_intervals(
     if scoped_rows.empty:
         return {}, set()
 
-    intervals_by_parent: dict[str, list[tuple[str, str, int, int]]] = {}
     orphan_intervals: set[tuple[str, str, int, int]] = set()
-
-    with_parent = scoped_rows[scoped_rows["parent"].notna()]
-    for parent_id, group in with_parent.groupby("parent", sort=False):
-        intervals_by_parent[str(parent_id)] = _merge_rows_to_intervals(group)
-
     no_parent = scoped_rows[scoped_rows["parent"].isna()]
     for row in no_parent.itertuples(index=False):
-        orphan_intervals.add((row.seqid, row.strand, int(row.start), int(row.end)))
+        orphan_intervals.add((str(row.seqid), str(row.strand), int(row.start), int(row.end)))
+
+    # Group parented rows by parent in one pass over plain arrays, then merge —
+    # avoids paying pandas groupby + a per-group ``sort_values`` for every one of
+    # tens of thousands of transcripts (the dominant global-metrics cost).
+    with_parent = scoped_rows[scoped_rows["parent"].notna()]
+    rows_by_parent: dict[str, list[tuple[str, str, int, int]]] = defaultdict(list)
+    for seqid, strand, start, end, parent in zip(
+        with_parent["seqid"].to_numpy(),
+        with_parent["strand"].to_numpy(),
+        with_parent["start"].to_numpy(),
+        with_parent["end"].to_numpy(),
+        with_parent["parent"].to_numpy(),
+    ):
+        rows_by_parent[str(parent)].append((str(seqid), str(strand), int(start), int(end)))
+
+    intervals_by_parent: dict[str, list[tuple[str, str, int, int]]] = {}
+    for parent_id, recs in rows_by_parent.items():
+        recs.sort(key=lambda r: r[2])
+        intervals_by_parent[parent_id] = _merge_sorted_intervals(recs)
 
     return intervals_by_parent, orphan_intervals
 
 
-def _merge_rows_to_intervals(group: pd.DataFrame) -> list[tuple[str, str, int, int]]:
-    """Merge adjacent or overlapping rows into exon-like intervals."""
-    rows = group.sort_values("start")
+def _merge_sorted_intervals(
+    recs: list[tuple[str, str, int, int]],
+) -> list[tuple[str, str, int, int]]:
+    """Merge start-sorted ``(seqid, strand, start, end)`` rows into intervals.
+
+    Adjacent or overlapping rows (gap <= 1) are fused, taking the maximum end.
+    *recs* must already be sorted by start.
+    """
     merged: list[tuple[str, str, int, int]] = []
     current_seqid: str | None = None
     current_strand: str | None = None
     current_start: int | None = None
     current_end: int | None = None
 
-    for row in rows.itertuples(index=False):
-        seqid = str(row.seqid)
-        strand = str(row.strand)
-        start = int(row.start)
-        end = int(row.end)
+    for seqid, strand, start, end in recs:
         if current_start is None:
             current_seqid = seqid
             current_strand = strand
@@ -745,35 +759,44 @@ def _merge_rows_to_intervals(group: pd.DataFrame) -> list[tuple[str, str, int, i
     return merged
 
 
+def _scope_feature_intervals(
+    sub_df: pd.DataFrame,
+    scope_feature_types: list[str],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``(starts, ends)`` int arrays for scope features in a (seqid,strand) slice.
+
+    Extracted **once** per (seqid, strand, scope) so the per-region union build
+    works on plain numpy arrays instead of re-masking the DataFrame each time.
+    """
+    rows = sub_df[
+        sub_df["type"].isin(scope_feature_types)
+        & sub_df["start"].notna()
+        & sub_df["end"].notna()
+    ]
+    return rows["start"].to_numpy(dtype=np.int64), rows["end"].to_numpy(dtype=np.int64)
+
+
 def _build_scope_union_array(
-    df: pd.DataFrame,
-    seqid: str,
-    strand: str,
+    feature_starts: np.ndarray,
+    feature_ends: np.ndarray,
     region_start: int,
     array_length: int,
-    feature_role_map: FeatureRoleMap,
-    label_config: LabelConfig,
-    scope: BenchmarkScope | str,
     scope_label: int,
     bg_val: int,
 ) -> np.ndarray:
-    """Build a union array for one scope in one genomic region."""
+    """Build a union array for one scope in one genomic region.
+
+    *feature_starts*/*feature_ends* are the scope feature coordinates for the
+    whole (seqid, strand) slice (from :func:`_scope_feature_intervals`); only
+    those overlapping the region are painted.
+    """
     arr = np.full(array_length, bg_val, dtype=np.int32)
+    if feature_starts.size == 0:
+        return arr
+
     region_end = region_start + array_length - 1
-    scope_feature_types = feature_types_for_scope(feature_role_map, label_config, scope)
-
-    mask = (
-        (df["seqid"] == seqid)
-        & (df["strand"] == strand)
-        & df["type"].isin(scope_feature_types)
-        & df["start"].notna()
-        & df["end"].notna()
-        & (df["start"] <= region_end)
-        & (df["end"] >= region_start)
-    )
-    rows = df[mask]
-
-    for feat_start, feat_end in zip(rows["start"], rows["end"]):
+    overlapping = (feature_starts <= region_end) & (feature_ends >= region_start)
+    for feat_start, feat_end in zip(feature_starts[overlapping], feature_ends[overlapping]):
         local_start = max(0, int(feat_start) - region_start)
         local_end = min(array_length, int(feat_end) - region_start + 1)
         if local_start < local_end:

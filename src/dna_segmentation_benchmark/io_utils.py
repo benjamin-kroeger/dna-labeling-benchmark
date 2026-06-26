@@ -1,7 +1,9 @@
 """I/O utilities for DNA segmentation benchmark.
 
 Handles reading of GFF3 and GTF annotations via PyRanges. Format is
-detected from the file extension (.gtf → GTF, everything else → GFF3).
+detected by sniffing the attribute column (quoted ``key "value"`` → GTF,
+``key=value`` → GFF3), falling back to the file extension; this tolerates
+GFF3 content shipped under a ``.gtf`` name.
 
 Returned DataFrames use **1-based, inclusive** coordinates (GFF convention)
 with unified ``gff_id`` and ``parent`` columns that work for both formats:
@@ -40,7 +42,37 @@ DEFAULT_TRANSCRIPT_TYPES: list[str] = ["mRNA", "transcript"]
 
 
 def _detect_format(path: Path) -> str:
-    """Return ``'gtf'`` or ``'gff3'`` based on file extension."""
+    """Return ``'gtf'`` or ``'gff3'`` by sniffing the attribute column.
+
+    The file extension is unreliable — predictors such as Helixer and AnnEvo
+    ship GFF3 content under a ``.gtf`` name, and parsing that as GTF silently
+    loses every ``ID``/``Parent`` (no transcripts → no matches).  We instead
+    inspect the 9th column of the first data lines: GTF encodes attributes as
+    ``key "value";`` (quoted), GFF3 as ``key=value`` (equals, unquoted).  The
+    extension is used only as a fallback when no data line is conclusive.
+    """
+    gtf_votes = gff3_votes = 0
+    try:
+        with path.open() as fh:
+            for line in fh:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                cols = line.rstrip("\n").split("\t")
+                if len(cols) < 9:
+                    continue
+                attrs = cols[8]
+                if '"' in attrs:  # key "value";  → GTF
+                    gtf_votes += 1
+                elif "=" in attrs:  # key=value;    → GFF3
+                    gff3_votes += 1
+                if gtf_votes + gff3_votes >= 20:
+                    break
+    except OSError:
+        gtf_votes = gff3_votes = 0
+
+    if gtf_votes or gff3_votes:
+        return "gtf" if gtf_votes >= gff3_votes else "gff3"
+
     suffixes = {s.lower() for s in path.suffixes}
     return "gtf" if ".gtf" in suffixes else "gff3"
 

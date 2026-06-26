@@ -13,29 +13,23 @@ import numpy as np
 
 from .eval.evaluate_predictors import EvalMetrics, benchmark_gt_vs_pred_multiple
 from .eval.global_metrics import compute_global_metrics
-from .feature_roles import FeatureRoleMap, PredFeatureRoleMapInput
+from .feature_roles import (
+    FeatureRoleMap,
+    PredFeatureRoleMapInput,
+    normalize_feature_role_map,
+    normalize_pred_feature_role_maps,
+)
 from .io_utils import DEFAULT_TRANSCRIPT_TYPES, collect_gff
 from .label_definition import AnnotationMode, LabelConfig, _DEFAULT_METRICS
 from .transcript_mapping import (
     LocusMatchingMode,
+    _build_df_index,
     build_paired_arrays,
     export_mapping_table,
     map_transcripts,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _get_pred_role_map(
-    pred_feature_role_maps: PredFeatureRoleMapInput,
-    pred_name: str,
-) -> FeatureRoleMap | None:
-    """Extract the role map for one predictor from the (possibly nested) input."""
-    if not pred_feature_role_maps:
-        return None
-    if all(isinstance(v, dict) for v in pred_feature_role_maps.values()):
-        return pred_feature_role_maps.get(pred_name)  # type: ignore[return-value]
-    return pred_feature_role_maps  # type: ignore[return-value]
 
 
 def benchmark_from_gff(
@@ -152,11 +146,13 @@ def benchmark_from_gff(
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
     pred_dfs = {name: collect_gff(str(p), exclude_features=exclude_features) for name, p in pred_paths.items()}
 
-    # 2. Map transcripts
+    # 2. Map transcripts (reuse the DataFrames parsed in step 1)
     mappings = map_transcripts(
         gt_path=gt_path,
         pred_paths={name: str(p) for name, p in pred_paths.items()},
         label_config=label_config,
+        gt_df=gt_df,
+        pred_dfs=pred_dfs,
         transcript_types=transcript_types,
         exclude_features=exclude_features,
         gt_feature_role_map=gt_feature_role_map,
@@ -182,6 +178,20 @@ def benchmark_from_gff(
     # skip-prone tools, so the count is surfaced below.
     dropped_loci: dict[str, int] = {name: 0 for name in pred_paths}
 
+    # Precompute the per-mapping invariants once: normalized role maps and the
+    # (seqid, parent) lookup indices are reused for every mapping below.
+    resolved_gt_map = normalize_feature_role_map(
+        gt_feature_role_map, label_config, arg_name="gt_feature_role_map"
+    )
+    resolved_pred_maps = normalize_pred_feature_role_maps(
+        list(pred_paths),
+        pred_feature_role_maps,
+        default=resolved_gt_map,
+        label_config=label_config,
+    )
+    gt_index = _build_df_index(gt_df, transcript_types)
+    pred_indices = {name: _build_df_index(df, transcript_types) for name, df in pred_dfs.items()}
+
     for mapping in mappings:
         gt_arr, pred_arrays = build_paired_arrays(
             mapping=mapping,
@@ -189,8 +199,10 @@ def benchmark_from_gff(
             pred_dfs=pred_dfs,
             label_config=label_config,
             transcript_types=transcript_types,
-            gt_feature_role_map=gt_feature_role_map,
-            pred_feature_role_maps=pred_feature_role_maps,
+            _gt_index=gt_index,
+            _pred_indices=pred_indices,
+            _gt_role_map=resolved_gt_map,
+            _pred_role_maps=resolved_pred_maps,
         )
 
         for pred_name in pred_paths:
@@ -235,7 +247,6 @@ def benchmark_from_gff(
 
         logger.info("Finished per-transcript benchmarking for '%s', now computing global metrics...", pred_name)
 
-        _pred_role = _get_pred_role_map(pred_feature_role_maps, pred_name)
         global_result = compute_global_metrics(
             gt_df=gt_df,
             pred_df=pred_dfs[pred_name],
@@ -243,8 +254,8 @@ def benchmark_from_gff(
             predictor_name=pred_name,
             label_config=label_config,
             transcript_types=transcript_types,
-            gt_feature_role_map=gt_feature_role_map,
-            pred_feature_role_map=_pred_role if _pred_role is not None else gt_feature_role_map,
+            gt_feature_role_map=resolved_gt_map,
+            pred_feature_role_map=resolved_pred_maps[pred_name],
         )
 
         all_results[pred_name] = {

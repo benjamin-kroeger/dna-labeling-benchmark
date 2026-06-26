@@ -40,6 +40,7 @@ from __future__ import annotations
 import csv
 import dataclasses
 import logging
+from collections import defaultdict
 from enum import Enum
 from pathlib import Path
 
@@ -47,14 +48,15 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 from scipy.optimize import linear_sum_assignment
+from tqdm import tqdm
 
 from .feature_roles import (
     FeatureRoleMap,
     PredFeatureRoleMapInput,
     exonic_feature_types,
+    feature_role_paint_plan,
     normalize_feature_role_map,
     normalize_pred_feature_role_maps,
-    paint_feature_rows,
 )
 from .io_utils import DEFAULT_TRANSCRIPT_TYPES, collect_gff
 from .label_definition import AnnotationMode, LabelConfig
@@ -223,12 +225,23 @@ def _build_intron_chain_index(
         & df["start"].notna()
         & df["end"].notna()
     ]
+    if exon_df.empty:
+        return {}
+
+    # Group exon rows by parent in a single pass over plain arrays.  Going via
+    # ``groupby(...).sort_values(...)`` paid pandas' per-call overhead once per
+    # transcript (tens of thousands of tiny frames); extracting the columns once
+    # and grouping in Python is the same result far cheaper.
+    parents = exon_df["parent"].to_numpy()
+    starts = exon_df["start"].to_numpy()
+    ends = exon_df["end"].to_numpy()
+    rows_by_parent: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for parent_id, start, end in zip(parents, starts, ends):
+        rows_by_parent[str(parent_id)].append((int(start), int(end)))
 
     index: dict[str, frozenset[tuple[int, int]]] = {}
-    for parent_id, group in exon_df.groupby("parent", sort=False):
-        exons = group.sort_values("start")
-        starts = exons["start"].astype(int).tolist()
-        ends = exons["end"].astype(int).tolist()
+    for parent_id, rows in rows_by_parent.items():
+        rows.sort()
 
         # Merge overlapping/adjacent rows before deriving junctions.  The default
         # EXON_INTRON role map sends both ``exon`` and nested ``CDS`` features to
@@ -238,16 +251,16 @@ def _build_intron_chain_index(
         # (e.g. exon [100,200] + CDS [150,200] → (200, 150)) that no prediction
         # can match, corrupting junction-F1 scoring and the Hungarian assignment.
         merged: list[tuple[int, int]] = []
-        for start, end in zip(starts, ends):
+        for start, end in rows:
             if merged and start <= merged[-1][1] + 1:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
 
         if len(merged) < 2:
-            index[str(parent_id)] = frozenset()
+            index[parent_id] = frozenset()
         else:
-            index[str(parent_id)] = frozenset(
+            index[parent_id] = frozenset(
                 (merged[i][1], merged[i + 1][0]) for i in range(len(merged) - 1)
             )
 
@@ -272,14 +285,16 @@ def _build_transcript_infos(
     ]
 
     infos: list[_TranscriptInfo] = []
-    for row in rows.to_dict(orient="records"):
-        gff_id = str(row["gff_id"])
+    for gff_id, start, end in zip(
+        rows["gff_id"].to_numpy(), rows["start"].to_numpy(), rows["end"].to_numpy()
+    ):
+        gff_id = str(gff_id)
         chain = chain_index.get(gff_id, frozenset())
         infos.append(
             _TranscriptInfo(
                 gff_id=gff_id,
-                start=int(row["start"]),
-                end=int(row["end"]),
+                start=int(start),
+                end=int(end),
                 intron_chain=chain,
                 is_single_exon=len(chain) == 0,
             )
@@ -680,6 +695,8 @@ def map_transcripts(
     pred_paths: dict[str, str | Path],
     label_config: LabelConfig | None = None,
     *,
+    gt_df: pd.DataFrame | None = None,
+    pred_dfs: dict[str, pd.DataFrame] | None = None,
     transcript_types: list[str] | None = None,
     gt_feature_role_map: FeatureRoleMap | None = None,
     pred_feature_role_maps: PredFeatureRoleMapInput = None,
@@ -706,6 +723,12 @@ def map_transcripts(
         Label semantics used for later array construction. Needed here so
         feature-role maps can be validated against the active annotation mode.
         When omitted, mapping falls back to ``EXON_INTRON`` defaults.
+    gt_df : pd.DataFrame | None
+        Pre-parsed GT GFF DataFrame.  When given, *gt_path* is not re-parsed
+        (avoids a redundant parse when the caller already has the DataFrame).
+    pred_dfs : dict[str, pd.DataFrame] | None
+        Pre-parsed prediction DataFrames keyed by predictor name.  When given,
+        *pred_paths* is not re-parsed.
     transcript_types : list[str] | None
         Feature types that define transcript boundaries.
         Defaults to :data:`~dna_segmentation_benchmark.io_utils.DEFAULT_TRANSCRIPT_TYPES`.
@@ -746,10 +769,12 @@ def map_transcripts(
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
     exclude_features = exclude_features or []
 
-    gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
-    pred_dfs: dict[str, pd.DataFrame] = {
-        name: collect_gff(str(path), exclude_features=exclude_features) for name, path in pred_paths.items()
-    }
+    if gt_df is None:
+        gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
+    if pred_dfs is None:
+        pred_dfs = {
+            name: collect_gff(str(path), exclude_features=exclude_features) for name, path in pred_paths.items()
+        }
     gt_feature_role_map = normalize_feature_role_map(
         gt_feature_role_map, label_config, arg_name="gt_feature_role_map"
     )
@@ -773,13 +798,26 @@ def map_transcripts(
         len(all_seqids),
     )
 
+    # Pre-group by seqid once.  _process_single_seqid and its helpers filter by
+    # seqid internally; passing the whole DataFrame re-scans every row on every
+    # iteration (these per-seqid object-column masks dominated mapping time on
+    # whole-genome inputs).  Slicing here makes each iteration touch only its own
+    # chromosome's rows, while the helpers' internal filters stay correct.
+    gt_by_seqid = {k: v for k, v in gt_df.groupby("seqid", sort=False, observed=True)}
+    pred_by_seqid = {
+        name: {k: v for k, v in df.groupby("seqid", sort=False, observed=True)}
+        for name, df in pred_dfs.items()
+    }
+    empty_gt = gt_df.iloc[0:0]
+    empty_pred = {name: df.iloc[0:0] for name, df in pred_dfs.items()}
+
     all_mappings: list[TranscriptMapping] = []
-    for seqid in sorted(all_seqids):
+    for seqid in tqdm(sorted(all_seqids), desc="Mapping transcripts", unit="seqid"):
         all_mappings.extend(
             _process_single_seqid(
                 seqid,
-                gt_df,
-                pred_dfs,
+                gt_by_seqid.get(seqid, empty_gt),
+                {name: pred_by_seqid[name].get(seqid, empty_pred[name]) for name in pred_dfs},
                 transcript_types,
                 gt_feature_role_map,
                 locus_matching_mode,
@@ -803,6 +841,78 @@ def map_transcripts(
 # ---------------------------------------------------------------------------
 
 
+# (seqid, parent) -> child rows as plain ``(type, start, end)`` tuples.
+# Pre-built once and reused across mappings: lookups are O(1) and painting
+# touches plain Python tuples instead of re-running pandas ``.isin`` / boolean
+# indexing on a tiny DataFrame for every one of tens of thousands of calls.
+_ChildRow = tuple[str, int, int]
+_DFIndex = dict[tuple[str, str], list[_ChildRow]]
+
+# Ordered ``(label_value, feature_types)`` paint passes, compiled once with the
+# feature types as a set for O(1) membership in the hot paint loop.
+_PaintPlan = list[tuple[int, frozenset[str]]]
+
+
+def _build_df_index(df: pd.DataFrame, transcript_types: list[str]) -> _DFIndex:
+    """Index a GFF DataFrame by ``(seqid, parent)`` for O(1) transcript lookups.
+
+    Rows are filtered (drop transcript rows, NaN parents and NaN coordinates)
+    and converted to plain ``(type, start, end)`` tuples here, **once**, so the
+    per-transcript paint path carries no pandas overhead.  Top-level genes (NaN
+    parent) are excluded; lookups are always keyed by ``(seqid, transcript_id)``.
+    """
+    sub = df[
+        df["parent"].notna()
+        & ~df["type"].isin(transcript_types)
+        & df["start"].notna()
+        & df["end"].notna()
+    ]
+    index: _DFIndex = defaultdict(list)
+    for seqid, parent, typ, start, end in zip(
+        sub["seqid"].to_numpy(),
+        sub["parent"].to_numpy(),
+        sub["type"].to_numpy(),
+        sub["start"].to_numpy(),
+        sub["end"].to_numpy(),
+    ):
+        index[(str(seqid), str(parent))].append((str(typ), int(start), int(end)))
+    return dict(index)
+
+
+def _compile_paint_plan(feature_role_map: FeatureRoleMap, label_config: LabelConfig) -> _PaintPlan:
+    """Compile a role map into ordered ``(label, feature-type set)`` paint passes."""
+    return [
+        (label_value, frozenset(feature_types))
+        for label_value, feature_types in feature_role_paint_plan(feature_role_map, label_config)
+    ]
+
+
+def _paint_child_rows(
+    arr: np.ndarray,
+    rows: list[_ChildRow],
+    region_start: int,
+    paint_plan: _PaintPlan,
+) -> None:
+    """Paint ``(type, start, end)`` rows into *arr* following *paint_plan* order.
+
+    Mirrors :func:`feature_roles.paint_feature_rows` exactly (same pass order,
+    same per-feature clipping, later passes overwrite earlier ones) but operates
+    on plain tuples to stay out of pandas in the hot loop.
+    """
+    n = len(arr)
+    for label_value, feature_types in paint_plan:
+        for typ, start, end in rows:
+            if typ in feature_types:
+                local_start = start - region_start
+                if local_start < 0:
+                    local_start = 0
+                local_end = end - region_start + 1
+                if local_end > n:
+                    local_end = n
+                if local_start < local_end:
+                    arr[local_start:local_end] = label_value
+
+
 def build_paired_arrays(
     mapping: TranscriptMapping,
     gt_df: pd.DataFrame,
@@ -811,6 +921,11 @@ def build_paired_arrays(
     transcript_types: list[str] | None = None,
     gt_feature_role_map: FeatureRoleMap | None = None,
     pred_feature_role_maps: PredFeatureRoleMapInput = None,
+    *,
+    _gt_index: _DFIndex | None = None,
+    _pred_indices: dict[str, _DFIndex] | None = None,
+    _gt_role_map: FeatureRoleMap | None = None,
+    _pred_role_maps: dict[str, FeatureRoleMap] | None = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Build the GT and per-predictor annotation arrays for one mapping.
 
@@ -855,17 +970,42 @@ def build_paired_arrays(
     tuple[np.ndarray, dict[str, np.ndarray]]
         ``(gt_array, {predictor_name: pred_array})``.
         The dict contains an entry for every predictor in *pred_dfs*.
+
+    Notes
+    -----
+    The leading-underscore keyword parameters are a private fast path for
+    callers that build arrays in a loop (e.g. the pipeline): pre-built
+    ``(seqid, parent)`` indices and pre-normalized role maps are reused across
+    mappings instead of being rebuilt on every call.  Stand-alone callers omit
+    them and the per-call build/normalize path runs as before.
     """
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
-    gt_feature_role_map = normalize_feature_role_map(
-        gt_feature_role_map, label_config, arg_name="gt_feature_role_map"
+    if _gt_role_map is not None:
+        gt_feature_role_map = _gt_role_map
+    else:
+        gt_feature_role_map = normalize_feature_role_map(
+            gt_feature_role_map, label_config, arg_name="gt_feature_role_map"
+        )
+    if _pred_role_maps is not None:
+        pred_feature_role_maps_by_name = _pred_role_maps
+    else:
+        pred_feature_role_maps_by_name = normalize_pred_feature_role_maps(
+            list(pred_dfs.keys()),
+            pred_feature_role_maps,
+            default=gt_feature_role_map,
+            label_config=label_config,
+        )
+    gt_index = _gt_index if _gt_index is not None else _build_df_index(gt_df, transcript_types)
+    pred_indices = (
+        _pred_indices
+        if _pred_indices is not None
+        else {name: _build_df_index(df, transcript_types) for name, df in pred_dfs.items()}
     )
-    pred_feature_role_maps_by_name = normalize_pred_feature_role_maps(
-        list(pred_dfs.keys()),
-        pred_feature_role_maps,
-        default=gt_feature_role_map,
-        label_config=label_config,
-    )
+    gt_paint_plan = _compile_paint_plan(gt_feature_role_map, label_config)
+    pred_paint_plans = {
+        name: _compile_paint_plan(rmap, label_config)
+        for name, rmap in pred_feature_role_maps_by_name.items()
+    }
     # Evaluation window = union of the GT span and every matched prediction's
     # span.  Sizing to the GT span alone clips a matched prediction whose
     # terminal exon over-extends past the GT boundary (a routine TSS/TES
@@ -891,33 +1031,31 @@ def build_paired_arrays(
         gt_array = null_array.copy()
     else:
         gt_array = _build_annotation_array_from_df(
-            df=gt_df,
+            df_index=gt_index,
             transcript_id=mapping.gt_id,
             seqid=mapping.seqid,
             region_start=region_start,
             array_length=array_length,
             label_config=label_config,
-            transcript_types=transcript_types,
-            feature_role_map=gt_feature_role_map,
+            paint_plan=gt_paint_plan,
         )
 
     # --- Prediction arrays: transcript-specific ---
     pred_arrays: dict[str, np.ndarray] = {}
-    for pred_name, pred_df in pred_dfs.items():
+    for pred_name in pred_dfs:
         pred_match = next(
             (m for m in mapping.matched_predictions if m.predictor_name == pred_name),
             None,
         )
         if pred_match is not None:
             pred_arrays[pred_name] = _build_annotation_array_from_df(
-                df=pred_df,
+                df_index=pred_indices[pred_name],
                 transcript_id=pred_match.transcript_id,
                 seqid=mapping.seqid,
                 region_start=region_start,
                 array_length=array_length,
                 label_config=label_config,
-                transcript_types=transcript_types,
-                feature_role_map=pred_feature_role_maps_by_name[pred_name],
+                paint_plan=pred_paint_plans[pred_name],
             )
         else:
             # Predictor has no match for this GT → null pred array (FN/FP).
@@ -938,14 +1076,13 @@ def build_paired_arrays(
 
 
 def _build_annotation_array_from_df(
-    df: pd.DataFrame,
+    df_index: _DFIndex,
     transcript_id: str,
     seqid: str,
     region_start: int,
     array_length: int,
     label_config: LabelConfig,
-    transcript_types: list[str],
-    feature_role_map: FeatureRoleMap | None = None,
+    paint_plan: _PaintPlan,
 ) -> np.ndarray:
     """Build a 1-D annotation array for one transcript's child features.
 
@@ -954,20 +1091,17 @@ def _build_annotation_array_from_df(
 
     Parameters
     ----------
-    feature_role_map : dict[str, str] | None
-        Explicit feature-role mapping for the child features of this transcript.
+    df_index : _DFIndex
+        ``(seqid, parent) -> child rows`` index from :func:`_build_df_index`.
+    paint_plan : _PaintPlan
+        Ordered paint passes from :func:`_compile_paint_plan`.
     """
     bg_val = label_config.background_label
     arr = np.full(array_length, bg_val, dtype=np.int32)
-    feature_role_map = normalize_feature_role_map(
-        feature_role_map,
-        label_config,
-        arg_name="feature_role_map",
-    )
 
-    mask = (df["seqid"] == seqid) & (df["parent"] == transcript_id)
-    children = df[mask & ~df["type"].isin(transcript_types)][["type", "start", "end"]]
-    paint_feature_rows(arr, children, region_start, feature_role_map, label_config)
+    rows = df_index.get((seqid, transcript_id))
+    if rows:
+        _paint_child_rows(arr, rows, region_start, paint_plan)
     return arr
 
 
