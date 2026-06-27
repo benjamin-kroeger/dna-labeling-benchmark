@@ -97,11 +97,18 @@ def compute_global_metrics(
     Returns
     -------
     dict
-        Six keys: ``"nucleotide"``, ``"exon"``, ``"exon_lenient"``,
-        ``"transcript"``, ``"gene"``, ``"locus_isoform"``.
+        Eight keys: ``"nucleotide"``, ``"exon"``, ``"exon_lenient"``,
+        ``"intron_chain"``, ``"transcript_exact"``, ``"transcript"``,
+        ``"gene"``, ``"locus_isoform"``.
         Each value is a flat dict of counts and derived P/R/F1 scores.
         ``"exon"`` uses exact boundary matching; ``"exon_lenient"`` relaxes the
         outer boundary of terminal exons (gffcompare style).
+        ``"intron_chain"`` and ``"transcript_exact"`` reproduce gffcompare's
+        intron-chain and transcript Sn/Sp by coordinate-exact structure matching
+        over the full reference, independent of the locus-matching mode (see the
+        respective functions).  ``"transcript"`` instead reports assignment-based
+        transcript recall from ``mappings`` (mode-dependent) and is retained for
+        backward compatibility.
         ``"locus_isoform"`` reports per-locus isoform recall — the fraction of
         GT isoforms per locus that received a match, addressing multi-isoform
         caller fairness.  Most meaningful with ``FULL_DISCOVERY`` matching.
@@ -138,6 +145,20 @@ def compute_global_metrics(
             pred_feature_role_map,
         ),
         "exon_lenient": _compute_global_exon_lenient_metrics(
+            gt_df,
+            pred_df,
+            label_config,
+            gt_feature_role_map,
+            pred_feature_role_map,
+        ),
+        "intron_chain": _compute_global_intron_chain_metrics(
+            gt_df,
+            pred_df,
+            label_config,
+            gt_feature_role_map,
+            pred_feature_role_map,
+        ),
+        "transcript_exact": _compute_global_transcript_metrics(
             gt_df,
             pred_df,
             label_config,
@@ -389,6 +410,103 @@ def _collect_scoped_exon_keys(
     for intervals in intervals_by_parent.values():
         keys.update(intervals)
     return keys
+
+
+# ---------------------------------------------------------------------------
+# Intron-chain and whole-transcript metrics — gffcompare structure parity
+# ---------------------------------------------------------------------------
+
+
+def _compute_global_intron_chain_metrics(
+    gt_df: pd.DataFrame,
+    pred_df: pd.DataFrame,
+    label_config: LabelConfig,
+    gt_feature_role_map: FeatureRoleMap,
+    pred_feature_role_map: FeatureRoleMap,
+) -> dict:
+    """Intron-chain sensitivity/precision — gffcompare's intron-chain level.
+
+    A multi-exon reference transcript is matched when its complete intron chain
+    (the set of introns between consecutive scope exons) is identical to some
+    prediction's intron chain.  Single-exon transcripts have no intron chain and
+    are excluded from both numerator and denominator, exactly as in gffcompare's
+    intron-chain row.  Introns are coordinate-keyed ``(seqid, strand, start,
+    end)``, so a match requires every splice site to be exact and — because the
+    coordinates are absolute — can only occur at the same locus; no transcript
+    mapping is consulted, hence the result is independent of the locus-matching
+    mode.
+    """
+    results: dict[str, dict] = {}
+    for scope in label_config.available_scopes():
+        gt_chains = [c for _s, c in _transcript_structure_keys(gt_df, gt_feature_role_map, label_config, scope) if c]
+        pred_chains = [c for _s, c in _transcript_structure_keys(pred_df, pred_feature_role_map, label_config, scope) if c]
+        gt_chain_set = set(gt_chains)
+        pred_chain_set = set(pred_chains)
+
+        ref_total = len(gt_chains)
+        pred_total = len(pred_chains)
+        ref_matched = sum(1 for c in gt_chains if c in pred_chain_set)
+        pred_matched = sum(1 for c in pred_chains if c in gt_chain_set)
+
+        sensitivity = ref_matched / ref_total if ref_total > 0 else 0.0
+        precision = pred_matched / pred_total if pred_total > 0 else 0.0
+        results[scope.value] = {
+            "ref_chain_count": ref_total,
+            "ref_chain_matched": ref_matched,
+            "pred_chain_count": pred_total,
+            "pred_chain_matched": pred_matched,
+            "sensitivity": sensitivity,
+            "precision": precision,
+            "f1": _f1(sensitivity, precision),
+        }
+
+    return {"scopes": results}
+
+
+def _compute_global_transcript_metrics(
+    gt_df: pd.DataFrame,
+    pred_df: pd.DataFrame,
+    label_config: LabelConfig,
+    gt_feature_role_map: FeatureRoleMap,
+    pred_feature_role_map: FeatureRoleMap,
+) -> dict:
+    """Whole-transcript sensitivity/precision — gffcompare's transcript level.
+
+    A reference transcript is matched when its terminal-lenient exon structure
+    (see :func:`_transcript_structure_keys`: every internal splice boundary
+    exact, the outer boundary of the first/last exon wildcarded) is reproduced
+    by a prediction.  This is gffcompare's transcript-level leniency — for a
+    multi-exon transcript it is equivalent to an exact intron-chain match, and
+    single-exon transcripts must match both boundaries.  Both single- and
+    multi-exon transcripts are counted.  Like the intron-chain metric, matching
+    is coordinate-keyed and mapping-free, so the result is independent of the
+    locus-matching mode.
+    """
+    results: dict[str, dict] = {}
+    for scope in label_config.available_scopes():
+        gt_structs = [s for s, _c in _transcript_structure_keys(gt_df, gt_feature_role_map, label_config, scope)]
+        pred_structs = [s for s, _c in _transcript_structure_keys(pred_df, pred_feature_role_map, label_config, scope)]
+        gt_struct_set = set(gt_structs)
+        pred_struct_set = set(pred_structs)
+
+        ref_total = len(gt_structs)
+        pred_total = len(pred_structs)
+        ref_matched = sum(1 for s in gt_structs if s in pred_struct_set)
+        pred_matched = sum(1 for s in pred_structs if s in gt_struct_set)
+
+        sensitivity = ref_matched / ref_total if ref_total > 0 else 0.0
+        precision = pred_matched / pred_total if pred_total > 0 else 0.0
+        results[scope.value] = {
+            "ref_transcript_count": ref_total,
+            "ref_transcript_matched": ref_matched,
+            "pred_transcript_count": pred_total,
+            "pred_transcript_matched": pred_matched,
+            "sensitivity": sensitivity,
+            "precision": precision,
+            "f1": _f1(sensitivity, precision),
+        }
+
+    return {"scopes": results}
 
 
 # ---------------------------------------------------------------------------
@@ -757,6 +875,55 @@ def _merge_sorted_intervals(
     if current_start is not None:
         merged.append((current_seqid, current_strand, current_start, current_end))
     return merged
+
+
+def _transcript_structure_keys(
+    df: pd.DataFrame,
+    feature_role_map: FeatureRoleMap,
+    label_config: LabelConfig,
+    scope: BenchmarkScope | str,
+) -> list[tuple[frozenset, frozenset]]:
+    """Per-transcript ``(structure_key, intron_chain_key)`` for one scope.
+
+    ``structure_key`` is the frozenset of terminal-lenient exon keys: the outer
+    boundary of the first exon (its ``start``) and the last exon (its ``end``)
+    is wildcarded to ``None`` while every internal splice boundary is kept exact
+    (single-exon transcripts keep both boundaries).  This is the same leniency
+    gffcompare applies at the transcript level, and it is necessary here because
+    the reference is frequently CDS-only while predictions carry UTR — without
+    it, a correct prediction whose terminal exons merely extend into UTR would
+    never match the reference's coding terminus.
+
+    ``intron_chain_key`` is the frozenset of introns, each the gap
+    ``(seqid, strand, prev_end + 1, next_start - 1)`` between consecutive merged
+    intervals; it is empty for single-exon transcripts.
+
+    Parent-less scope rows are not transcripts (no chain can be formed) and are
+    skipped.  Reuses :func:`_collect_scoped_transcript_intervals`, so the scope
+    filtering and exon merging match the exon metrics exactly.
+    """
+    intervals_by_parent, _orphans = _collect_scoped_transcript_intervals(
+        df, feature_role_map, label_config, scope
+    )
+    keys: list[tuple[frozenset, frozenset]] = []
+    for intervals in intervals_by_parent.values():
+        n = len(intervals)
+        lenient: set[tuple] = set()
+        for i, (seqid, strand, start, end) in enumerate(intervals):
+            if n == 1:
+                lenient.add((seqid, strand, start, end))
+            elif i == 0:
+                lenient.add((seqid, strand, None, end))
+            elif i == n - 1:
+                lenient.add((seqid, strand, start, None))
+            else:
+                lenient.add((seqid, strand, start, end))
+        chain = frozenset(
+            (intervals[i][0], intervals[i][1], intervals[i][3] + 1, intervals[i + 1][2] - 1)
+            for i in range(n - 1)
+        )
+        keys.append((frozenset(lenient), chain))
+    return keys
 
 
 def _scope_feature_intervals(

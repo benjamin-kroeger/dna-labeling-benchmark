@@ -59,9 +59,10 @@ def test_pipeline_runs_end_to_end_gencode_vs_augustus(gencode_gtf, augustus_gff,
     assert aggregated["metadata"]["annotation_mode"] == "EXON_INTRON"
 
     nuc = _nucleotide(results, "augustus")
-    # Augustus is CDS-only: every predicted base is real (precision 1.0) but
-    # it cannot recover the UTR portions of the GENCODE exons (recall < 1).
-    assert nuc["precision"] == pytest.approx(1.0)
+    # Augustus is CDS-only so it cannot recover the UTR portions of the GENCODE
+    # exons (recall < 1); its hallucinated locus (g4) overlaps no GT and now
+    # surfaces as an intergenic false positive, so precision is below 1 too.
+    assert nuc["precision"] < 1.0
     assert 0.0 < nuc["recall"] < 1.0
     # Region discovery still finds every gene locus.
     assert results["augustus"]["aggregated"]["REGION_DISCOVERY"]["neighborhood_hit"]["recall"] == pytest.approx(1.0)
@@ -277,9 +278,15 @@ def test_exon_skipping_reduces_recall(gencode_gtf, exon_intron_config, gff3_tool
 
 def test_intron_retention_adds_false_positive_bases(gencode_gtf, exon_intron_config, gff3_tools, tmp_path):
     """Merging two exons paints the intervening intron, creating FP bases."""
+    # Isolate Gene A (single-gene GT) so the metric reflects only the retention,
+    # not the other GENCODE loci this single-gene prediction leaves as FN.
+    gene_a_gt = gff3_tools.write_gff3(
+        gff3_tools.transcript_subset(collect_gff(gencode_gtf), gff3_tools.target_transcript),
+        tmp_path / "gene_a_gt.gff3",
+    )
     retained = _gene_a_pred(gencode_gtf, gff3_tools, tmp_path, gff3_tools.merge_first_two_exons, "retain.gff3")
     agg = _gene_a_recall(
-        gencode_gtf, retained, exon_intron_config,
+        gene_a_gt, retained, exon_intron_config,
         [EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
     )
     nuc = agg["NUCLEOTIDE_CLASSIFICATION"]["nucleotide"]
@@ -330,8 +337,9 @@ def test_cds_scope_mode_runs_and_populates_metrics(gencode_gtf, augustus_gff, cd
     aggregated = results["augustus"]["aggregated"]
     assert aggregated["metadata"]["evaluation_scope"] == "cds"
     nuc = aggregated["NUCLEOTIDE_CLASSIFICATION"]["nucleotide"]
-    # Augustus reproduces the CDS almost exactly (only Gene C's boundary is off).
-    assert nuc["precision"] == pytest.approx(1.0)
+    # Augustus reproduces the matched CDS almost exactly, but its hallucinated
+    # locus (g4) overlaps no GT and surfaces as an intergenic FP → precision < 1.
+    assert nuc["precision"] < 1.0
     assert nuc["recall"] > 0.9
 
 

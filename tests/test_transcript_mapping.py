@@ -17,6 +17,7 @@ import pytest
 from dna_segmentation_benchmark.io_utils import collect_gff
 from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
 from dna_segmentation_benchmark.transcript_mapping import (
+    LocusMatchingMode,
     MatchClass,
     _TranscriptInfo,
     _base_overlap,
@@ -546,6 +547,64 @@ class TestMapTranscripts:
         assert chr3_unmatched[0].matched_predictions[0].transcript_id == (
             "pred_chr3_t1"
         )
+
+
+# ------------------------------------------------------------------
+# Integration tests: map_transcripts (BEST_PER_LOCUS)
+# ------------------------------------------------------------------
+
+
+class TestMapTranscriptsBestPerLocus:
+    """BEST_PER_LOCUS scores every GT locus once per predictor: matched loci as
+    pairs, missed loci as locus-level FN, intergenic predictions as FP."""
+
+    def _locus_id(self, m):
+        return m.gt_locus_ids[0] if m.gt_locus_ids else m.gt_id
+
+    def test_missed_locus_becomes_locus_fn(self, gt_gff, pred_a_gff):
+        """A GT locus the predictor never matched is a locus-level FN entry."""
+        mappings = map_transcripts(
+            gt_path=gt_gff,
+            pred_paths={"PredA": pred_a_gff},
+            exclude_features=["gene"],
+            locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
+        )
+        # PredA covers chr1 (mRNA1, mRNA2) but nothing on chr2 (mRNA3).
+        fn = {self._locus_id(m): m for m in mappings if m.fn_for_predictors}
+        assert set(fn) == {"mRNA3"}
+        assert fn["mRNA3"].fn_for_predictors == ["PredA"]
+        assert fn["mRNA3"].matched_predictions == []
+        assert not fn["mRNA3"].is_unmatched_prediction
+
+    def test_intergenic_prediction_is_fp_overlapping_is_not(self, gt_gff, pred_b_gff):
+        """Only predictions overlapping no GT locus become FP (no double count)."""
+        mappings = map_transcripts(
+            gt_path=gt_gff,
+            pred_paths={"PredB": pred_b_gff},
+            exclude_features=["gene"],
+            locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
+        )
+        fp_ids = {
+            match.transcript_id
+            for m in mappings if m.is_unmatched_prediction
+            for match in m.matched_predictions
+        }
+        assert "predB_t1" in fp_ids       # 500-600: overlaps no GT → FP
+        assert "predB_t2" not in fp_ids   # overlaps mRNA1 → never a separate FP
+
+    def test_locus_fn_is_per_predictor(self, gt_gff, pred_a_gff, pred_b_gff):
+        """Each predictor is charged an FN only for loci it personally missed."""
+        mappings = map_transcripts(
+            gt_path=gt_gff,
+            pred_paths={"PredA": pred_a_gff, "PredB": pred_b_gff},
+            exclude_features=["gene"],
+            locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
+        )
+        fn = {self._locus_id(m): m.fn_for_predictors for m in mappings if m.fn_for_predictors}
+        # mRNA1 matched by both → no FN; mRNA2 matched by PredA only; mRNA3 by neither.
+        assert "mRNA1" not in fn
+        assert fn["mRNA2"] == ["PredB"]
+        assert fn["mRNA3"] == ["PredA", "PredB"]
 
 
 # ------------------------------------------------------------------

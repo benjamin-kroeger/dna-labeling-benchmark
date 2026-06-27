@@ -172,11 +172,6 @@ def benchmark_from_gff(
     # 3. Build arrays per predictor
     gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
     pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
-    # Real GT loci dropped from per-transcript scoring because the predictor
-    # produced nothing there (BEST_PER_LOCUS only). They still count in the
-    # global metrics, but their absence makes per-transcript P/R optimistic for
-    # skip-prone tools, so the count is surfaced below.
-    dropped_loci: dict[str, int] = {name: 0 for name in pred_paths}
 
     # Precompute the per-mapping invariants once: normalized role maps and the
     # (seqid, parent) lookup indices are reused for every mapping below.
@@ -208,10 +203,17 @@ def benchmark_from_gff(
         for pred_name in pred_paths:
             has_match = any(m.predictor_name == pred_name for m in mapping.matched_predictions)
             if mapping.is_unmatched_prediction:
+                # FP entry: real prediction vs null GT — only for its own predictor.
                 if not has_match:
                     continue
+            elif mapping.fn_for_predictors:
+                # BEST_PER_LOCUS locus-level FN: a miss only for the predictors that
+                # matched nothing in this locus.
+                if pred_name not in mapping.fn_for_predictors:
+                    continue
             elif locus_matching_mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
-                dropped_loci[pred_name] += 1
+                # Predictor didn't match this isoform; its locus-level miss, if any,
+                # is recorded by the locus-FN entry, so skip here (no double count).
                 continue
 
             gt_by_pred[pred_name].append(gt_arr)
@@ -227,15 +229,6 @@ def benchmark_from_gff(
         if not gt_labels:
             logger.warning("No mapped transcripts for '%s', skipping.", pred_name)
             continue
-
-        if dropped_loci[pred_name]:
-            logger.info(
-                "BEST_PER_LOCUS: %d GT locus/loci dropped from per-transcript scoring for '%s' "
-                "(predictor produced no match there). They still count in the global metrics; "
-                "per-transcript precision/recall therefore exclude these missed loci.",
-                dropped_loci[pred_name],
-                pred_name,
-            )
 
         aggregated = benchmark_gt_vs_pred_multiple(
             gt_labels=gt_labels,
