@@ -42,7 +42,8 @@ from .eval.evaluate_predictors import (
 )
 from .eval.global_metrics import compute_global_metrics
 from .label_definition import LabelConfig
-from .transcript_mapping import LocusMatchingMode
+from .pipeline import _include_mapping_for_predictor
+from .transcript_mapping import LocusMatchingMode, _build_df_index
 
 
 # ------------------------------------------------------------------
@@ -577,6 +578,9 @@ def run(
     gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
     pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
 
+    gt_index = _build_df_index(gt_df, tt_list)
+    pred_indices = {name: _build_df_index(df, tt_list) for name, df in pred_dfs.items()}
+
     for mapping in mappings:
         gt_arr, pred_arrs = build_paired_arrays(
             mapping=mapping,
@@ -584,18 +588,15 @@ def run(
             pred_dfs=pred_dfs,
             label_config=label_config,
             transcript_types=tt_list,
+            _gt_index=gt_index,
+            _pred_indices=pred_indices,
             **gt_map_kwargs,
             **pred_map_kwargs,
         )
 
         for pred_name in pred_paths:
-            has_match = any(m.predictor_name == pred_name for m in mapping.matched_predictions)
-            if mapping.is_unmatched_prediction:
-                if not has_match:
-                    continue
-            elif mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
+            if not _include_mapping_for_predictor(mapping, pred_name, mode):
                 continue
-
             gt_by_pred[pred_name].append(gt_arr)
             pred_by_pred[pred_name].append(pred_arrs[pred_name])
 

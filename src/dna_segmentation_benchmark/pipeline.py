@@ -23,6 +23,7 @@ from .io_utils import DEFAULT_TRANSCRIPT_TYPES, collect_gff
 from .label_definition import AnnotationMode, LabelConfig, _DEFAULT_METRICS
 from .transcript_mapping import (
     LocusMatchingMode,
+    TranscriptMapping,
     _build_df_index,
     build_paired_arrays,
     export_mapping_table,
@@ -30,6 +31,31 @@ from .transcript_mapping import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _include_mapping_for_predictor(
+    mapping: TranscriptMapping,
+    pred_name: str,
+    mode: LocusMatchingMode,
+) -> bool:
+    """Return True if this mapping entry should contribute arrays for *pred_name*.
+
+    Three cases in BEST_PER_LOCUS mode:
+    - ``is_unmatched_prediction``: a real prediction with no GT overlap — include
+      only for the predictor that owns it (FP entry).
+    - ``fn_for_predictors`` non-empty: a locus-level miss entry — include only
+      for predictors listed there (locus FN).
+    - Otherwise: a normal matched entry — skip if the predictor didn't match
+      (its FN is recorded by the locus-FN entry; don't double-count).
+    """
+    has_match = any(m.predictor_name == pred_name for m in mapping.matched_predictions)
+    if mapping.is_unmatched_prediction:
+        return has_match
+    if mapping.fn_for_predictors:
+        return pred_name in mapping.fn_for_predictors
+    if mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
+        return False
+    return True
 
 
 def benchmark_from_gff(
@@ -201,21 +227,8 @@ def benchmark_from_gff(
         )
 
         for pred_name in pred_paths:
-            has_match = any(m.predictor_name == pred_name for m in mapping.matched_predictions)
-            if mapping.is_unmatched_prediction:
-                # FP entry: real prediction vs null GT — only for its own predictor.
-                if not has_match:
-                    continue
-            elif mapping.fn_for_predictors:
-                # BEST_PER_LOCUS locus-level FN: a miss only for the predictors that
-                # matched nothing in this locus.
-                if pred_name not in mapping.fn_for_predictors:
-                    continue
-            elif locus_matching_mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
-                # Predictor didn't match this isoform; its locus-level miss, if any,
-                # is recorded by the locus-FN entry, so skip here (no double count).
+            if not _include_mapping_for_predictor(mapping, pred_name, locus_matching_mode):
                 continue
-
             gt_by_pred[pred_name].append(gt_arr)
             pred_by_pred[pred_name].append(pred_arrays[pred_name])
 
