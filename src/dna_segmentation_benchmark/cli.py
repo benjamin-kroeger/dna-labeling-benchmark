@@ -41,9 +41,10 @@ from .eval.evaluate_predictors import (
     benchmark_gt_vs_pred_multiple,
 )
 from .eval.global_metrics import compute_global_metrics
+from .feature_roles import normalize_feature_role_map, normalize_pred_feature_role_maps
 from .label_definition import LabelConfig
-from .pipeline import _include_mapping_for_predictor
-from .transcript_mapping import LocusMatchingMode, _build_df_index
+from .pipeline import _collect_paired_arrays
+from .transcript_mapping import LocusMatchingMode
 
 
 # ------------------------------------------------------------------
@@ -462,7 +463,6 @@ def run(
     """Run the benchmark on ground-truth vs. prediction GFF/GTF files."""
     from .io_utils import collect_gff
     from .transcript_mapping import (
-        build_paired_arrays,
         export_mapping_table,
         map_transcripts,
     )
@@ -573,32 +573,30 @@ def run(
         click.echo(f"Mapping table written to {mapping_output_path}")
 
     # ------------------------------------------------------------------
-    # 4. Build arrays and benchmark each predictor
+    # 4. Build arrays and benchmark each predictor.  Delegates to the same
+    # pipeline helper as ``benchmark_from_gff`` so the two entry points cannot
+    # drift (and the role maps are normalized once, not per mapping).
     # ------------------------------------------------------------------
-    gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
-    pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
-
-    gt_index = _build_df_index(gt_df, tt_list)
-    pred_indices = {name: _build_df_index(df, tt_list) for name, df in pred_dfs.items()}
-
-    for mapping in mappings:
-        gt_arr, pred_arrs = build_paired_arrays(
-            mapping=mapping,
-            gt_df=gt_df,
-            pred_dfs=pred_dfs,
-            label_config=label_config,
-            transcript_types=tt_list,
-            _gt_index=gt_index,
-            _pred_indices=pred_indices,
-            **gt_map_kwargs,
-            **pred_map_kwargs,
-        )
-
-        for pred_name in pred_paths:
-            if not _include_mapping_for_predictor(mapping, pred_name, mode):
-                continue
-            gt_by_pred[pred_name].append(gt_arr)
-            pred_by_pred[pred_name].append(pred_arrs[pred_name])
+    resolved_gt_map = normalize_feature_role_map(
+        gt_role_map, label_config, arg_name="gt_feature_role_map"
+    )
+    resolved_pred_maps = normalize_pred_feature_role_maps(
+        list(pred_paths),
+        pred_role_maps,
+        default=resolved_gt_map,
+        label_config=label_config,
+    )
+    gt_by_pred, pred_by_pred = _collect_paired_arrays(
+        mappings,
+        gt_df,
+        pred_dfs,
+        list(pred_paths),
+        label_config,
+        tt_list,
+        resolved_gt_map,
+        resolved_pred_maps,
+        mode,
+    )
 
     all_results: dict[str, dict] = {}
 
@@ -652,6 +650,7 @@ def run(
             transcript_types=tt_list,
             gt_feature_role_map=gt_role_map,
             pred_feature_role_map=_pred_role_map if _pred_role_map is not None else gt_role_map,
+            locus_matching_mode=mode,
         )
 
         all_results[pred_name] = {

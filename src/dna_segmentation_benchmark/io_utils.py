@@ -61,10 +61,17 @@ def _detect_format(path: Path) -> str:
                 if len(cols) < 9:
                     continue
                 attrs = cols[8]
-                if '"' in attrs:  # key "value";  → GTF
-                    gtf_votes += 1
-                elif "=" in attrs:  # key=value;    → GFF3
+                # Discriminate on the FIRST attribute token, not on "any quote
+                # anywhere": GFF3 puts '=' inside the first whitespace-delimited
+                # token (``key=value``); GTF is a bare key then space + quote
+                # (``key "value"``).  A '"' inside a GFF3 value (e.g. NCBI
+                # ``product=...``) must not be mistaken for GTF.
+                first_tok = attrs.split(";", 1)[0].strip()
+                key_part = first_tok.split(None, 1)[0] if first_tok else ""
+                if "=" in key_part:  # key=value   → GFF3
                     gff3_votes += 1
+                elif '"' in first_tok:  # key "value"  → GTF
+                    gtf_votes += 1
                 if gtf_votes + gff3_votes >= 20:
                     break
     except OSError:

@@ -291,6 +291,22 @@ def test_detect_format_sniffs_content(tmp_path):
     assert _detect_format(gtf_as_gff) == "gtf"
 
 
+def test_detect_format_gff3_with_quoted_attribute_values(tmp_path):
+    """GFF3 whose attribute *values* contain double-quotes is still GFF3.
+
+    Regression: NCBI RefSeq-style ``product=...`` notes carry literal quotes;
+    voting GTF on "any quote anywhere" misclassified these and silently dropped
+    every ID/Parent.  The discriminator looks at the first attribute token only.
+    """
+    f = tmp_path / "refseq_like.gff3"
+    f.write_text(
+        "##gff-version 3\n"
+        'c1\tRefSeq\tmRNA\t1\t30\t.\t+\t.\tID=tx1;product=hypothetical "conserved" protein\n'
+        'c1\tRefSeq\tCDS\t1\t30\t.\t+\t0\tID=c1;Parent=tx1;Note=similar to "X"\n'
+    )
+    assert _detect_format(f) == "gff3"
+
+
 def test_collect_gff_misnamed_gff3_populates_ids(tmp_path):
     """Regression: GFF3 content under a .gtf name must parse with IDs intact.
 

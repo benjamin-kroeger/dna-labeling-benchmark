@@ -23,8 +23,8 @@ from .io_utils import DEFAULT_TRANSCRIPT_TYPES, collect_gff
 from .label_definition import AnnotationMode, LabelConfig, _DEFAULT_METRICS
 from .transcript_mapping import (
     LocusMatchingMode,
-    TranscriptMapping,
     _build_df_index,
+    _include_mapping_for_predictor,
     build_paired_arrays,
     export_mapping_table,
     map_transcripts,
@@ -33,29 +33,50 @@ from .transcript_mapping import (
 logger = logging.getLogger(__name__)
 
 
-def _include_mapping_for_predictor(
-    mapping: TranscriptMapping,
-    pred_name: str,
+def _collect_paired_arrays(
+    mappings: list,
+    gt_df,
+    pred_dfs: dict,
+    pred_names: list[str],
+    label_config: LabelConfig,
+    transcript_types: list[str],
+    resolved_gt_map: FeatureRoleMap,
+    resolved_pred_maps: dict[str, FeatureRoleMap],
     mode: LocusMatchingMode,
-) -> bool:
-    """Return True if this mapping entry should contribute arrays for *pred_name*.
+) -> tuple[dict[str, list[np.ndarray]], dict[str, list[np.ndarray]]]:
+    """Build the per-predictor (gt_array, pred_array) lists for every mapping.
 
-    Three cases in BEST_PER_LOCUS mode:
-    - ``is_unmatched_prediction``: a real prediction with no GT overlap — include
-      only for the predictor that owns it (FP entry).
-    - ``fn_for_predictors`` non-empty: a locus-level miss entry — include only
-      for predictors listed there (locus FN).
-    - Otherwise: a normal matched entry — skip if the predictor didn't match
-      (its FN is recorded by the locus-FN entry; don't double-count).
+    Shared by :func:`benchmark_from_gff` and the ``dna-benchmark run`` CLI so the
+    two entry points cannot drift.  Pre-normalized role maps and the per-DataFrame
+    indices are computed once and reused for every mapping (the fast path), and
+    :func:`_include_mapping_for_predictor` selects which predictors consume each
+    mapping.
     """
-    has_match = any(m.predictor_name == pred_name for m in mapping.matched_predictions)
-    if mapping.is_unmatched_prediction:
-        return has_match
-    if mapping.fn_for_predictors:
-        return pred_name in mapping.fn_for_predictors
-    if mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
-        return False
-    return True
+    gt_index = _build_df_index(gt_df, transcript_types)
+    pred_indices = {name: _build_df_index(df, transcript_types) for name, df in pred_dfs.items()}
+
+    gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_names}
+    pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_names}
+
+    for mapping in mappings:
+        gt_arr, pred_arrays = build_paired_arrays(
+            mapping=mapping,
+            gt_df=gt_df,
+            pred_dfs=pred_dfs,
+            label_config=label_config,
+            transcript_types=transcript_types,
+            _gt_index=gt_index,
+            _pred_indices=pred_indices,
+            _gt_role_map=resolved_gt_map,
+            _pred_role_maps=resolved_pred_maps,
+        )
+        for pred_name in pred_names:
+            if not _include_mapping_for_predictor(mapping, pred_name, mode):
+                continue
+            gt_by_pred[pred_name].append(gt_arr)
+            pred_by_pred[pred_name].append(pred_arrays[pred_name])
+
+    return gt_by_pred, pred_by_pred
 
 
 def benchmark_from_gff(
@@ -195,12 +216,8 @@ def benchmark_from_gff(
     if mapping_output_path is not None:
         export_mapping_table(mappings, mapping_output_path)
 
-    # 3. Build arrays per predictor
-    gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
-    pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_paths}
-
-    # Precompute the per-mapping invariants once: normalized role maps and the
-    # (seqid, parent) lookup indices are reused for every mapping below.
+    # 3. Build arrays per predictor.  Pre-normalize the role maps once; they are
+    # reused both for array building and for the global metrics below.
     resolved_gt_map = normalize_feature_role_map(
         gt_feature_role_map, label_config, arg_name="gt_feature_role_map"
     )
@@ -210,27 +227,17 @@ def benchmark_from_gff(
         default=resolved_gt_map,
         label_config=label_config,
     )
-    gt_index = _build_df_index(gt_df, transcript_types)
-    pred_indices = {name: _build_df_index(df, transcript_types) for name, df in pred_dfs.items()}
-
-    for mapping in mappings:
-        gt_arr, pred_arrays = build_paired_arrays(
-            mapping=mapping,
-            gt_df=gt_df,
-            pred_dfs=pred_dfs,
-            label_config=label_config,
-            transcript_types=transcript_types,
-            _gt_index=gt_index,
-            _pred_indices=pred_indices,
-            _gt_role_map=resolved_gt_map,
-            _pred_role_maps=resolved_pred_maps,
-        )
-
-        for pred_name in pred_paths:
-            if not _include_mapping_for_predictor(mapping, pred_name, locus_matching_mode):
-                continue
-            gt_by_pred[pred_name].append(gt_arr)
-            pred_by_pred[pred_name].append(pred_arrays[pred_name])
+    gt_by_pred, pred_by_pred = _collect_paired_arrays(
+        mappings,
+        gt_df,
+        pred_dfs,
+        list(pred_paths),
+        label_config,
+        transcript_types,
+        resolved_gt_map,
+        resolved_pred_maps,
+        locus_matching_mode,
+    )
 
     # 4. Benchmark each predictor
     all_results: dict[str, dict] = {}
@@ -262,6 +269,7 @@ def benchmark_from_gff(
             transcript_types=transcript_types,
             gt_feature_role_map=resolved_gt_map,
             pred_feature_role_map=resolved_pred_maps[pred_name],
+            locus_matching_mode=locus_matching_mode,
         )
 
         all_results[pred_name] = {

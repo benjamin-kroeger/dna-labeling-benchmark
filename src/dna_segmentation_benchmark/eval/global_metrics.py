@@ -52,7 +52,11 @@ import pandas as pd
 from ..feature_roles import FeatureRoleMap, feature_types_for_scope, normalize_feature_role_map
 from ..label_definition import BenchmarkScope
 from ..label_definition import LabelConfig
-from ..transcript_mapping import TranscriptMapping
+from ..transcript_mapping import (
+    LocusMatchingMode,
+    TranscriptMapping,
+    _include_mapping_for_predictor,
+)
 
 # (seqid, strand) -> rows. Pre-built once in compute_global_metrics so the
 # per-scope / per-region / per-locus helpers slice in O(1) instead of masking
@@ -74,6 +78,7 @@ def compute_global_metrics(
     transcript_types: list[str],
     gt_feature_role_map: FeatureRoleMap | None = None,
     pred_feature_role_map: FeatureRoleMap | None = None,
+    locus_matching_mode: LocusMatchingMode = LocusMatchingMode.FULL_DISCOVERY,
 ) -> dict:
     """Compute global annotation-level metrics for one predictor.
 
@@ -127,6 +132,12 @@ def compute_global_metrics(
     pred_by_ss = {k: v for k, v in pred_df.groupby(["seqid", "strand"], sort=False, observed=True)}
     empty_df = gt_df.iloc[0:0]
 
+    # Intron-chain and whole-transcript metrics share the same per-transcript
+    # structure keys, so compute them in one pass over each DataFrame.
+    intron_chain_metrics, transcript_exact_metrics = _compute_global_structure_metrics(
+        gt_df, pred_df, label_config, gt_feature_role_map, pred_feature_role_map
+    )
+
     return {
         "nucleotide": _compute_global_nucleotide_metrics(
             gt_by_ss,
@@ -151,20 +162,8 @@ def compute_global_metrics(
             gt_feature_role_map,
             pred_feature_role_map,
         ),
-        "intron_chain": _compute_global_intron_chain_metrics(
-            gt_df,
-            pred_df,
-            label_config,
-            gt_feature_role_map,
-            pred_feature_role_map,
-        ),
-        "transcript_exact": _compute_global_transcript_metrics(
-            gt_df,
-            pred_df,
-            label_config,
-            gt_feature_role_map,
-            pred_feature_role_map,
-        ),
+        "intron_chain": intron_chain_metrics,
+        "transcript_exact": transcript_exact_metrics,
         "transcript": _compute_transcript_level_metrics(
             mappings,
             predictor_name,
@@ -179,6 +178,7 @@ def compute_global_metrics(
         "locus_isoform": _compute_locus_isoform_metrics(
             mappings,
             predictor_name,
+            locus_matching_mode,
         ),
     }
 
@@ -362,6 +362,26 @@ def _compute_global_exon_lenient_metrics(
     return {"scopes": results}
 
 
+def _lenient_exon_key(
+    i: int, n: int, seqid: str, strand: str, start: int, end: int
+) -> tuple:
+    """Canonical exon key with the outer boundary of terminal exons wildcarded.
+
+    gffcompare's transcript-level '=' leniency: the start of the first exon and
+    the end of the last exon become ``None`` (TSS/TES tolerance), while every
+    internal splice boundary stays exact.  A single-exon transcript (``n == 1``)
+    keeps both boundaries — it is both first and last, so without this guard it
+    would wrongly wildcard its start.
+    """
+    if n == 1:
+        return (seqid, strand, start, end)
+    if i == 0:
+        return (seqid, strand, None, end)
+    if i == n - 1:
+        return (seqid, strand, start, None)
+    return (seqid, strand, start, end)
+
+
 def _collect_scoped_exon_keys_lenient(
     df: pd.DataFrame,
     feature_role_map: FeatureRoleMap,
@@ -380,14 +400,7 @@ def _collect_scoped_exon_keys_lenient(
     for intervals in intervals_by_parent.values():
         n = len(intervals)
         for i, (seqid, strand, start, end) in enumerate(intervals):
-            if n == 1:
-                keys.add((seqid, strand, start, end))
-            elif i == 0:
-                keys.add((seqid, strand, None, end))
-            elif i == n - 1:
-                keys.add((seqid, strand, start, None))
-            else:
-                keys.add((seqid, strand, start, end))
+            keys.add(_lenient_exon_key(i, n, seqid, strand, start, end))
 
     keys.update(orphan_intervals)
     return keys
@@ -417,96 +430,70 @@ def _collect_scoped_exon_keys(
 # ---------------------------------------------------------------------------
 
 
-def _compute_global_intron_chain_metrics(
+def _set_match_metrics(gt_keys: list, pred_keys: list, label: str) -> dict:
+    """Sensitivity/precision/F1 from set-membership matching of two key lists.
+
+    A ref key is matched when it appears in the prediction set, and vice versa.
+    *label* names the count fields (``ref_{label}_count`` etc.).
+    """
+    gt_total, pred_total = len(gt_keys), len(pred_keys)
+    gt_set, pred_set = set(gt_keys), set(pred_keys)
+    ref_matched = sum(1 for k in gt_keys if k in pred_set)
+    pred_matched = sum(1 for k in pred_keys if k in gt_set)
+    sensitivity = ref_matched / gt_total if gt_total > 0 else 0.0
+    precision = pred_matched / pred_total if pred_total > 0 else 0.0
+    return {
+        f"ref_{label}_count": gt_total,
+        f"ref_{label}_matched": ref_matched,
+        f"pred_{label}_count": pred_total,
+        f"pred_{label}_matched": pred_matched,
+        "sensitivity": sensitivity,
+        "precision": precision,
+        "f1": _f1(sensitivity, precision),
+    }
+
+
+def _compute_global_structure_metrics(
     gt_df: pd.DataFrame,
     pred_df: pd.DataFrame,
     label_config: LabelConfig,
     gt_feature_role_map: FeatureRoleMap,
     pred_feature_role_map: FeatureRoleMap,
-) -> dict:
-    """Intron-chain sensitivity/precision — gffcompare's intron-chain level.
+) -> tuple[dict, dict]:
+    """Intron-chain and whole-transcript Sn/Sp — gffcompare structure parity.
 
-    A multi-exon reference transcript is matched when its complete intron chain
-    (the set of introns between consecutive scope exons) is identical to some
-    prediction's intron chain.  Single-exon transcripts have no intron chain and
-    are excluded from both numerator and denominator, exactly as in gffcompare's
-    intron-chain row.  Introns are coordinate-keyed ``(seqid, strand, start,
-    end)``, so a match requires every splice site to be exact and — because the
-    coordinates are absolute — can only occur at the same locus; no transcript
-    mapping is consulted, hence the result is independent of the locus-matching
-    mode.
+    Returns ``(intron_chain, transcript_exact)``, each ``{"scopes": {...}}``.
+    Both are derived from the per-transcript ``(structure_key, intron_chain_key)``
+    pairs of :func:`_transcript_structure_keys`, computed once per DataFrame per
+    scope and shared between the two metrics.
+
+    * **intron_chain** — a multi-exon transcript is matched when its complete
+      intron chain equals some opposite-side chain (single-exon transcripts have
+      no chain and are excluded), exactly as gffcompare's intron-chain row.
+    * **transcript_exact** — a transcript is matched when its terminal-lenient
+      exon structure (internal splice boundaries exact, outer boundary of the
+      first/last exon wildcarded) is reproduced; single-exon transcripts must
+      match both boundaries.  Both single- and multi-exon transcripts count.
+
+    Matching is coordinate-keyed and mapping-free, so both results are
+    independent of the locus-matching mode.
     """
-    results: dict[str, dict] = {}
+    chain_results: dict[str, dict] = {}
+    struct_results: dict[str, dict] = {}
     for scope in label_config.available_scopes():
-        gt_chains = [c for _s, c in _transcript_structure_keys(gt_df, gt_feature_role_map, label_config, scope) if c]
-        pred_chains = [c for _s, c in _transcript_structure_keys(pred_df, pred_feature_role_map, label_config, scope) if c]
-        gt_chain_set = set(gt_chains)
-        pred_chain_set = set(pred_chains)
-
-        ref_total = len(gt_chains)
-        pred_total = len(pred_chains)
-        ref_matched = sum(1 for c in gt_chains if c in pred_chain_set)
-        pred_matched = sum(1 for c in pred_chains if c in gt_chain_set)
-
-        sensitivity = ref_matched / ref_total if ref_total > 0 else 0.0
-        precision = pred_matched / pred_total if pred_total > 0 else 0.0
-        results[scope.value] = {
-            "ref_chain_count": ref_total,
-            "ref_chain_matched": ref_matched,
-            "pred_chain_count": pred_total,
-            "pred_chain_matched": pred_matched,
-            "sensitivity": sensitivity,
-            "precision": precision,
-            "f1": _f1(sensitivity, precision),
-        }
-
-    return {"scopes": results}
-
-
-def _compute_global_transcript_metrics(
-    gt_df: pd.DataFrame,
-    pred_df: pd.DataFrame,
-    label_config: LabelConfig,
-    gt_feature_role_map: FeatureRoleMap,
-    pred_feature_role_map: FeatureRoleMap,
-) -> dict:
-    """Whole-transcript sensitivity/precision — gffcompare's transcript level.
-
-    A reference transcript is matched when its terminal-lenient exon structure
-    (see :func:`_transcript_structure_keys`: every internal splice boundary
-    exact, the outer boundary of the first/last exon wildcarded) is reproduced
-    by a prediction.  This is gffcompare's transcript-level leniency — for a
-    multi-exon transcript it is equivalent to an exact intron-chain match, and
-    single-exon transcripts must match both boundaries.  Both single- and
-    multi-exon transcripts are counted.  Like the intron-chain metric, matching
-    is coordinate-keyed and mapping-free, so the result is independent of the
-    locus-matching mode.
-    """
-    results: dict[str, dict] = {}
-    for scope in label_config.available_scopes():
-        gt_structs = [s for s, _c in _transcript_structure_keys(gt_df, gt_feature_role_map, label_config, scope)]
-        pred_structs = [s for s, _c in _transcript_structure_keys(pred_df, pred_feature_role_map, label_config, scope)]
-        gt_struct_set = set(gt_structs)
-        pred_struct_set = set(pred_structs)
-
-        ref_total = len(gt_structs)
-        pred_total = len(pred_structs)
-        ref_matched = sum(1 for s in gt_structs if s in pred_struct_set)
-        pred_matched = sum(1 for s in pred_structs if s in gt_struct_set)
-
-        sensitivity = ref_matched / ref_total if ref_total > 0 else 0.0
-        precision = pred_matched / pred_total if pred_total > 0 else 0.0
-        results[scope.value] = {
-            "ref_transcript_count": ref_total,
-            "ref_transcript_matched": ref_matched,
-            "pred_transcript_count": pred_total,
-            "pred_transcript_matched": pred_matched,
-            "sensitivity": sensitivity,
-            "precision": precision,
-            "f1": _f1(sensitivity, precision),
-        }
-
-    return {"scopes": results}
+        gt_keys = _transcript_structure_keys(gt_df, gt_feature_role_map, label_config, scope)
+        pred_keys = _transcript_structure_keys(pred_df, pred_feature_role_map, label_config, scope)
+        chain_results[scope.value] = _set_match_metrics(
+            [c for _s, c in gt_keys if c],
+            [c for _s, c in pred_keys if c],
+            "chain",
+        )
+        struct_results[scope.value] = _set_match_metrics(
+            [s for s, _c in gt_keys],
+            [s for s, _c in pred_keys],
+            "transcript",
+        )
+    return {"scopes": chain_results}, {"scopes": struct_results}
 
 
 # ---------------------------------------------------------------------------
@@ -607,27 +594,37 @@ def _compute_gene_level_metrics(
 def _compute_locus_isoform_metrics(
     mappings: list[TranscriptMapping],
     predictor_name: str,
+    locus_matching_mode: LocusMatchingMode,
 ) -> dict:
     """Per-locus isoform recall for one predictor.
 
-    For each locus (cluster of overlapping GT transcripts on the same
-    seqid+strand), counts how many GT isoforms received a non-zero prediction
-    match from ``predictor_name``.  Most meaningful when called after
-    ``FULL_DISCOVERY`` matching, where every GT isoform participates in the
-    Hungarian assignment and unmatched isoforms produce empty
-    ``matched_predictions`` lists.
+    Considers only the mapping entries this predictor participates in (via
+    :func:`_include_mapping_for_predictor`), so each locus is counted exactly
+    once per predictor regardless of how many *other* predictors matched it.  A
+    GT isoform counts as *recovered* only on a serious match
+    (``junction_f1 > 0``); a Case-C overlap-but-wrong entry (``junction_f1 == 0``)
+    is a miss.
+
+    In ``FULL_DISCOVERY`` every GT isoform is its own entry, so this is per-locus
+    isoform recall (fraction of isoforms matched).  In ``BEST_PER_LOCUS`` each
+    predictor owns one entry per locus, so it degenerates to locus recall.
 
     Returns
     -------
     dict with keys:
         locus_count          – number of GT loci evaluated
         ref_isoform_count    – total GT isoforms across all loci
-        ref_isoform_matched  – GT isoforms with at least one match
+        ref_isoform_matched  – GT isoforms recovered by a serious match
         recall               – ref_isoform_matched / ref_isoform_count (micro-avg)
         missed_per_locus     – list[int], missed isoform count per locus
     """
-    gt_mappings = [m for m in mappings if not m.is_unmatched_prediction]
-    if not gt_mappings:
+    relevant = [
+        m
+        for m in mappings
+        if not m.is_unmatched_prediction
+        and _include_mapping_for_predictor(m, predictor_name, locus_matching_mode)
+    ]
+    if not relevant:
         return {
             "locus_count": 0,
             "ref_isoform_count": 0,
@@ -638,25 +635,27 @@ def _compute_locus_isoform_metrics(
 
     matched_gt_ids = {
         m.gt_id
-        for m in gt_mappings
-        if any(pm.predictor_name == predictor_name for pm in m.matched_predictions)
+        for m in relevant
+        if any(
+            pm.predictor_name == predictor_name and pm.junction_f1 > 0
+            for pm in m.matched_predictions
+        )
     }
 
-    from collections import defaultdict
     groups: dict[tuple, list] = defaultdict(list)
-    for m in gt_mappings:
-        groups[(m.seqid, m.strand)].append(m)
+    for m in relevant:
+        groups[(m.seqid, m.strand)].append((m.gt_start, m.gt_end, m.gt_id))
 
     locus_count = 0
     total_gt = 0
     total_matched = 0
     missed_per_locus: list[int] = []
 
-    for group_mappings in groups.values():
-        spans = [(m.gt_start, m.gt_end, m.gt_id) for m in group_mappings]
+    for spans in groups.values():
         for locus_ids in _cluster_into_loci(spans):
-            n_total = len(locus_ids)
-            n_matched = sum(1 for gid in locus_ids if gid in matched_gt_ids)
+            unique_ids = set(locus_ids)
+            n_total = len(unique_ids)
+            n_matched = sum(1 for gid in unique_ids if gid in matched_gt_ids)
             locus_count += 1
             total_gt += n_total
             total_matched += n_matched
@@ -908,16 +907,10 @@ def _transcript_structure_keys(
     keys: list[tuple[frozenset, frozenset]] = []
     for intervals in intervals_by_parent.values():
         n = len(intervals)
-        lenient: set[tuple] = set()
-        for i, (seqid, strand, start, end) in enumerate(intervals):
-            if n == 1:
-                lenient.add((seqid, strand, start, end))
-            elif i == 0:
-                lenient.add((seqid, strand, None, end))
-            elif i == n - 1:
-                lenient.add((seqid, strand, start, None))
-            else:
-                lenient.add((seqid, strand, start, end))
+        lenient: set[tuple] = {
+            _lenient_exon_key(i, n, seqid, strand, start, end)
+            for i, (seqid, strand, start, end) in enumerate(intervals)
+        }
         chain = frozenset(
             (intervals[i][0], intervals[i][1], intervals[i][3] + 1, intervals[i + 1][2] - 1)
             for i in range(n - 1)

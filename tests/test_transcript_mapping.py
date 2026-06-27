@@ -559,7 +559,7 @@ class TestMapTranscriptsBestPerLocus:
     pairs, missed loci as locus-level FN, intergenic predictions as FP."""
 
     def _locus_id(self, m):
-        return m.gt_locus_ids[0] if m.gt_locus_ids else m.gt_id
+        return m.gt_id
 
     def test_missed_locus_becomes_locus_fn(self, gt_gff, pred_a_gff):
         """A GT locus the predictor never matched is a locus-level FN entry."""
@@ -593,18 +593,118 @@ class TestMapTranscriptsBestPerLocus:
         assert "predB_t2" not in fp_ids   # overlaps mRNA1 → never a separate FP
 
     def test_locus_fn_is_per_predictor(self, gt_gff, pred_a_gff, pred_b_gff):
-        """Each predictor is charged an FN only for loci it personally missed."""
+        """Each predictor is charged a clean FN only for loci it personally missed.
+
+        With per-(locus, predictor) emission, a missed locus yields one Case-B
+        entry per missing predictor (same ``gt_id``), so aggregate across entries.
+        """
         mappings = map_transcripts(
             gt_path=gt_gff,
             pred_paths={"PredA": pred_a_gff, "PredB": pred_b_gff},
             exclude_features=["gene"],
             locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
         )
-        fn = {self._locus_id(m): m.fn_for_predictors for m in mappings if m.fn_for_predictors}
-        # mRNA1 matched by both → no FN; mRNA2 matched by PredA only; mRNA3 by neither.
+        fn: dict[str, list[str]] = {}
+        for m in mappings:
+            if m.fn_for_predictors:
+                fn.setdefault(self._locus_id(m), []).extend(m.fn_for_predictors)
+        # mRNA1 matched by both → no FN; mRNA2 matched by PredA only (PredB has no
+        # overlap there → clean miss); mRNA3 (chr2) missed by both, neither overlaps.
         assert "mRNA1" not in fn
-        assert fn["mRNA2"] == ["PredB"]
-        assert fn["mRNA3"] == ["PredA", "PredB"]
+        assert sorted(fn["mRNA2"]) == ["PredB"]
+        assert sorted(fn["mRNA3"]) == ["PredA", "PredB"]
+
+
+# ------------------------------------------------------------------
+# BEST_PER_LOCUS Case B (clean miss) vs Case C (overlap, wrong structure)
+# ------------------------------------------------------------------
+
+
+class TestBestPerLocusOverlapVsMiss:
+    """An overlapping-but-wrong prediction (Case C) must be scored against the
+    real GT, NOT dropped or treated as a clean miss (Case B)."""
+
+    @staticmethod
+    def _write(path, rows):
+        path.write_text("##gff-version 3\n" + "\n".join(rows) + "\n")
+        return str(path)
+
+    def _scenario(self, tmp_path):
+        # One GT locus: 2-exon transcript gtB, intron 1101..1299.
+        gt = self._write(tmp_path / "gt.gff3", [
+            "chr1\tT\ttranscript\t1000\t1400\t.\t+\t.\tID=gtB",
+            "chr1\tT\texon\t1000\t1100\t.\t+\t.\tID=gtB.e1;Parent=gtB",
+            "chr1\tT\texon\t1300\t1400\t.\t+\t.\tID=gtB.e2;Parent=gtB",
+        ])
+        # 'silent' predicts nothing (Case B).
+        silent = self._write(tmp_path / "silent.gff3", [])
+        # 'ugly' overlaps the locus with a DIFFERENT intron (1151..1249) → no
+        # shared junction → junction_f1 == 0 (Case C).
+        ugly = self._write(tmp_path / "ugly.gff3", [
+            "chr1\tT\ttranscript\t1000\t1400\t.\t+\t.\tID=ugX",
+            "chr1\tT\texon\t1000\t1150\t.\t+\t.\tID=ugX.e1;Parent=ugX",
+            "chr1\tT\texon\t1250\t1400\t.\t+\t.\tID=ugX.e2;Parent=ugX",
+        ])
+        return gt, silent, ugly
+
+    def test_case_c_scored_against_real_gt_not_dropped(self, tmp_path, simple_label_config):
+        gt, silent, ugly = self._scenario(tmp_path)
+        mappings = map_transcripts(
+            gt_path=gt,
+            pred_paths={"silent": silent, "ugly": ugly},
+            label_config=simple_label_config,
+            locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
+        )
+        # 'silent' → Case B: a clean-miss FN entry, no prediction.
+        silent_entries = [
+            m for m in mappings
+            if "silent" in m.fn_for_predictors or
+            any(pm.predictor_name == "silent" for pm in m.matched_predictions)
+        ]
+        assert len(silent_entries) == 1
+        assert silent_entries[0].fn_for_predictors == ["silent"]
+        assert silent_entries[0].matched_predictions == []
+
+        # 'ugly' → Case C: a real pair against gtB, with junction_f1 == 0.
+        ugly_entries = [
+            m for m in mappings
+            if any(pm.predictor_name == "ugly" for pm in m.matched_predictions)
+        ]
+        assert len(ugly_entries) == 1
+        entry = ugly_entries[0]
+        assert entry.gt_id == "gtB"
+        assert entry.fn_for_predictors == []
+        (pm,) = entry.matched_predictions
+        assert pm.transcript_id == "ugX"
+        assert pm.junction_f1 == 0.0
+        assert pm.match_class == MatchClass.OVERLAPPING
+
+    def test_case_c_pred_array_is_non_null(self, tmp_path, simple_label_config):
+        """The Case-C entry yields a real (non-null) prediction array, so the
+        wrong prediction is actually scored — unlike the clean miss."""
+        gt, silent, ugly = self._scenario(tmp_path)
+        gt_df = collect_gff(gt)
+        pred_dfs = {"silent": collect_gff(silent), "ugly": collect_gff(ugly)}
+        mappings = map_transcripts(
+            gt_path=gt,
+            pred_paths={"silent": silent, "ugly": ugly},
+            label_config=simple_label_config,
+            locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
+        )
+        ugly_entry = next(
+            m for m in mappings
+            if any(pm.predictor_name == "ugly" for pm in m.matched_predictions)
+        )
+        _gt_arr, pred_arrs = build_paired_arrays(
+            mapping=ugly_entry,
+            gt_df=gt_df,
+            pred_dfs=pred_dfs,
+            label_config=simple_label_config,
+        )
+        exon = simple_label_config.exon_label
+        # 'ugly' painted exon bases; 'silent' (null) painted none.
+        assert (pred_arrs["ugly"] == exon).any()
+        assert not (pred_arrs["silent"] == exon).any()
 
 
 # ------------------------------------------------------------------

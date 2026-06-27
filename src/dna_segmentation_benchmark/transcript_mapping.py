@@ -177,17 +177,12 @@ class TranscriptMapping(BaseModel):
     matched_predictions : list[PredictionMatch]
         Per-predictor matches.  Empty when no predictor was matched to
         this GT transcript.
-    gt_locus_ids : list[str]
-        When set, the GT array is painted from the **union** of these
-        transcripts' features instead of ``gt_id`` alone.  Used for the
-        ``BEST_PER_LOCUS`` locus-level FN entry, whose reference footprint is
-        the union of all isoforms in a missed locus.
     fn_for_predictors : list[str]
-        When set, this is a ``BEST_PER_LOCUS`` locus-level FN entry that counts
-        as a miss **only** for the named predictors (those that matched nothing
-        in the locus); other predictors skip it.  This keeps every GT locus
-        counted once per predictor without charging a predictor that matched a
-        different isoform of the same locus.
+        When set, this is a ``BEST_PER_LOCUS`` Case-B (clean miss) entry that
+        counts as a miss **only** for the named predictor(s) — those with no
+        prediction overlapping the locus.  Other predictors skip it, so every GT
+        locus is counted once per predictor without charging a predictor that
+        matched (Case A) or overlapped (Case C) the same locus.
     """
 
     model_config = {"frozen": True}
@@ -199,7 +194,6 @@ class TranscriptMapping(BaseModel):
     gt_end: int
     is_unmatched_prediction: bool = False
     matched_predictions: list[PredictionMatch] = []
-    gt_locus_ids: list[str] = []
     fn_for_predictors: list[str] = []
 
 
@@ -677,25 +671,67 @@ def _map_strand(
                             matched_predictions=matches,
                         )
                     )
-            # One locus-level FN for predictors that matched *nothing* in this
-            # locus, so every GT locus is counted once per predictor.  Predictors
-            # that matched a different isoform here are excluded (isoform
-            # leniency).  The missed reference is the union of the locus isoforms.
-            missing = [n for n in all_pred_names if n not in matched_names]
-            if missing:
-                rep = max(locus, key=lambda t: t.end - t.start).gff_id
-                mappings.append(
-                    TranscriptMapping(
-                        seqid=seqid,
-                        strand=strand,
-                        gt_id=rep,
-                        gt_start=min(t.start for t in locus),
-                        gt_end=max(t.end for t in locus),
-                        matched_predictions=[],
-                        gt_locus_ids=locus_gt_ids,
-                        fn_for_predictors=sorted(missing),
+            # Predictors with no match in this locus get exactly one entry each,
+            # so every locus is counted once per predictor (no double counting):
+            #   Case C — a transcript overlaps the locus but shares no junction:
+            #            score it against the real GT isoform it best overlaps, so
+            #            a confidently-wrong prediction is penalised, not dropped.
+            #   Case B — no overlapping transcript at all: a clean miss against the
+            #            representative (longest) isoform, paired with a null pred.
+            rep = max(locus, key=lambda t: t.end - t.start)
+            for pred_name in all_pred_names:
+                if pred_name in matched_names:
+                    continue
+                overlapping = [
+                    p
+                    for p in _find_preds_overlapping_locus(locus, pred_infos_by_name[pred_name])
+                    if p.gff_id not in matched_pred_ids[pred_name]
+                ]
+                if overlapping:  # Case C — overlap, wrong structure
+                    best = max(
+                        overlapping,
+                        key=lambda p: _base_overlap(rep.start, rep.end, p.start, p.end),
                     )
-                )
+                    gt_target = max(
+                        locus,
+                        key=lambda t: _base_overlap(t.start, t.end, best.start, best.end),
+                    )
+                    # Earliest-locus-wins: a locus-spanning pred is scored only once.
+                    matched_pred_ids[pred_name].add(best.gff_id)
+                    mappings.append(
+                        TranscriptMapping(
+                            seqid=seqid,
+                            strand=strand,
+                            gt_id=gt_target.gff_id,
+                            gt_start=gt_target.start,
+                            gt_end=gt_target.end,
+                            matched_predictions=[
+                                PredictionMatch(
+                                    predictor_name=pred_name,
+                                    transcript_id=best.gff_id,
+                                    start=best.start,
+                                    end=best.end,
+                                    match_class=_classify_pair(gt_target, best),
+                                    base_overlap=_base_overlap(
+                                        gt_target.start, gt_target.end, best.start, best.end
+                                    ),
+                                    junction_f1=0.0,
+                                )
+                            ],
+                        )
+                    )
+                else:  # Case B — clean miss
+                    mappings.append(
+                        TranscriptMapping(
+                            seqid=seqid,
+                            strand=strand,
+                            gt_id=rep.gff_id,
+                            gt_start=rep.start,
+                            gt_end=rep.end,
+                            matched_predictions=[],
+                            fn_for_predictors=[pred_name],
+                        )
+                    )
 
         # FP entries for predictions that overlap no GT locus at all (intergenic
         # false positives).  Overlapping-but-unmatched predictions are left to the
@@ -831,11 +867,11 @@ def map_transcripts(
     """
     if locus_matching_mode == LocusMatchingMode.BEST_PER_LOCUS:
         logger.info(
-            "BEST_PER_LOCUS mode: every GT locus is scored once per predictor — "
-            "matched isoforms as pairs, unmatched loci as locus-level FN entries "
-            "(union of the locus isoforms). Predictions that overlap no GT locus "
-            "become FP entries; overlapping-but-unmatched predictions are left to "
-            "the global precision metric to avoid double-counting shared bases."
+            "BEST_PER_LOCUS mode: every GT locus is scored once per predictor — a "
+            "serious match as a pair (Case A); an overlapping-but-wrong prediction "
+            "scored against the real GT isoform (Case C); an unmatched locus as a "
+            "clean FN against the representative isoform (Case B). Predictions that "
+            "overlap no GT locus become intergenic FP entries."
         )
 
     if label_config is None:
@@ -992,6 +1028,31 @@ def _paint_child_rows(
                     arr[local_start:local_end] = label_value
 
 
+def _include_mapping_for_predictor(
+    mapping: TranscriptMapping,
+    pred_name: str,
+    mode: LocusMatchingMode,
+) -> bool:
+    """Return True if this mapping entry should contribute arrays for *pred_name*.
+
+    Three cases in BEST_PER_LOCUS mode:
+    - ``is_unmatched_prediction``: a real prediction with no GT overlap — include
+      only for the predictor that owns it (FP entry).
+    - ``fn_for_predictors`` non-empty: a locus-level miss entry — include only
+      for predictors listed there (locus FN).
+    - Otherwise: a normal matched entry — skip if the predictor didn't match
+      (its FN is recorded by its own Case B/C entry; don't double-count).
+    """
+    has_match = any(m.predictor_name == pred_name for m in mapping.matched_predictions)
+    if mapping.is_unmatched_prediction:
+        return has_match
+    if mapping.fn_for_predictors:
+        return pred_name in mapping.fn_for_predictors
+    if mode == LocusMatchingMode.BEST_PER_LOCUS and not has_match:
+        return False
+    return True
+
+
 def build_paired_arrays(
     mapping: TranscriptMapping,
     gt_df: pd.DataFrame,
@@ -1108,14 +1169,6 @@ def build_paired_arrays(
     if mapping.is_unmatched_prediction:
         # Unmatched prediction: no GT reference → null GT array.
         gt_array = null_array.copy()
-    elif mapping.gt_locus_ids:
-        # Locus-level FN entry: reference footprint is the union of every isoform
-        # in the missed locus.
-        gt_array = null_array.copy()
-        for tid in mapping.gt_locus_ids:
-            rows = gt_index.get((mapping.seqid, tid))
-            if rows:
-                _paint_child_rows(gt_array, rows, region_start, gt_paint_plan)
     else:
         gt_array = _build_annotation_array_from_df(
             df_index=gt_index,
