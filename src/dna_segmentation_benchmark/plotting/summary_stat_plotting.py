@@ -150,6 +150,8 @@ def compare_multiple_predictions(
             fig_transitions = plot_transition_matrices(transition_matrices, label_config, method_name=method_name)
             if fig_transitions is not None:
                 key = "transition_matrices" if single_method_mode else f"{method_name}_transition_matrices"
+                if output_dir is not None:
+                    _save_figure(fig_transitions, output_dir / f"{key}.png", logger=logger)
                 figures[key] = fig_transitions
             all_false_transition_data[method_name] = false_transitions
 
@@ -189,6 +191,8 @@ def compare_multiple_predictions(
     if EvalMetrics.STATE_TRANSITIONS in metrics_to_eval:
         fig_false = plot_false_transitions(all_false_transition_data, label_config)
         if fig_false is not None:
+            if output_dir is not None:
+                _save_figure(fig_false, output_dir / "false_transitions.png", logger=logger)
             figures["false_transitions"] = fig_false
 
     # ---- Splice-site plots (all methods) --------------------------------

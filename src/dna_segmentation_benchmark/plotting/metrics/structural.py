@@ -304,6 +304,26 @@ def plot_segment_count_delta(
 # ---------------------------------------------------------------------------
 
 
+def _short_method_labels(methods: list[str]) -> dict[str, str]:
+    """Map each method name to a display label with the shared prefix stripped.
+
+    Method names typically share a long ``_``-delimited prefix (e.g. the
+    species). Dropping the longest common prefix keeps in-panel legends and
+    captions readable. Falls back to the full name if stripping would empty it
+    or there is nothing in common.
+    """
+    if len(methods) < 2:
+        return {m: m for m in methods}
+    parts = [m.split("_") for m in methods]
+    common = 0
+    for tokens in zip(*parts):
+        if len(set(tokens)) == 1:
+            common += 1
+        else:
+            break
+    return {m: ("_".join(p[common:]) or m) for m, p in zip(methods, parts)}
+
+
 def plot_boundary_shift_distribution(
     df_sc: pd.DataFrame,
     class_name: str,
@@ -384,6 +404,10 @@ def plot_boundary_shift_distribution(
 
     methods = sorted(df["method"].unique())
     palette = dict(zip(methods, spezi_palette(len(methods))))
+    # Method names often share a long prefix (e.g. the species), which makes the
+    # in-panel captions and legends overflow and collide once the pictogram
+    # panel squeezes the axes. Strip the shared '_'-delimited prefix for display.
+    short = _short_method_labels(methods)
 
     fig, axes = plt.subplots(
         1,
@@ -423,7 +447,7 @@ def plot_boundary_shift_distribution(
         axes[0].text(
             0.98,
             0.02 + idx * 0.06,
-            f"{method}: median {abs_off.median():.0f} bp · {within_2:.0f}% of shifted ≤2 bp",
+            f"{short[method]}: median {abs_off.median():.0f} bp · {within_2:.0f}% of shifted ≤2 bp",
             transform=axes[0].transAxes,
             ha="right",
             va="bottom",
@@ -448,6 +472,13 @@ def plot_boundary_shift_distribution(
         alpha=0.35,
         ax=axes[1],
     )
+    # Signed-offset histogram peaks at the centre and tapers at the edges, so
+    # the upper-left corner is empty — park the (shortened) legend there clear
+    # of the bars and the clipped-fraction note pinned at upper-right.
+    if axes[1].get_legend() is not None:
+        sns.move_legend(axes[1], "upper left", title="Method", fontsize=8)
+        for txt in axes[1].get_legend().get_texts():
+            txt.set_text(short.get(txt.get_text(), txt.get_text()))
     axes[1].axvline(0, color="grey", linestyle="--", linewidth=1)
     axes[1].set_xlim(-window - 0.5, window + 0.5)
     axes[1].set_xlabel("Signed boundary offset (bp, pred − GT, array-3' positive)", labelpad=8)
@@ -484,7 +515,10 @@ def plot_boundary_shift_distribution(
     axes[2].set_xlabel("Boundary type", labelpad=8)
     axes[2].set_ylabel("|boundary offset| (bp, log scale)")
     axes[2].set_title("Internal splice vs terminal (TSS/TES) precision", pad=10)
-    axes[2].legend(title="Method", fontsize=8, loc="upper right")
+    # Drop the boxplot's auto legend: it collides with the eligibility captions
+    # below, which already colour-code each method and carry more information.
+    if axes[2].get_legend() is not None:
+        axes[2].get_legend().remove()
     # Per-method eligibility caption — the share of GT transcripts these boxes
     # are conditioned on. A low fraction (flagged ⚠) means the boxes summarise
     # only a small slice, so precise-looking boxes may not reflect real skill.
@@ -496,7 +530,7 @@ def plot_boundary_shift_distribution(
         axes[2].text(
             0.02,
             0.98 - idx * 0.06,
-            f"{'⚠ ' if low else ''}{method}: eligible {elig['frac']:.0%} "
+            f"{'⚠ ' if low else ''}{short[method]}: eligible {elig['frac']:.0%} "
             f"({elig['n_correct']}/{elig['n_total']} tx)",
             transform=axes[2].transAxes,
             ha="left",
