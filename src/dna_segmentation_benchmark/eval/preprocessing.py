@@ -98,10 +98,7 @@ def _infer_introns_from_coding_gaps(
             stacklevel=2,
         )
 
-    exonic_mask = resolve_scope_mask(labels, BenchmarkScope.TRANSCRIPT_EXON, label_config)
     intron = label_config.intron_label
-    background = label_config.background_label
-
     if intron is None:
         warnings.warn(
             "infer_introns=True requires intron_label to be set; leaving labels unchanged.",
@@ -109,27 +106,37 @@ def _infer_introns_from_coding_gaps(
         )
         return labels.copy()
 
-    inferred = labels.copy()
-    coding_groups = get_contiguous_groups(np.where(exonic_mask)[0])
-    large_gap_cutoff = None
+    background = label_config.background_label
+    exon_indices = np.where(resolve_scope_mask(labels, BenchmarkScope.TRANSCRIPT_EXON, label_config))[0]
+    if exon_indices.size < 2:
+        return labels.copy()
+
+    # Only need group boundaries, not full index arrays.
+    breaks = np.flatnonzero(np.diff(exon_indices) != 1)
+    gap_starts = exon_indices[breaks] + 1       # first bg position after each group
+    gap_ends = exon_indices[breaks + 1]         # first exon position of next group (exclusive)
+    gap_lengths = gap_ends - gap_starts
+
+    positive = gap_lengths > 0
+    gap_starts, gap_ends = gap_starts[positive], gap_ends[positive]
+
     if is_large_input:
-        gap_lengths = [
-            int(right[0]) - int(left[-1]) - 1
-            for left, right in zip(coding_groups, coding_groups[1:])
-            if int(right[0]) > int(left[-1]) + 1
-        ]
-        large_gap_cutoff = _large_array_inferable_gap_cutoff(gap_lengths)
+        cutoff = _large_array_inferable_gap_cutoff((gap_ends - gap_starts).tolist())
+        if cutoff is not None:
+            keep = (gap_ends - gap_starts) <= cutoff
+            gap_starts, gap_ends = gap_starts[keep], gap_ends[keep]
 
-    for left, right in zip(coding_groups, coding_groups[1:]):
-        gap_start = int(left[-1]) + 1
-        gap_end = int(right[0])
-        if gap_start >= gap_end:
-            continue
-        if large_gap_cutoff is not None and (gap_end - gap_start) > large_gap_cutoff:
-            continue
-        gap = inferred[gap_start:gap_end]
-        gap[gap == background] = intron
+    if gap_starts.size == 0:
+        return labels.copy()
 
+    # Vectorized fill: mark every gap position, then relabel background in one shot.
+    delta = np.zeros(len(labels) + 1, dtype=np.int8)
+    delta[gap_starts] += 1
+    delta[gap_ends] -= 1
+    fill_mask = np.cumsum(delta[:-1]).astype(bool)
+
+    inferred = labels.copy()
+    inferred[fill_mask & (labels == background)] = intron
     return inferred
 
 
