@@ -68,11 +68,6 @@ _SECTION_DEPENDENT_GROUPS = frozenset(
 )
 
 
-def _needs_section_analysis(metrics: Iterable[EvalMetrics]) -> bool:
-    """Return ``True`` if any requested metric needs section-overlap data."""
-    return bool(_SECTION_DEPENDENT_GROUPS & set(metrics))
-
-
 def _validate_metric_config(metrics: Iterable[EvalMetrics], label_config: LabelConfig) -> None:
     """Reject metric/config combinations that are invalid before any work begins.
 
@@ -243,7 +238,16 @@ def _benchmark_chunk(
     # Transition diagnostics are opt-in via EvalMetrics.STATE_TRANSITIONS (kept in
     # the default metric set so plots still render unless explicitly excluded).
     if EvalMetrics.STATE_TRANSITIONS in metrics:
-        metric_results.update(_eval_transitions(arr, label_config))
+        transition_analysis = compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
+        metric_results.update({
+            "transition_failures": transition_analysis.gt_transition_matrices,
+            "false_transitions": {
+                "late_catchup": transition_analysis.late_catchup_matrices,
+                "premature": transition_analysis.premature_matrices,
+                "spurious": transition_analysis.spurious_matrices,
+                "stable_position_counts": transition_analysis.stable_position_counts,
+            },
+        })
 
     scope = label_config.evaluation_scope
     gt_mask = resolve_scope_mask(gt_labels, scope, label_config)
@@ -270,7 +274,7 @@ def _benchmark_chunk(
         if EvalMetrics.INDEL in metrics:
             metric_results[EvalMetrics.INDEL.name] = _indel_result
 
-    if _needs_section_analysis(metrics):
+    if _SECTION_DEPENDENT_GROUPS & metrics:
         section_data, boundary_data = eval_sections(
             grouped_gt_sections,
             grouped_pred_sections,
@@ -307,20 +311,6 @@ def _benchmark_chunk(
         )
 
     return metric_results
-
-
-def _eval_transitions(arr: np.ndarray, label_config: LabelConfig) -> dict:
-    """Return the state-transition diagnostic fragments (opt-in via metrics)."""
-    transition_analysis = compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
-    return {
-        "transition_failures": transition_analysis.gt_transition_matrices,
-        "false_transitions": {
-            "late_catchup": transition_analysis.late_catchup_matrices,
-            "premature": transition_analysis.premature_matrices,
-            "spurious": transition_analysis.spurious_matrices,
-            "stable_position_counts": transition_analysis.stable_position_counts,
-        },
-    }
 
 
 
@@ -405,6 +395,74 @@ def _compute_nucleotide_level_confusion(
 # ---------------------------------------------------------------------------
 
 
+def _warn_phase_drift(metrics: list | frozenset) -> None:
+    if EvalMetrics.PHASE_DRIFT in metrics:
+        warnings.warn(
+            "The PHASE_DRIFT metric should only be used when you are certain "
+            "that the transcript contains all annotated exons.  Otherwise "
+            "the results will be misleading.",
+            stacklevel=3,
+        )
+
+
+class StreamingBenchmark:
+    """Incrementally aggregate per-sequence benchmarks without materialising them.
+
+    Wraps a single :class:`BenchmarkAccumulator`.  Feed paired GT/pred arrays one
+    at a time with :meth:`add` — each array is reduced to a per-sequence fragment,
+    accumulated, and may then be discarded by the caller — and call :meth:`result`
+    once to obtain the aggregated summary.  This lets callers build label arrays
+    lazily (one transcript pair at a time) instead of holding every array in
+    memory at once.
+
+    :func:`benchmark_gt_vs_pred_multiple` (aggregate mode) is implemented on top
+    of this class, so streaming and list-based aggregation return identical
+    numbers for the same sequence of pairs.
+    """
+
+    def __init__(
+        self,
+        label_config: LabelConfig,
+        metrics: list[EvalMetrics] | None = None,
+        infer_introns: bool = False,
+    ) -> None:
+        metrics = list(metrics) if metrics is not None else list(_DEFAULT_METRICS)
+        _validate_metric_config(metrics, label_config)
+        _warn_phase_drift(metrics)
+        self._label_config = label_config
+        self._metrics = frozenset(metrics)
+        self._infer_introns = infer_introns
+        self._accumulator = BenchmarkAccumulator()
+        self._count = 0
+
+    @property
+    def count(self) -> int:
+        """Number of sequences added so far."""
+        return self._count
+
+    def add(
+        self,
+        gt_labels: np.ndarray,
+        pred_labels: np.ndarray,
+        mask_labels: np.ndarray | None = None,
+    ) -> None:
+        """Accumulate one GT/pred pair (same per-sequence path as the list API)."""
+        for fragment in _iter_sequence_fragments(
+            gt_labels,
+            pred_labels,
+            self._label_config,
+            self._metrics,
+            mask_labels,
+            self._infer_introns,
+        ):
+            self._accumulator.add(fragment)
+        self._count += 1
+
+    def result(self) -> dict:
+        """Return the aggregated, metadata-annotated summary of all added pairs."""
+        return _attach_metadata(self._accumulator.summarise(), self._label_config)
+
+
 def benchmark_gt_vs_pred_multiple(
     gt_labels: list[np.ndarray],
     pred_labels: list[np.ndarray],
@@ -444,17 +502,10 @@ def benchmark_gt_vs_pred_multiple(
         raise ValueError(f"Mask list length ({len(mask_labels)}) must match GT list length ({len(gt_labels)}).")
 
     metrics = list(metrics) if metrics is not None else list(_DEFAULT_METRICS)
-    _validate_metric_config(metrics, label_config)
-
-    if EvalMetrics.PHASE_DRIFT in metrics:
-        warnings.warn(
-            "The PHASE_DRIFT metric should only be used when you are certain "
-            "that the transcript contains all annotated exons.  Otherwise "
-            "the results will be misleading.",
-            stacklevel=2,
-        )
 
     if return_individual_results:
+        _validate_metric_config(metrics, label_config)
+        _warn_phase_drift(metrics)
         return [
             benchmark_gt_vs_pred_single(
                 gt_labels=gt_labels[i],
@@ -467,20 +518,18 @@ def benchmark_gt_vs_pred_multiple(
             for i in tqdm(range(len(gt_labels)), desc="Running benchmark")
         ]
 
-    metrics_set = frozenset(metrics)
-    accumulator = BenchmarkAccumulator()
+    # Aggregate path: stream each pair through a single accumulator.  Identical
+    # to the list-based loop it replaces — the validation and PHASE_DRIFT warning
+    # are emitted by StreamingBenchmark.
+    bench = StreamingBenchmark(label_config, metrics, infer_introns=infer_introns)
     for i in tqdm(range(len(gt_labels)), desc="Running benchmark"):
-        for fragment in _iter_sequence_fragments(
+        bench.add(
             gt_labels[i],
             pred_labels[i],
-            label_config,
-            metrics_set,
             mask_labels[i] if mask_labels is not None else None,
-            infer_introns,
-        ):
-            accumulator.add(fragment)
+        )
 
-    return _attach_metadata(accumulator.summarise(), label_config)
+    return bench.result()
 
 
 def _attach_metadata(result: dict, label_config: LabelConfig) -> dict:

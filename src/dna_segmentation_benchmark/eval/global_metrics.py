@@ -49,6 +49,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
+from .utils import _sweep_cluster
 from ..feature_roles import FeatureRoleMap, feature_types_for_scope, normalize_feature_role_map
 from ..label_definition import BenchmarkScope
 from ..label_definition import LabelConfig
@@ -652,7 +653,7 @@ def _compute_locus_isoform_metrics(
     missed_per_locus: list[int] = []
 
     for spans in groups.values():
-        for locus_ids in _cluster_into_loci(spans):
+        for locus_ids in ([tid for _, _, tid in g] for g in _sweep_cluster(spans, key=lambda x: (x[0], x[1]))):
             unique_ids = set(locus_ids)
             n_total = len(unique_ids)
             n_matched = sum(1 for gid in unique_ids if gid in matched_gt_ids)
@@ -691,7 +692,7 @@ def _count_matched_loci(
         spans_with_ids = _get_transcript_spans_with_ids(sub_df, transcript_types)
         if not spans_with_ids:
             continue
-        for locus_ids in _cluster_into_loci(spans_with_ids):
+        for locus_ids in ([tid for _, _, tid in g] for g in _sweep_cluster(spans_with_ids, key=lambda x: (x[0], x[1]))):
             locus_count += 1
             if any(tid in matched_ids for tid in locus_ids):
                 locus_matched += 1
@@ -709,13 +710,7 @@ def _get_transcript_spans(
     transcript_types: list[str],
 ) -> list[tuple[int, int]]:
     """Return ``(start, end)`` for all transcripts in a (seqid, strand) slice."""
-    mask = (
-        sub_df["type"].isin(transcript_types)
-        & sub_df["start"].notna()
-        & sub_df["end"].notna()
-    )
-    rows = sub_df[mask]
-    return list(zip(rows["start"].astype(int), rows["end"].astype(int)))
+    return [(s, e) for s, e, _ in _get_transcript_spans_with_ids(sub_df, transcript_types)]
 
 
 def _get_transcript_spans_with_ids(
@@ -764,32 +759,6 @@ def _merge_intervals(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
 
     return merged
 
-
-def _cluster_into_loci(
-    spans_with_ids: list[tuple[int, int, str]],
-) -> list[list[str]]:
-    """Group transcript ``(start, end, id)`` triples into overlapping loci.
-
-    Uses the same O(n log n) coordinate sweep as ``_build_loci`` in
-    ``transcript_mapping``.  Returns a list of loci, each being a list of
-    transcript IDs that mutually overlap.
-    """
-    sorted_spans = sorted(spans_with_ids, key=lambda x: (x[0], x[1]))
-    loci: list[list[str]] = []
-    current_ids: list[str] = [sorted_spans[0][2]]
-    current_end: int = sorted_spans[0][1]
-
-    for start, end, tid in sorted_spans[1:]:
-        if start <= current_end:
-            current_ids.append(tid)
-            current_end = max(current_end, end)
-        else:
-            loci.append(current_ids)
-            current_ids = [tid]
-            current_end = end
-
-    loci.append(current_ids)
-    return loci
 
 
 def _collect_scoped_transcript_intervals(

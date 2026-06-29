@@ -70,7 +70,7 @@ class TransitionsAccumulator:
         for label, count in false_transitions["stable_position_counts"].items():
             self.stable[label] = self.stable.get(label, 0) + count
 
-    def _to_dict(self) -> dict:
+    def merged(self) -> dict:
         if not self._seen:
             return {}
         return {
@@ -83,11 +83,8 @@ class TransitionsAccumulator:
             },
         }
 
-    def merged(self) -> dict:
-        return self._to_dict()
-
     def summarise(self) -> dict:
-        return self._to_dict()
+        return self.merged()
 
 
 @dataclass
@@ -125,7 +122,7 @@ class IndelAccumulator:
         self.n_gt_segments += int(payload.get("n_gt_segments", 0))
         self.n_pred_segments += int(payload.get("n_pred_segments", 0))
 
-    def _to_dict(self) -> dict:
+    def merged(self) -> dict:
         if not self._seen:
             return {}
         return {
@@ -140,11 +137,8 @@ class IndelAccumulator:
             }
         }
 
-    def merged(self) -> dict:
-        return self._to_dict()
-
     def summarise(self) -> dict:
-        return self._to_dict()
+        return self.merged()
 
 
 @dataclass
@@ -285,11 +279,20 @@ class NucleotideAccumulator:
 
 @dataclass
 class PhaseDriftAccumulator:
-    """Concatenates coding-phase drift values across sequences."""
+    """Bins coding-phase drift values into a 3-element count across sequences.
+
+    Per-sequence fragments carry the raw per-position ``gt_frames`` array (one
+    value per co-CDS base, ``inf`` elsewhere).  Concatenating those across a
+    whole genome would hold tens of millions of values for a metric that is only
+    ever consumed as the fraction of in-phase / +1 / +2 positions, so each
+    fragment is reduced to a length-3 ``bincount`` on arrival and only the
+    running totals are kept.  The aggregated output exposes
+    ``gt_frame_counts: [n_in_phase, n_offset_1, n_offset_2]``.
+    """
 
     KEY: ClassVar[str] = "PHASE_DRIFT"
 
-    frames: list = field(default_factory=list)
+    frame_counts: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.int64))
     boundary_indel_total: int = 0
     boundary_indel_in_frame: int = 0
     n_skipped_non_divisible: int = 0
@@ -302,7 +305,11 @@ class PhaseDriftAccumulator:
         if not isinstance(payload, dict):
             return
         self._seen = True
-        self.frames.extend(list(payload.get("gt_frames", payload.get("frames", []))))
+        # Mirror the consumer's reduction (finite-filter, bincount over 0/1/2).
+        frames = np.asarray(payload.get("gt_frames", payload.get("frames", [])), dtype=float)
+        frames = frames[np.isfinite(frames)].astype(int)
+        if frames.size:
+            self.frame_counts = self.frame_counts + np.bincount(frames, minlength=3)[:3]
         if "boundary_indel_total" in payload and "boundary_indel_in_frame" in payload:
             self._has_indel_counts = True
             self.boundary_indel_total += payload["boundary_indel_total"]
@@ -310,11 +317,11 @@ class PhaseDriftAccumulator:
         self.n_skipped_non_divisible += payload.get("n_skipped_non_divisible", 0)
         self.n_skipped_short += payload.get("n_skipped_short", 0)
 
-    def _to_dict(self) -> dict:
+    def merged(self) -> dict:
         if not self._seen:
             return {}
         result: dict = {
-            "gt_frames": list(self.frames),
+            "gt_frame_counts": self.frame_counts.tolist(),
             "n_skipped_non_divisible": self.n_skipped_non_divisible,
             "n_skipped_short": self.n_skipped_short,
         }
@@ -323,11 +330,8 @@ class PhaseDriftAccumulator:
             result["boundary_indel_in_frame"] = self.boundary_indel_in_frame
         return {self.KEY: result}
 
-    def merged(self) -> dict:
-        return self._to_dict()
-
     def summarise(self) -> dict:
-        return self._to_dict()
+        return self.merged()
 
 
 @dataclass

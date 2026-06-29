@@ -1,6 +1,7 @@
 import logging
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
@@ -8,6 +9,24 @@ from ..config import PlotMetadata
 from ..utils import _add_pictogram_panel
 
 logger = logging.getLogger(__name__)
+
+
+def _landscape_frames(landscape: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Rebuild the bias/reliability DataFrames from the serialisable dict."""
+    max_range = landscape["max_range"]
+    bias_ticks = np.arange(-max_range, max_range + 1)
+    tolerance_ticks = np.arange(max_range + 1)
+    bias_matrix = pd.DataFrame(
+        np.asarray(landscape["bias_matrix"], dtype=float),
+        index=pd.Index(bias_ticks, name="5' Residual (Pred − GT)"),
+        columns=pd.Index(bias_ticks, name="3' Residual (Pred − GT)"),
+    )
+    reliability_matrix = pd.DataFrame(
+        np.asarray(landscape["reliability_matrix"], dtype=float),
+        index=pd.Index(tolerance_ticks, name="5' Tolerance (bp)"),
+        columns=pd.Index(tolerance_ticks, name="3' Tolerance (bp)"),
+    )
+    return bias_matrix, reliability_matrix
 
 
 def plot_boundary_precision_landscapes(
@@ -24,17 +43,18 @@ def plot_boundary_precision_landscapes(
     1. **Bias Matrix** — 2-D histogram of signed boundary residuals.
     2. **Reliability Matrix** — cumulative recall surface.
 
-    Both matrices are stored as ``pd.DataFrame`` objects whose index
-    represents the **5' dimension** (rows) and whose columns represent
-    the **3' dimension**.  The y-axis is inverted so that the lowest
-    value sits at the bottom (standard mathematical orientation).
+    Each landscape arrives as a JSON-serialisable dict
+    (``{max_range, bias_matrix, reliability_matrix}``) and is rebuilt into two
+    ``pd.DataFrame`` objects whose index represents the **5' dimension** (rows)
+    and whose columns represent the **3' dimension**.  The y-axis is inverted so
+    that the lowest value sits at the bottom (standard mathematical orientation).
     """
     figures: list[plt.Figure] = []
 
     for method in df_fuzzy_boundaries["method_name"].unique().tolist():
-        bias_matrix, reliability_matrix = df_fuzzy_boundaries[df_fuzzy_boundaries["method_name"] == method][
-            "value"
-        ].iloc[0]
+        landscape = df_fuzzy_boundaries[df_fuzzy_boundaries["method_name"] == method]["value"].iloc[0]
+        max_range = landscape["max_range"]
+        bias_matrix, reliability_matrix = _landscape_frames(landscape)
 
         fig, axes = plt.subplots(1, 2, figsize=(20, 7))
 

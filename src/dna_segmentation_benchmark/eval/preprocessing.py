@@ -131,21 +131,13 @@ def _infer_introns_from_coding_gaps(
     return inferred
 
 
-def resolve_scope_token_set(
-    scope: BenchmarkScope | str,
-    label_config: LabelConfig,
-) -> frozenset[int]:
-    """Return the positive-token set represented by *scope*."""
-    return label_config.scope_tokens(scope)
-
-
 def resolve_scope_mask(
     labels: np.ndarray,
     scope: BenchmarkScope | str,
     label_config: LabelConfig,
 ) -> np.ndarray:
     """Return a boolean mask for all positions belonging to *scope*."""
-    return np.isin(labels, tuple(resolve_scope_token_set(scope, label_config)))
+    return np.isin(labels, tuple(label_config.scope_tokens(scope)))
 
 
 def resolve_scope_sections(

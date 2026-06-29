@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pandas as pd
 
 from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
 from dna_segmentation_benchmark.plotting.summary_stat_plotting import compare_multiple_predictions
@@ -51,17 +50,12 @@ class _FakeWandb:
 
 
 def _boundary_landscape_fixture():
-    bias = pd.DataFrame(
-        np.array([[0.0, 1.0, 0.0], [2.0, 3.0, 1.0], [0.0, 1.0, 0.0]]),
-        index=pd.Index([-1, 0, 1], name="5' Residual (Pred − GT)"),
-        columns=pd.Index([-1, 0, 1], name="3' Residual (Pred − GT)"),
-    )
-    reliability = pd.DataFrame(
-        np.array([[0.25, 0.50], [0.75, 1.00]]),
-        index=pd.Index([0, 1], name="5' Tolerance (bp)"),
-        columns=pd.Index([0, 1], name="3' Tolerance (bp)"),
-    )
-    return bias, reliability
+    # JSON-serialisable landscape dict (max_range=1: 3x3 bias, 2x2 reliability).
+    return {
+        "max_range": 1,
+        "bias_matrix": [[0.0, 1.0, 0.0], [2.0, 3.0, 1.0], [0.0, 1.0, 0.0]],
+        "reliability_matrix": [[0.25, 0.50], [0.75, 1.00]],
+    }
 
 
 def _false_transition_fixture():

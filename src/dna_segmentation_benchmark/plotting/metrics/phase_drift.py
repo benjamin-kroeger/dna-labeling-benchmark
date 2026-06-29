@@ -29,22 +29,15 @@ def plot_phase_drift_percentage_bar(
         logger.info("No coding-phase drift data for class %s.", class_name)
         return None
 
-    only_frames = df_phase_drift_metrics[df_phase_drift_metrics["metric_key"] == "gt_frames"]
+    only_frames = df_phase_drift_metrics[df_phase_drift_metrics["metric_key"] == "gt_frame_counts"]
     if only_frames.empty:
         return None
 
     def _frame_pcts(series: pd.Series) -> pd.DataFrame:
-        frame_list = series.iloc[0] if not series.empty else []
-        if not isinstance(frame_list, list) or not frame_list:
-            return pd.DataFrame(
-                {
-                    "Phase Offset": ["In-phase (0)", "Offset +1", "Offset +2"],
-                    "Percentage": [0.0, 0.0, 0.0],
-                }
-            )
-        flat = np.asarray(frame_list, dtype=float)
-        flat = flat[np.isfinite(flat)].astype(int)
-        counts = np.bincount(flat, minlength=3)[:3] if flat.size else np.zeros(3, dtype=int)
+        count_list = series.iloc[0] if not series.empty else []
+        counts = np.asarray(count_list, dtype=float) if isinstance(count_list, list) else np.zeros(3)
+        if counts.size < 3:
+            counts = np.zeros(3)
         total = counts.sum()
         pcts = (counts / total * 100) if total > 0 else np.zeros(3)
         return pd.DataFrame(

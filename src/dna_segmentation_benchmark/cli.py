@@ -36,14 +36,11 @@ from pathlib import Path
 import click
 import numpy as np
 
-from .eval.evaluate_predictors import (
-    EvalMetrics,
-    benchmark_gt_vs_pred_multiple,
-)
+from .eval.evaluate_predictors import EvalMetrics
 from .eval.global_metrics import compute_global_metrics
 from .feature_roles import normalize_feature_role_map, normalize_pred_feature_role_maps
 from .label_definition import LabelConfig
-from .pipeline import _collect_paired_arrays
+from .pipeline import _stream_benchmark_over_mappings
 from .transcript_mapping import LocusMatchingMode
 
 
@@ -586,7 +583,7 @@ def run(
         default=resolved_gt_map,
         label_config=label_config,
     )
-    gt_by_pred, pred_by_pred = _collect_paired_arrays(
+    results_by_pred = _stream_benchmark_over_mappings(
         mappings,
         gt_df,
         pred_dfs,
@@ -596,19 +593,19 @@ def run(
         resolved_gt_map,
         resolved_pred_maps,
         mode,
+        metrics,
+        infer_introns=infer_introns,
+        return_individual_results=individual,
     )
 
     all_results: dict[str, dict] = {}
-
+    eval_classes = list(label_config.evaluation_labels.keys())
     for pred_name in pred_paths:
-        gt_labels = gt_by_pred[pred_name]
-        pred_labels = pred_by_pred[pred_name]
-
-        if not gt_labels:
+        aggregated = results_by_pred.get(pred_name)
+        if aggregated is None:
             click.echo(f"  Warning: No mapped transcripts for predictor '{pred_name}', skipping.")
             continue
 
-        eval_classes = list(label_config.evaluation_labels.keys())
         if use_role_maps:
             gt_feature_desc = gt_role_map if gt_role_map is not None else "mode default"
             pred_feature_desc = _pred_role_map_for(pred_role_maps, pred_name)
@@ -618,21 +615,11 @@ def run(
             pred_feature_desc = pred_exon_types_by_name[pred_name]
         click.echo(
             f"  Benchmarking '{pred_name}': "
-            f"{len(gt_labels)} transcript(s) | "
             f"mode={label_config.annotation_mode.value} | "
             f"classes={[label_config.name_of(c) for c in eval_classes]} | "
             f"metrics={[m.name for m in metrics]} | "
             f"gt_features={gt_feature_desc} | "
             f"pred_features={pred_feature_desc}"
-        )
-
-        aggregated = benchmark_gt_vs_pred_multiple(
-            gt_labels=gt_labels,
-            pred_labels=pred_labels,
-            label_config=label_config,
-            metrics=metrics,
-            return_individual_results=individual,
-            infer_introns=infer_introns,
         )
 
         # Individual mode returns a list, not a dict — skip global aggregation.

@@ -50,6 +50,7 @@ from pydantic import BaseModel
 from scipy.optimize import linear_sum_assignment
 from tqdm import tqdm
 
+from .eval.utils import _sweep_cluster
 from .feature_roles import (
     FeatureRoleMap,
     PredFeatureRoleMapInput,
@@ -321,30 +322,8 @@ def _build_transcript_infos(
 def _build_loci(
     transcripts: list[_TranscriptInfo],
 ) -> list[list[_TranscriptInfo]]:
-    """Cluster transcripts into loci by coordinate overlap.
-
-    A locus is a maximal set of transcripts connected via pairwise
-    coordinate overlap.  Implemented as an O(n log n) interval sweep.
-    """
-    if not transcripts:
-        return []
-
-    sorted_ts = sorted(transcripts, key=lambda t: (t.start, t.end))
-    loci: list[list[_TranscriptInfo]] = []
-    current_locus = [sorted_ts[0]]
-    current_end = sorted_ts[0].end
-
-    for t in sorted_ts[1:]:
-        if t.start <= current_end:
-            current_locus.append(t)
-            current_end = max(current_end, t.end)
-        else:
-            loci.append(current_locus)
-            current_locus = [t]
-            current_end = t.end
-
-    loci.append(current_locus)
-    return loci
+    """Cluster transcripts into loci by coordinate overlap."""
+    return _sweep_cluster(transcripts, key=lambda t: (t.start, t.end))
 
 
 def _find_preds_overlapping_locus(
@@ -1162,8 +1141,10 @@ def build_paired_arrays(
     array_length = region_end - region_start + 1
     bg_val = label_config.background_label
 
-    # Null array shared across predictors with no match.
-    null_array = np.full(array_length, bg_val, dtype=np.int32)
+    # Null array shared across predictors with no match.  uint8 (labels are small
+    # non-negative tokens) keeps these per-transcript arrays — the pipeline's
+    # dominant memory cost — 4x smaller than int32.
+    null_array = np.full(array_length, bg_val, dtype=np.uint8)
 
     # --- GT array ---
     if mapping.is_unmatched_prediction:
@@ -1237,7 +1218,7 @@ def _build_annotation_array_from_df(
         Ordered paint passes from :func:`_compile_paint_plan`.
     """
     bg_val = label_config.background_label
-    arr = np.full(array_length, bg_val, dtype=np.int32)
+    arr = np.full(array_length, bg_val, dtype=np.uint8)  # small label tokens; see build_paired_arrays
 
     rows = df_index.get((seqid, transcript_id))
     if rows:

@@ -8,6 +8,7 @@ import pytest
 from dna_segmentation_benchmark.eval.evaluate_predictors import (
     benchmark_gt_vs_pred_single,
     benchmark_gt_vs_pred_multiple,
+    StreamingBenchmark,
     EvalMetrics,
 )
 from dna_segmentation_benchmark.eval.accumulators import BenchmarkAccumulator
@@ -454,11 +455,14 @@ _COUNT_KEYS = {"tp", "fp", "fn", "tn"}
 def _is_landscape_artifact(value) -> bool:
     """True for aggregate-only derived payloads that can't be hand-authored.
 
-    The aggregated boundary ``fuzzy_metrics`` is a ``(DataFrame, ...)`` tuple
-    (the precision landscape).  Such DataFrame-bearing values are checked
-    structurally (present, non-None) rather than value-by-value, while the
-    single-sequence ``fuzzy_metrics`` dict stays strictly compared.
+    The aggregated boundary ``fuzzy_metrics`` is the precision-landscape dict
+    (``{max_range, bias_matrix, reliability_matrix}``).  Such derived values are
+    checked structurally (present, non-None) rather than value-by-value, while
+    the single-sequence ``fuzzy_metrics`` dict (raw ``boundary_offsets``) stays
+    strictly compared.
     """
+    if isinstance(value, dict) and "bias_matrix" in value and "reliability_matrix" in value:
+        return True
     if isinstance(value, pd.DataFrame):
         return True
     if isinstance(value, (tuple, list)):
@@ -512,7 +516,7 @@ def _assert_metric_value_equal(expected, computed, key_name: str):
     if isinstance(expected, dict):
         assert isinstance(computed, dict), f"Expected dict for {key_name}, got {type(computed)}"
         # *_stderr (random bootstrap), *_macro (additive equal-weight siblings)
-        # and DataFrame-bearing landscape artifacts are soft: not required in
+        # and the derived landscape artifact are soft: not required in
         # fixtures, only sanity-checked.
         def _soft(key, container):
             return (
@@ -627,3 +631,79 @@ def test_boundary_offsets_are_matched_pairs_not_overlapping_pairs():
     n_matched = result["REGION_DISCOVERY"]["neighborhood_hit"].tp
     assert n_matched == 1
     assert len(offsets) == n_matched == len(ious)
+
+
+# ---------------------------------------------------------------------------
+# Streaming aggregation parity (OOM fix): feeding arrays one at a time must
+# reproduce the list-based / materialized results exactly.
+# ---------------------------------------------------------------------------
+
+_STREAMING_METRICS = [
+    EvalMetrics.REGION_DISCOVERY,
+    EvalMetrics.BOUNDARY_EXACTNESS,
+    EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
+    EvalMetrics.STRUCTURAL_COHERENCE,
+    EvalMetrics.DIAGNOSTIC_DEPTH,
+]
+
+
+def test_streaming_benchmark_matches_multiple_list_api():
+    """StreamingBenchmark.add(...).result() == benchmark_gt_vs_pred_multiple(lists)."""
+    gt_arrays = [
+        np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
+        np.array([8, 0, 0, 2, 2, 0, 0, 2, 2, 8]),
+        np.array([0, 0, 2, 2, 2, 0, 0, 0, 2, 2]),
+    ]
+    pred_arrays = [
+        np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
+        np.array([8, 0, 0, 2, 2, 2, 2, 0, 0, 8]),
+        np.array([0, 0, 2, 2, 0, 0, 0, 2, 2, 2]),
+    ]
+
+    reference = benchmark_gt_vs_pred_multiple(
+        gt_labels=gt_arrays,
+        pred_labels=pred_arrays,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=_STREAMING_METRICS,
+    )
+
+    bench = StreamingBenchmark(BEND_LABEL_CONFIG, _STREAMING_METRICS)
+    for gt, pred in zip(gt_arrays, pred_arrays):
+        bench.add(gt, pred)
+    streamed = bench.result()
+
+    assert bench.count == len(gt_arrays)
+    _assert_metric_value_equal(reference, streamed, "streaming_benchmark")
+
+
+def test_streaming_benchmark_matches_multiple_list_api_with_masks():
+    """The masked per-span path is also identical under streaming."""
+    gt_arrays = [
+        np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
+        np.array([8, 0, 0, 2, 2, 0, 0, 2, 2, 8]),
+    ]
+    pred_arrays = [
+        np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
+        np.array([8, 0, 0, 2, 2, 2, 2, 0, 0, 8]),
+    ]
+    masks = [
+        np.array([False, False, False, False, False, False, False, True, True, True]),
+        np.array([True, False, False, False, False, False, False, False, False, True]),
+    ]
+
+    reference = benchmark_gt_vs_pred_multiple(
+        gt_labels=gt_arrays,
+        pred_labels=pred_arrays,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=_STREAMING_METRICS,
+        mask_labels=masks,
+    )
+
+    bench = StreamingBenchmark(BEND_LABEL_CONFIG, _STREAMING_METRICS)
+    for gt, pred, mask in zip(gt_arrays, pred_arrays, masks):
+        bench.add(gt, pred, mask)
+    streamed = bench.result()
+
+    _assert_metric_value_equal(reference, streamed, "streaming_benchmark_masked")
+
+

@@ -1,8 +1,14 @@
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from bokeh.models import ColumnDataSource, HoverTool, Range1d  # Import Text for alternative Y-axis labels
-from bokeh.plotting import figure, show, output_file
+try:
+    from bokeh.models import ColumnDataSource, HoverTool, Range1d
+    from bokeh.plotting import figure, show, output_file
+except ImportError as e:
+    raise ImportError(
+        "bokeh is required for interactive plots. Install it with: "
+        "pip install 'dna-segmentation-benchmark[interactive]'"
+    ) from e
 from matplotlib import pyplot as plt
 
 TYPE_COLORS = {0: "lightgreen", 2: "lightblue", 8: "black"}

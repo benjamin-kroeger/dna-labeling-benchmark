@@ -9,9 +9,14 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import numpy as np
+from tqdm import tqdm
 
-from .eval.evaluate_predictors import EvalMetrics, benchmark_gt_vs_pred_multiple
+from .eval.evaluate_predictors import (
+    EvalMetrics,
+    StreamingBenchmark,
+    _warn_phase_drift,
+    benchmark_gt_vs_pred_single,
+)
 from .eval.global_metrics import compute_global_metrics
 from .feature_roles import (
     FeatureRoleMap,
@@ -33,7 +38,7 @@ from .transcript_mapping import (
 logger = logging.getLogger(__name__)
 
 
-def _collect_paired_arrays(
+def _stream_benchmark_over_mappings(
     mappings: list,
     gt_df,
     pred_dfs: dict,
@@ -43,22 +48,44 @@ def _collect_paired_arrays(
     resolved_gt_map: FeatureRoleMap,
     resolved_pred_maps: dict[str, FeatureRoleMap],
     mode: LocusMatchingMode,
-) -> tuple[dict[str, list[np.ndarray]], dict[str, list[np.ndarray]]]:
-    """Build the per-predictor (gt_array, pred_array) lists for every mapping.
+    metrics: list[EvalMetrics],
+    *,
+    infer_introns: bool = False,
+    return_individual_results: bool = False,
+) -> dict[str, dict | list]:
+    """Benchmark every predictor in a single streaming pass over the mappings.
 
     Shared by :func:`benchmark_from_gff` and the ``dna-benchmark run`` CLI so the
-    two entry points cannot drift.  Pre-normalized role maps and the per-DataFrame
-    indices are computed once and reused for every mapping (the fast path), and
+    two entry points cannot drift.  Replaces the previous build-all-arrays-then-
+    benchmark flow: :func:`build_paired_arrays` is called **once per mapping** and
+    the resulting per-predictor arrays are fed straight into per-predictor
+    consumers, so only one mapping's arrays are alive at a time (the fix for OOM
+    on large GFF files).  Pre-normalized role maps and the per-DataFrame indices
+    are computed once and reused for every mapping (the fast path), and
     :func:`_include_mapping_for_predictor` selects which predictors consume each
     mapping.
+
+    Returns ``{predictor_name: result}`` for every predictor that received at
+    least one mapping.  In aggregate mode (default) each value is the summary
+    returned by :func:`benchmark_gt_vs_pred_multiple`; in individual mode each
+    value is the per-sequence list.  Predictors with no mappings are omitted so
+    callers can warn and skip them.
     """
     gt_index = _build_df_index(gt_df, transcript_types)
     pred_indices = {name: _build_df_index(df, transcript_types) for name, df in pred_dfs.items()}
 
-    gt_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_names}
-    pred_by_pred: dict[str, list[np.ndarray]] = {name: [] for name in pred_names}
+    benches: dict[str, StreamingBenchmark] = {}
+    collected: dict[str, list] = {}
+    if return_individual_results:
+        _warn_phase_drift(metrics)
+        collected = {name: [] for name in pred_names}
+    else:
+        benches = {
+            name: StreamingBenchmark(label_config, metrics, infer_introns=infer_introns)
+            for name in pred_names
+        }
 
-    for mapping in mappings:
+    for mapping in tqdm(mappings, desc="Benchmarking", unit="mapping"):
         gt_arr, pred_arrays = build_paired_arrays(
             mapping=mapping,
             gt_df=gt_df,
@@ -73,10 +100,23 @@ def _collect_paired_arrays(
         for pred_name in pred_names:
             if not _include_mapping_for_predictor(mapping, pred_name, mode):
                 continue
-            gt_by_pred[pred_name].append(gt_arr)
-            pred_by_pred[pred_name].append(pred_arrays[pred_name])
+            if return_individual_results:
+                collected[pred_name].append(
+                    benchmark_gt_vs_pred_single(
+                        gt_labels=gt_arr,
+                        pred_labels=pred_arrays[pred_name],
+                        label_config=label_config,
+                        metrics=metrics,
+                        infer_introns=infer_introns,
+                    )
+                )
+            else:
+                benches[pred_name].add(gt_arr, pred_arrays[pred_name])
+        # gt_arr / pred_arrays fall out of scope on the next iteration and are freed.
 
-    return gt_by_pred, pred_by_pred
+    if return_individual_results:
+        return {name: res for name, res in collected.items() if res}
+    return {name: bench.result() for name, bench in benches.items() if bench.count}
 
 
 def benchmark_from_gff(
@@ -174,10 +214,12 @@ def benchmark_from_gff(
         (It also accepts the full ``{"aggregated": ..., "global": ...}``
         wrapper per method and unwraps it automatically.)
     """
+    logger.info("Starting Benchmark from GFF/GTF: GT=%s, predictors=%s", gt_path, list(pred_paths))
     exclude_features = exclude_features or []
     transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
     if metrics is None:
         metrics = list(_DEFAULT_METRICS)
+    logger.debug(f"Running with metrics: {metrics}")
 
     if (
         gt_feature_role_map is None
@@ -192,6 +234,7 @@ def benchmark_from_gff(
     # 1. Parse files
     gt_df = collect_gff(str(gt_path), exclude_features=exclude_features)
     pred_dfs = {name: collect_gff(str(p), exclude_features=exclude_features) for name, p in pred_paths.items()}
+    logger.debug("Finished Pyranges reading of gff")
 
     # 2. Map transcripts (reuse the DataFrames parsed in step 1)
     mappings = map_transcripts(
@@ -206,6 +249,7 @@ def benchmark_from_gff(
         pred_feature_role_maps=pred_feature_role_maps,
         locus_matching_mode=locus_matching_mode,
     )
+    logger.debug("Finished ground truth to prediction transcript mappings")
 
     if not mappings:
         raise ValueError(
@@ -227,7 +271,7 @@ def benchmark_from_gff(
         default=resolved_gt_map,
         label_config=label_config,
     )
-    gt_by_pred, pred_by_pred = _collect_paired_arrays(
+    aggregated_by_pred = _stream_benchmark_over_mappings(
         mappings,
         gt_df,
         pred_dfs,
@@ -237,26 +281,18 @@ def benchmark_from_gff(
         resolved_gt_map,
         resolved_pred_maps,
         locus_matching_mode,
+        metrics,
+        infer_introns=infer_introns,
     )
 
-    # 4. Benchmark each predictor
+    # 4. Attach global metrics for each predictor that had mapped transcripts.
     all_results: dict[str, dict] = {}
 
     for pred_name in pred_paths:
-        gt_labels = gt_by_pred[pred_name]
-        pred_labels = pred_by_pred[pred_name]
-
-        if not gt_labels:
+        aggregated = aggregated_by_pred.get(pred_name)
+        if aggregated is None:
             logger.warning("No mapped transcripts for '%s', skipping.", pred_name)
             continue
-
-        aggregated = benchmark_gt_vs_pred_multiple(
-            gt_labels=gt_labels,
-            pred_labels=pred_labels,
-            label_config=label_config,
-            metrics=metrics,
-            infer_introns=infer_introns,
-        )
 
         logger.info("Finished per-transcript benchmarking for '%s', now computing global metrics...", pred_name)
 

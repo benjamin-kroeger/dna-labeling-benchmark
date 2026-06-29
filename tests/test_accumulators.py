@@ -134,17 +134,21 @@ def test_boundary_accumulator_merged_keeps_raw_summarise_adds_stats():
     summarised = acc.summarise()["BOUNDARY_EXACTNESS"]
     assert summarised["iou_scores"] == [0.5, 0.8]  # raw scores kept alongside stats
     assert "iou_stats" in summarised
-    # fuzzy_metrics is replaced by the computed landscape (no longer raw residuals).
-    assert not isinstance(summarised["fuzzy_metrics"], dict)
+    # fuzzy_metrics is replaced by the computed landscape dict (no longer raw
+    # residuals) — a JSON-serialisable {max_range, bias_matrix, reliability_matrix}.
+    landscape = summarised["fuzzy_metrics"]
+    assert set(landscape) == {"max_range", "bias_matrix", "reliability_matrix"}
+    assert "boundary_offsets" not in landscape
 
 
 def test_benchmark_accumulator_routes_and_ignores_absent_keys():
     acc = BenchmarkAccumulator()
     acc.add({"PHASE_DRIFT": {"gt_frames": [0.0, 1.0], "n_skipped_non_divisible": 0, "n_skipped_short": 1}})
     acc.add({"PHASE_DRIFT": {"gt_frames": [2.0], "n_skipped_non_divisible": 1, "n_skipped_short": 0}})
+    # Per-position frames are binned to a [in-phase, +1, +2] count on the way in.
     assert acc.summarise() == {
         "PHASE_DRIFT": {
-            "gt_frames": [0.0, 1.0, 2.0],
+            "gt_frame_counts": [1, 1, 1],
             "n_skipped_non_divisible": 1,
             "n_skipped_short": 1,
         }
