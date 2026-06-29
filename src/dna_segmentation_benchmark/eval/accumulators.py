@@ -80,6 +80,17 @@ class TransitionsAccumulator:
 
     summarise = merged
 
+    def merge_from_merged(self, data: dict) -> None:
+        if "transition_failures" not in data:
+            return
+        _add_matrix_dict(self.failures, data["transition_failures"])
+        ft = data.get("false_transitions", {})
+        _add_matrix_dict(self.late, ft.get("late_catchup", {}))
+        _add_matrix_dict(self.premature, ft.get("premature", {}))
+        _add_matrix_dict(self.spurious, ft.get("spurious", {}))
+        for k, v in ft.get("stable_position_counts", {}).items():
+            self.stable[k] = self.stable.get(k, 0) + v
+
 
 @dataclass
 class IndelAccumulator:
@@ -131,6 +142,18 @@ class IndelAccumulator:
 
     summarise = merged
 
+    def merge_from_merged(self, data: dict) -> None:
+        payload = data.get(self.KEY)
+        if not payload:
+            return
+        for boundary, bucket_map in payload.get("by_boundary", {}).items():
+            for bucket, lengths in bucket_map.items():
+                self.by_boundary[boundary][bucket].extend(lengths)
+        for k, v in payload.get("junction_opportunities", {}).items():
+            self.junction_opportunities[k] += v
+        self.n_gt_segments += payload.get("n_gt_segments", 0)
+        self.n_pred_segments += payload.get("n_pred_segments", 0)
+
 
 @dataclass
 class RegionDiscoveryAccumulator:
@@ -177,6 +200,13 @@ class RegionDiscoveryAccumulator:
                 for level in self.LEVELS
             }
         }
+
+    def merge_from_merged(self, data: dict) -> None:
+        payload = data.get(self.KEY)
+        if not payload:
+            return
+        for level in self.LEVELS:
+            self.levels[level].extend(payload.get(level, []))
 
 
 @dataclass
@@ -233,6 +263,17 @@ class BoundaryExactnessAccumulator:
             }
         }
 
+    def merge_from_merged(self, data: dict) -> None:
+        payload = data.get(self.KEY)
+        if not payload:
+            return
+        self.first.extend(payload.get("first_sec_correct_3_prime_boundary", []))
+        self.last.extend(payload.get("last_sec_correct_5_prime_boundary", []))
+        self.iou.extend(payload.get("iou_scores", []))
+        fm = payload.get("fuzzy_metrics", {})
+        self.residuals.extend(fm.get("boundary_offsets", []))
+        self.total_gt += fm.get("total_gt", 0)
+
 
 @dataclass
 class NucleotideAccumulator:
@@ -260,6 +301,12 @@ class NucleotideAccumulator:
         # more bases), so the micro score is dominated by long transcripts —
         # macro (per-transcript, equal weight) is reported alongside.
         return {self.KEY: {"nucleotide": summarise_counts(self.counts, include_macro=True).to_dict()}}
+
+    def merge_from_merged(self, data: dict) -> None:
+        payload = data.get(self.KEY)
+        if not payload:
+            return
+        self.counts.extend(payload.get("nucleotide", []))
 
 
 @dataclass
@@ -316,6 +363,19 @@ class PhaseDriftAccumulator:
         return {self.KEY: result}
 
     summarise = merged
+
+    def merge_from_merged(self, data: dict) -> None:
+        payload = data.get(self.KEY)
+        if not payload:
+            return
+        self._seen = True
+        self.frame_counts = self.frame_counts + np.array(payload["gt_frame_counts"], dtype=np.int64)
+        self.n_skipped_non_divisible += payload.get("n_skipped_non_divisible", 0)
+        self.n_skipped_short += payload.get("n_skipped_short", 0)
+        if "boundary_indel_total" in payload:
+            self._has_indel_counts = True
+            self.boundary_indel_total += payload["boundary_indel_total"]
+            self.boundary_indel_in_frame += payload["boundary_indel_in_frame"]
 
 
 @dataclass
@@ -464,6 +524,28 @@ class StructuralAccumulator:
             group[self.SPLICE_KEY] = self._splice_summary()
         return {self.KEY: group} if group else {}
 
+    def merge_from_merged(self, data: dict) -> None:
+        payload = data.get(self.KEY)
+        if not payload:
+            return
+        for key in self.EXON_CHAIN_KEYS:
+            self.exon_chains[key].extend(payload.get(key, []))
+        for key in self.INTRON_CHAIN_KEYS:
+            self.intron_chains[key].extend(payload.get(key, []))
+        self.exon_recall.extend(payload.get("exon_recall_per_transcript", []))
+        self.exon_precision.extend(payload.get("exon_precision_per_transcript", []))
+        self.false_exon_count.extend(payload.get("false_exon_count_per_transcript", []))
+        self.segment_count_delta.extend(payload.get("segment_count_delta", []))
+        self.transcript_match_class.extend(payload.get("transcript_match_class", []))
+        self.boundary_shift_count.extend(payload.get("boundary_shift_count", []))
+        self.boundary_shift_total.extend(payload.get("boundary_shift_total", []))
+        self.boundary_shift_offsets.extend(payload.get("boundary_shift_offsets", []))
+        ss = payload.get(self.SPLICE_KEY)
+        if ss is not None:
+            self._splice_seen = True
+            for key in self.SPLICE_FIELDS:
+                self.splice_sums[key] = self.splice_sums.get(key, 0) + ss.get(key, 0)
+
 
 @dataclass
 class DiagnosticDepthAccumulator:
@@ -512,6 +594,21 @@ class DiagnosticDepthAccumulator:
             }
         }
 
+    def merge_from_merged(self, data: dict) -> None:
+        payload = data.get(self.KEY)
+        if not payload:
+            return
+        self.gt_lengths.extend(payload.get("gt_segment_lengths", []))
+        self.pred_lengths.extend(payload.get("pred_segment_lengths", []))
+        self.length_emd.extend(payload.get("length_emd", []))
+        fn = payload.get("position_bias_histogram_fn")
+        fp = payload.get("position_bias_histogram_fp")
+        if fn is not None:
+            fn_arr = np.array(fn, dtype=np.int64)
+            fp_arr = np.array(fp, dtype=np.int64)
+            self.hist_fn = fn_arr if self.hist_fn is None else self.hist_fn + fn_arr
+            self.hist_fp = fp_arr if self.hist_fp is None else self.hist_fp + fp_arr
+
 
 class BenchmarkAccumulator:
     """Routes each per-sequence fragment to every metric accumulator."""
@@ -543,3 +640,7 @@ class BenchmarkAccumulator:
         for accumulator in self._accumulators:
             out.update(accumulator.summarise())
         return out
+
+    def merge_from_merged(self, merged_data: dict) -> None:
+        for accumulator in self._accumulators:
+            accumulator.merge_from_merged(merged_data)

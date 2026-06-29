@@ -7,6 +7,9 @@ so that common workflows can be expressed in a few lines.
 from __future__ import annotations
 
 import logging
+import multiprocessing
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from tqdm import tqdm
@@ -36,6 +39,35 @@ from .transcript_mapping import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ponytail: module-level state inherited by forked workers; not thread-safe, fine for single-call use
+_BENCH_STATE: dict = {}
+
+
+def _bench_worker_chunk(mappings_chunk: list) -> dict:
+    """Worker: process a chunk of mappings and return {pred_name: (merged_data, count)}."""
+    s = _BENCH_STATE
+    benches = {
+        name: StreamingBenchmark(s["label_config"], s["metrics"], infer_introns=s["infer_introns"])
+        for name in s["pred_names"]
+    }
+    for mapping in mappings_chunk:
+        gt_arr, pred_arrays = build_paired_arrays(
+            mapping=mapping,
+            gt_df=s["gt_df"],
+            pred_dfs=s["pred_dfs"],
+            label_config=s["label_config"],
+            transcript_types=s["transcript_types"],
+            _gt_index=s["gt_index"],
+            _pred_indices=s["pred_indices"],
+            _gt_role_map=s["resolved_gt_map"],
+            _pred_role_maps=s["resolved_pred_maps"],
+        )
+        for pred_name in s["pred_names"]:
+            if not _include_mapping_for_predictor(mapping, pred_name, s["mode"]):
+                continue
+            benches[pred_name].add(gt_arr, pred_arrays[pred_name])
+    return {name: (benches[name]._accumulator.merged(), benches[name].count) for name in s["pred_names"]}
 
 
 def _stream_benchmark_over_mappings(
@@ -85,38 +117,65 @@ def _stream_benchmark_over_mappings(
             for name in pred_names
         }
 
-    for mapping in tqdm(mappings, desc="Benchmarking", unit="mapping"):
-        gt_arr, pred_arrays = build_paired_arrays(
-            mapping=mapping,
-            gt_df=gt_df,
-            pred_dfs=pred_dfs,
-            label_config=label_config,
-            transcript_types=transcript_types,
-            _gt_index=gt_index,
-            _pred_indices=pred_indices,
-            _gt_role_map=resolved_gt_map,
-            _pred_role_maps=resolved_pred_maps,
-        )
-        for pred_name in pred_names:
-            if not _include_mapping_for_predictor(mapping, pred_name, mode):
-                continue
-            if return_individual_results:
-                collected[pred_name].append(
-                    benchmark_gt_vs_pred_single(
-                        gt_labels=gt_arr,
-                        pred_labels=pred_arrays[pred_name],
-                        label_config=label_config,
-                        metrics=metrics,
-                        infer_introns=infer_introns,
+    n_workers = max(1, (os.cpu_count() or 1) - 1)
+    use_parallel = not return_individual_results and n_workers > 1 and len(mappings) >= 500
+
+    if use_parallel:
+        global _BENCH_STATE
+        _BENCH_STATE = {
+            "gt_df": gt_df, "pred_dfs": pred_dfs, "label_config": label_config,
+            "transcript_types": transcript_types, "gt_index": gt_index, "pred_indices": pred_indices,
+            "resolved_gt_map": resolved_gt_map, "resolved_pred_maps": resolved_pred_maps,
+            "mode": mode, "metrics": list(metrics), "infer_introns": infer_introns,
+            "pred_names": pred_names,
+        }
+        chunk_size = max(1, len(mappings) // (n_workers * 50))
+        chunks = [mappings[i:i + chunk_size] for i in range(0, len(mappings), chunk_size)]
+        ctx = multiprocessing.get_context("fork")  # ponytail: Linux fork; for macOS use spawn + initializer
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
+            futures = {pool.submit(_bench_worker_chunk, chunk): len(chunk) for chunk in chunks}
+            with tqdm(total=len(mappings), desc="Benchmarking", unit="mapping") as pbar:
+                for future in as_completed(futures):
+                    for pred_name, (merged_data, count) in future.result().items():
+                        benches[pred_name].merge_from_merged(merged_data, count)
+                    pbar.update(futures[future])
+    else:
+        for mapping in tqdm(mappings, desc="Benchmarking", unit="mapping"):
+            gt_arr, pred_arrays = build_paired_arrays(
+                mapping=mapping,
+                gt_df=gt_df,
+                pred_dfs=pred_dfs,
+                label_config=label_config,
+                transcript_types=transcript_types,
+                _gt_index=gt_index,
+                _pred_indices=pred_indices,
+                _gt_role_map=resolved_gt_map,
+                _pred_role_maps=resolved_pred_maps,
+            )
+            for pred_name in pred_names:
+                if not _include_mapping_for_predictor(mapping, pred_name, mode):
+                    continue
+                if return_individual_results:
+                    collected[pred_name].append(
+                        benchmark_gt_vs_pred_single(
+                            gt_labels=gt_arr,
+                            pred_labels=pred_arrays[pred_name],
+                            label_config=label_config,
+                            metrics=metrics,
+                            infer_introns=infer_introns,
+                        )
                     )
-                )
-            else:
-                benches[pred_name].add(gt_arr, pred_arrays[pred_name])
-        # gt_arr / pred_arrays fall out of scope on the next iteration and are freed.
+                else:
+                    benches[pred_name].add(gt_arr, pred_arrays[pred_name])
+            # gt_arr / pred_arrays fall out of scope on the next iteration and are freed.
 
     if return_individual_results:
         return {name: res for name, res in collected.items() if res}
-    return {name: bench.result() for name, bench in benches.items() if bench.count}
+    results = {}
+    for name, bench in tqdm(benches.items(), desc="Summarising", unit="predictor"):
+        if bench.count:
+            results[name] = bench.result()
+    return results
 
 
 def benchmark_from_gff(
@@ -287,13 +346,11 @@ def benchmark_from_gff(
     # 4. Attach global metrics for each predictor that had mapped transcripts.
     all_results: dict[str, dict] = {}
 
-    for pred_name in pred_paths:
+    for pred_name in tqdm(list(pred_paths), desc="Global metrics", unit="predictor"):
         aggregated = aggregated_by_pred.get(pred_name)
         if aggregated is None:
             logger.warning("No mapped transcripts for '%s', skipping.", pred_name)
             continue
-
-        logger.info("Finished per-transcript benchmarking for '%s', now computing global metrics...", pred_name)
 
         global_result = compute_global_metrics(
             gt_df=gt_df,

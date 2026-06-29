@@ -464,6 +464,10 @@ class StreamingBenchmark:
         """Return the aggregated, metadata-annotated summary of all added pairs."""
         return _attach_metadata(self._accumulator.summarise(), self._label_config)
 
+    def merge_from_merged(self, merged_data: dict, count: int) -> None:
+        self._accumulator.merge_from_merged(merged_data)
+        self._count += count
+
 
 def benchmark_gt_vs_pred_multiple(
     gt_labels: list[np.ndarray],

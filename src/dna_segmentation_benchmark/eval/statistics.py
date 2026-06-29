@@ -14,6 +14,22 @@ import dataclasses
 
 import numpy as np
 
+# ponytail: cap resample size — (n_bootstrap, n) at n>100K allocates gigabytes.
+# m-out-of-n bootstrap: SE_n = SE_m * sqrt(m/n), so the estimate stays correct.
+_BOOT_CAP = 20_000
+
+
+def _cap_boot(rng: np.random.Generator, n: int, n_bootstrap: int, *arrays):
+    """Subsample arrays to _BOOT_CAP; return (arrays, scale, idx)."""
+    n_eff = min(n, _BOOT_CAP)
+    scale = 1.0
+    if n_eff < n:
+        sub = rng.choice(n, n_eff, replace=False)
+        arrays = tuple(a[sub] if a is not None else None for a in arrays)
+        scale = float(np.sqrt(n_eff / n))
+    idx = rng.integers(0, n_eff, size=(n_bootstrap, n_eff))
+    return arrays, scale, idx
+
 
 def _compute_summary_statistics(
     tp: list, fn: list = None, fp: list = None, tn: list = None, n_bootstrap: int = 1000
@@ -48,23 +64,24 @@ def _compute_summary_statistics(
 
     if n >= 2:
         rng = np.random.default_rng(42)
-        idx = rng.integers(0, n, size=(n_bootstrap, n))
-        boot_tp = tp_arr[idx].sum(axis=1)
+
+        (tp_b, fp_b, fn_b), scale, idx = _cap_boot(rng, n, n_bootstrap, tp_arr, fp_arr, fn_arr)
+        boot_tp = tp_b[idx].sum(axis=1)
 
         boot_prec = None
         boot_rec = None
 
         if fp_arr is not None:
-            boot_fp = fp_arr[idx].sum(axis=1)
+            boot_fp = fp_b[idx].sum(axis=1)
             denom = boot_tp + boot_fp
             boot_prec = np.where(denom > 0, boot_tp / np.where(denom > 0, denom, 1.0), precision or 0.0)
-            precision_stderr = float(np.std(boot_prec))
+            precision_stderr = float(np.std(boot_prec)) * scale
 
         if fn_arr is not None:
-            boot_fn = fn_arr[idx].sum(axis=1)
+            boot_fn = fn_b[idx].sum(axis=1)
             denom = boot_tp + boot_fn
             boot_rec = np.where(denom > 0, boot_tp / np.where(denom > 0, denom, 1.0), recall or 0.0)
-            recall_stderr = float(np.std(boot_rec))
+            recall_stderr = float(np.std(boot_rec)) * scale
 
         if boot_prec is not None and boot_rec is not None:
             denom_f1 = boot_prec + boot_rec
@@ -73,7 +90,7 @@ def _compute_summary_statistics(
                 2 * boot_prec * boot_rec / np.where(denom_f1 > 0, denom_f1, 1.0),
                 0.0,
             )
-            f1_stderr = float(np.std(boot_f1))
+            f1_stderr = float(np.std(boot_f1)) * scale
 
     result = {
         "precision": precision,
@@ -143,11 +160,11 @@ def _compute_macro_statistics(counts: list, n_bootstrap: int = 1000) -> dict:
 
     if n >= 2:
         rng = np.random.default_rng(42)
-        idx = rng.integers(0, n, size=(n_bootstrap, n))
-        boot_p, boot_r, boot_f = _macro_means(tp[idx], fp[idx], fn[idx])
-        result["precision_macro_stderr"] = float(np.nanstd(boot_p))
-        result["recall_macro_stderr"] = float(np.nanstd(boot_r))
-        result["f1_macro_stderr"] = float(np.nanstd(boot_f))
+        (tp_b, fp_b, fn_b), scale, idx = _cap_boot(rng, n, n_bootstrap, tp, fp, fn)
+        boot_p, boot_r, boot_f = _macro_means(tp_b[idx], fp_b[idx], fn_b[idx])
+        result["precision_macro_stderr"] = float(np.nanstd(boot_p)) * scale
+        result["recall_macro_stderr"] = float(np.nanstd(boot_r)) * scale
+        result["f1_macro_stderr"] = float(np.nanstd(boot_f)) * scale
 
     return result
 
@@ -168,11 +185,11 @@ def _bootstrap_ratio_stderr(numerator: list, denominator: list, n_bootstrap: int
     if n < 2 or den.sum() == 0:
         return None
     rng = np.random.default_rng(42)
-    idx = rng.integers(0, n, size=(n_bootstrap, n))
-    boot_num = num[idx].sum(axis=1)
-    boot_den = den[idx].sum(axis=1)
+    (num_b, den_b), scale, idx = _cap_boot(rng, n, n_bootstrap, num, den)
+    boot_num = num_b[idx].sum(axis=1)
+    boot_den = den_b[idx].sum(axis=1)
     ratios = np.where(boot_den > 0, boot_num / np.where(boot_den > 0, boot_den, 1.0), 0.0)
-    return float(np.std(ratios))
+    return float(np.std(ratios)) * scale
 
 
 def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
