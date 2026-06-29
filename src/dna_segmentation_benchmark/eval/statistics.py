@@ -100,18 +100,25 @@ def _macro_means(tp: np.ndarray, fp: np.ndarray, fn: np.ndarray) -> tuple:
     Accepts arrays of any leading shape (1-D for a point estimate, ``(B, n)``
     for a bootstrap batch) and reduces over the last axis.
     """
+    p_den = tp + fp
+    r_den = tp + fn
+    f_den = 2.0 * tp + fp + fn
 
-    def _masked_mean(num: np.ndarray, den: np.ndarray) -> np.ndarray:
-        ratio = np.divide(num, den, out=np.zeros_like(num, dtype=float), where=den > 0)
-        mask = den > 0
-        kept = mask.sum(axis=-1)
-        total = (ratio * mask).sum(axis=-1)
-        return np.divide(total, kept, out=np.full(np.shape(kept), np.nan, dtype=float), where=kept > 0)
+    # For count data: tp=0 whenever p_den=0, so ratio = 0/1 = 0 for invalid
+    # sequences — they contribute 0 to the sum without explicit NaN masking.
+    p_s = (tp / np.maximum(p_den, 1)).sum(axis=-1)
+    r_s = (tp / np.maximum(r_den, 1)).sum(axis=-1)
+    f_s = (2.0 * tp / np.maximum(f_den, 1)).sum(axis=-1)
 
+    p_n = (p_den > 0).sum(axis=-1)
+    r_n = (r_den > 0).sum(axis=-1)
+    f_n = (f_den > 0).sum(axis=-1)
+
+    nan = np.nan
     return (
-        _masked_mean(tp, tp + fp),
-        _masked_mean(tp, tp + fn),
-        _masked_mean(2.0 * tp, 2.0 * tp + fp + fn),
+        np.where(p_n > 0, p_s / np.maximum(p_n, 1), nan),
+        np.where(r_n > 0, r_s / np.maximum(r_n, 1), nan),
+        np.where(f_n > 0, f_s / np.maximum(f_n, 1), nan),
     )
 
 

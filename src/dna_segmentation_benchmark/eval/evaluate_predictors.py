@@ -45,7 +45,7 @@ from .preprocessing import (
     _infer_introns_from_coding_gaps,
     _iter_unmasked_spans,
     resolve_scope_mask,
-    resolve_scope_sections,
+
 )
 from .section_metrics import eval_sections
 from .state_transitions import compute_state_change_errors
@@ -231,13 +231,11 @@ def _benchmark_chunk(
     ``metrics`` must already be normalised to a frozenset; intron inference
     and mask splitting are handled by :func:`benchmark_gt_vs_pred_single`.
     """
-    # Row 0 = GT, Row 1 = prediction  (NO sentinel padding here)
-    arr = np.stack((gt_labels, pred_labels), axis=0)
-
     metric_results: dict[str, dict] = {}
     # Transition diagnostics are opt-in via EvalMetrics.STATE_TRANSITIONS (kept in
     # the default metric set so plots still render unless explicitly excluded).
     if EvalMetrics.STATE_TRANSITIONS in metrics:
+        arr = np.stack((gt_labels, pred_labels), axis=0)
         transition_analysis = compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
         metric_results.update({
             "transition_failures": transition_analysis.gt_transition_matrices,
@@ -254,8 +252,10 @@ def _benchmark_chunk(
     pred_mask = resolve_scope_mask(pred_labels, scope, label_config)
     grouped_insertions = get_contiguous_groups(np.where(~gt_mask & pred_mask)[0])
     grouped_deletions = get_contiguous_groups(np.where(gt_mask & ~pred_mask)[0])
-    grouped_gt_sections = resolve_scope_sections(gt_labels, scope, label_config)
-    grouped_pred_sections = resolve_scope_sections(pred_labels, scope, label_config)
+    # Reuse already-computed masks instead of calling resolve_scope_sections (which would
+    # recompute them).
+    grouped_gt_sections = get_contiguous_groups(np.where(gt_mask)[0])
+    grouped_pred_sections = get_contiguous_groups(np.where(pred_mask)[0])
 
 
     _indel_result: dict | None = None
@@ -382,12 +382,14 @@ def _compute_nucleotide_level_confusion(
     gt_positive_mask: np.ndarray, pred_positive_mask: np.ndarray
 ) -> Counts:
     """Calculate granular base accuracy as a confusion bundle."""
-    return Counts(
-        tn=int(np.count_nonzero(~gt_positive_mask & ~pred_positive_mask)),
-        fp=int(np.count_nonzero(~gt_positive_mask & pred_positive_mask)),
-        fn=int(np.count_nonzero(gt_positive_mask & ~pred_positive_mask)),
-        tp=int(np.count_nonzero(gt_positive_mask & pred_positive_mask)),
-    )
+    # One AND + three sums instead of four distinct boolean array allocations.
+    tp = int((gt_positive_mask & pred_positive_mask).sum())
+    gt_n = int(gt_positive_mask.sum())
+    pred_n = int(pred_positive_mask.sum())
+    fn = gt_n - tp
+    fp = pred_n - tp
+    tn = len(gt_positive_mask) - gt_n - fp
+    return Counts(tn=tn, fp=fp, fn=fn, tp=tp)
 
 
 # ---------------------------------------------------------------------------

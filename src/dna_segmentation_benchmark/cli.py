@@ -587,7 +587,6 @@ def run(
         mappings,
         gt_df,
         pred_dfs,
-        list(pred_paths),
         label_config,
         tt_list,
         resolved_gt_map,

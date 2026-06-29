@@ -42,7 +42,6 @@ def _stream_benchmark_over_mappings(
     mappings: list,
     gt_df,
     pred_dfs: dict,
-    pred_names: list[str],
     label_config: LabelConfig,
     transcript_types: list[str],
     resolved_gt_map: FeatureRoleMap,
@@ -71,6 +70,7 @@ def _stream_benchmark_over_mappings(
     value is the per-sequence list.  Predictors with no mappings are omitted so
     callers can warn and skip them.
     """
+    pred_names = list(pred_dfs)
     gt_index = _build_df_index(gt_df, transcript_types)
     pred_indices = {name: _build_df_index(df, transcript_types) for name, df in pred_dfs.items()}
 
@@ -275,7 +275,6 @@ def benchmark_from_gff(
         mappings,
         gt_df,
         pred_dfs,
-        list(pred_paths),
         label_config,
         transcript_types,
         resolved_gt_map,

@@ -7,7 +7,6 @@ because they already operate on the full label vocabulary.
 
 from __future__ import annotations
 
-import dataclasses
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import ClassVar
@@ -31,8 +30,6 @@ def _coerce_counts(value) -> Counts:
     """Normalise count bundles to :class:`Counts`."""
     if isinstance(value, Counts):
         return value
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        value = dataclasses.asdict(value)
     if isinstance(value, dict):
         return Counts(
             tp=int(value.get("tp", 0)),
@@ -56,12 +53,10 @@ class TransitionsAccumulator:
     premature: dict = field(default_factory=dict)
     spurious: dict = field(default_factory=dict)
     stable: dict = field(default_factory=dict)
-    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         if "transition_failures" not in fragment:
             return
-        self._seen = True
         _add_matrix_dict(self.failures, fragment["transition_failures"])
         false_transitions = fragment["false_transitions"]
         _add_matrix_dict(self.late, false_transitions["late_catchup"])
@@ -71,7 +66,7 @@ class TransitionsAccumulator:
             self.stable[label] = self.stable.get(label, 0) + count
 
     def merged(self) -> dict:
-        if not self._seen:
+        if not self.failures:
             return {}
         return {
             "transition_failures": self.failures,
@@ -83,8 +78,7 @@ class TransitionsAccumulator:
             },
         }
 
-    def summarise(self) -> dict:
-        return self.merged()
+    summarise = merged
 
 
 @dataclass
@@ -107,13 +101,11 @@ class IndelAccumulator:
     junction_opportunities: dict = field(default_factory=lambda: defaultdict(int))
     n_gt_segments: int = 0
     n_pred_segments: int = 0
-    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
         if not isinstance(payload, dict):
             return
-        self._seen = True
         for boundary, bucket_map in payload.get("by_boundary", {}).items():
             for bucket, lengths in bucket_map.items():
                 self.by_boundary[boundary][bucket].extend(lengths)
@@ -123,7 +115,7 @@ class IndelAccumulator:
         self.n_pred_segments += int(payload.get("n_pred_segments", 0))
 
     def merged(self) -> dict:
-        if not self._seen:
+        if not self.by_boundary:
             return {}
         return {
             self.KEY: {
@@ -137,8 +129,7 @@ class IndelAccumulator:
             }
         }
 
-    def summarise(self) -> dict:
-        return self.merged()
+    summarise = merged
 
 
 @dataclass
@@ -161,25 +152,23 @@ class RegionDiscoveryAccumulator:
     )
 
     levels: dict = field(default_factory=lambda: defaultdict(list))
-    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
         if not isinstance(payload, dict):
             return
-        self._seen = True
         for level in self.LEVELS:
             self.levels[level].append(_coerce_counts(payload[level]))
 
     def merged(self) -> dict:
-        if not self._seen:
+        if not self.levels:
             return {}
         return {
             self.KEY: {level: list(self.levels[level]) for level in self.LEVELS}
         }
 
     def summarise(self) -> dict:
-        if not self._seen:
+        if not self.levels:
             return {}
         return {
             self.KEY: {
@@ -201,13 +190,11 @@ class BoundaryExactnessAccumulator:
     iou: list = field(default_factory=list)
     residuals: list = field(default_factory=list)
     total_gt: int = 0
-    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
         if not isinstance(payload, dict):
             return
-        self._seen = True
         fuzzy_metrics = payload.get("fuzzy_metrics") or {}
         self.first.append(payload.get("first_sec_correct_3_prime_boundary", 0))
         self.last.append(payload.get("last_sec_correct_5_prime_boundary", 0))
@@ -216,7 +203,7 @@ class BoundaryExactnessAccumulator:
         self.total_gt += fuzzy_metrics.get("total_gt", 0)
 
     def merged(self) -> dict:
-        if not self._seen:
+        if not self.first:
             return {}
         return {
             self.KEY: {
@@ -231,7 +218,7 @@ class BoundaryExactnessAccumulator:
         }
 
     def summarise(self) -> dict:
-        if not self._seen:
+        if not self.first:
             return {}
         return {
             self.KEY: {
@@ -254,22 +241,20 @@ class NucleotideAccumulator:
     KEY: ClassVar[str] = "NUCLEOTIDE_CLASSIFICATION"
 
     counts: list = field(default_factory=list)
-    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
         if not isinstance(payload, dict):
             return
-        self._seen = True
         self.counts.append(_coerce_counts(payload["nucleotide"]))
 
     def merged(self) -> dict:
-        if not self._seen:
+        if not self.counts:
             return {}
         return {self.KEY: {"nucleotide": list(self.counts)}}
 
     def summarise(self) -> dict:
-        if not self._seen:
+        if not self.counts:
             return {}
         # Base-level units per transcript vary widely (long transcripts have
         # more bases), so the micro score is dominated by long transcripts —
@@ -330,8 +315,7 @@ class PhaseDriftAccumulator:
             result["boundary_indel_in_frame"] = self.boundary_indel_in_frame
         return {self.KEY: result}
 
-    def summarise(self) -> dict:
-        return self.merged()
+    summarise = merged
 
 
 @dataclass
@@ -376,13 +360,11 @@ class StructuralAccumulator:
     boundary_shift_total: list = field(default_factory=list)
     boundary_shift_offsets: list = field(default_factory=list)
     splice_sums: dict = field(default_factory=dict)
-    _seen: bool = False
     _splice_seen: bool = False
 
     def add(self, fragment: dict) -> None:
         if self.KEY not in fragment:
             return
-        self._seen = True
         group = fragment[self.KEY]
         for key in self.EXON_CHAIN_KEYS:
             if key in group:
@@ -443,7 +425,7 @@ class StructuralAccumulator:
         return ss
 
     def merged(self) -> dict:
-        if not self._seen:
+        if not self.exon_chains and not self.splice_sums:
             return {}
         group: dict = {
             key: list(counts)
@@ -459,7 +441,7 @@ class StructuralAccumulator:
         return {self.KEY: group} if group else {}
 
     def summarise(self) -> dict:
-        if not self._seen:
+        if not self.exon_chains and not self.splice_sums:
             return {}
         group: dict = {
             key: summarise_counts(counts).to_dict()
@@ -494,13 +476,11 @@ class DiagnosticDepthAccumulator:
     length_emd: list = field(default_factory=list)
     hist_fn: np.ndarray | None = None
     hist_fp: np.ndarray | None = None
-    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
         if not isinstance(payload, dict):
             return
-        self._seen = True
         self.gt_lengths.extend(payload["gt_segment_lengths"])
         self.pred_lengths.extend(payload["pred_segment_lengths"])
         self.length_emd.append(payload["length_emd"])
@@ -518,12 +498,12 @@ class DiagnosticDepthAccumulator:
         }
 
     def merged(self) -> dict:
-        if not self._seen:
+        if not self.gt_lengths:
             return {}
         return {self.KEY: {**self._common(), "length_emd": list(self.length_emd)}}
 
     def summarise(self) -> dict:
-        if not self._seen:
+        if not self.gt_lengths:
             return {}
         return {
             self.KEY: {

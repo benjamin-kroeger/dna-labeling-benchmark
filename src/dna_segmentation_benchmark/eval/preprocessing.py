@@ -111,12 +111,14 @@ def _infer_introns_from_coding_gaps(
 
     inferred = labels.copy()
     coding_groups = get_contiguous_groups(np.where(exonic_mask)[0])
-    gap_lengths = [
-        int(right[0]) - int(left[-1]) - 1
-        for left, right in zip(coding_groups, coding_groups[1:])
-        if int(right[0]) > int(left[-1]) + 1
-    ]
-    large_gap_cutoff = _large_array_inferable_gap_cutoff(gap_lengths) if is_large_input else None
+    large_gap_cutoff = None
+    if is_large_input:
+        gap_lengths = [
+            int(right[0]) - int(left[-1]) - 1
+            for left, right in zip(coding_groups, coding_groups[1:])
+            if int(right[0]) > int(left[-1]) + 1
+        ]
+        large_gap_cutoff = _large_array_inferable_gap_cutoff(gap_lengths)
 
     for left, right in zip(coding_groups, coding_groups[1:]):
         gap_start = int(left[-1]) + 1
@@ -137,7 +139,12 @@ def resolve_scope_mask(
     label_config: LabelConfig,
 ) -> np.ndarray:
     """Return a boolean mask for all positions belonging to *scope*."""
-    return np.isin(labels, tuple(label_config.scope_tokens(scope)))
+    # Direct equality is 10-20× faster than np.isin for the 1-3 token sets used here.
+    it = iter(label_config.scope_tokens(scope))
+    mask = labels == next(it)
+    for t in it:
+        mask |= labels == t
+    return mask
 
 
 def resolve_scope_sections(
