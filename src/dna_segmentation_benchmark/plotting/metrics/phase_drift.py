@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -16,9 +15,9 @@ logger = logging.getLogger(__name__)
 def plot_phase_drift_percentage_bar(
     df_phase_drift_metrics: pd.DataFrame,
     class_name: str,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     metadata: PlotMetadata | None = None,
-) -> Optional[plt.Figure]:
+) -> plt.Figure | None:
     """Bar chart of coding-phase drift distribution per method.
 
     Returns

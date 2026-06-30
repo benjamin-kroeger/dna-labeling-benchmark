@@ -13,7 +13,6 @@ Stage 1 introduces two explicit annotation modes:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, model_validator
 
@@ -66,14 +65,14 @@ class LabelConfig(BaseModel):
     evaluation_scope: BenchmarkScope = BenchmarkScope.TRANSCRIPT_EXON
     background_label: int
 
-    exon_label: Optional[int] = None
-    cds_label: Optional[int] = None
-    five_prime_utr_label: Optional[int] = None
-    three_prime_utr_label: Optional[int] = None
+    exon_label: int | None = None
+    cds_label: int | None = None
+    five_prime_utr_label: int | None = None
+    three_prime_utr_label: int | None = None
 
-    intron_label: Optional[int] = None
-    splice_donor_label: Optional[int] = None
-    splice_acceptor_label: Optional[int] = None
+    intron_label: int | None = None
+    splice_donor_label: int | None = None
+    splice_acceptor_label: int | None = None
 
     @model_validator(mode="after")
     def _validate_mode_shape(self) -> "LabelConfig":
@@ -235,7 +234,7 @@ class LabelConfig(BaseModel):
         """Return the human-readable name for *token*."""
         return self.labels.get(token, str(token))
 
-    def _configured_label_fields(self) -> tuple[tuple[str, Optional[int]], ...]:
+    def _configured_label_fields(self) -> tuple[tuple[str, int | None], ...]:
         """Return the configured label fields as ``(field_name, value)`` pairs."""
         return (
             ("background_label", self.background_label),

@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 def plot_ml_metrics_bar(
     df_ml_metrics: pd.DataFrame,
     class_name: str,
-    save_path_prefix: Optional[Path] = None,
+    save_path_prefix: Path | None = None,
     metadata_map: dict[str, PlotMetadata] | None = None,
 ) -> dict[str, plt.Figure]:
     """Grouped bar chart of ML metrics (precision / recall) per level.

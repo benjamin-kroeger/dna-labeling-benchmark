@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Collection
-from typing import Optional
 
 import numpy as np
 
@@ -84,7 +83,7 @@ class ExtractedStructure:
 
 def extract_structure(
     labels: np.ndarray,
-    label_config: Optional[LabelConfig] = None,
+    label_config: LabelConfig | None = None,
     exclude_background: bool = True,
 ) -> ExtractedStructure:
     """Extract an ordered segment chain from a 1-D integer label array.

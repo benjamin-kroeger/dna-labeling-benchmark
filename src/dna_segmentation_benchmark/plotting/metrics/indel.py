@@ -23,7 +23,6 @@ Rows follow the canonical order from :data:`SEMANTIC_BOUNDARY_ORDER`.
 """
 
 import logging
-from typing import Optional
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -147,9 +146,9 @@ def _rate_matrix(payload: dict, boundaries: list[str], events: list[str]) -> np.
 def plot_stacked_indel_counts_bar(
     all_indel_data: dict[str, dict],
     class_name: str,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     metadata: PlotMetadata | None = None,
-) -> Optional[plt.Figure]:
+) -> plt.Figure | None:
     """Stacked horizontal bar of INDEL event counts per method (summed over boundaries)."""
     methods = list(all_indel_data)
     if not methods:
@@ -208,15 +207,15 @@ def _per_method_boundary_heatmap(
     class_name: str,
     *,
     matrix_fn,
-    annot_matrices: Optional[dict] = None,
+    annot_matrices: dict | None = None,
     annot_fmt: str,
     norm=None,
     vmax=None,
     cbar_label: str,
     title: str,
-    save_path: Optional[Path],
+    save_path: Path | None,
     metadata: PlotMetadata | None,
-) -> Optional[plt.Figure]:
+) -> plt.Figure | None:
     """Shared engine for the count/rate per-method boundary heatmaps.
 
     ``matrix_fn(payload, boundaries, events) -> ndarray`` builds each method's
@@ -319,9 +318,9 @@ def _per_method_boundary_heatmap(
 def plot_indel_rates_by_boundary(
     all_indel_data: dict[str, dict],
     class_name: str,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     metadata: PlotMetadata | None = None,
-) -> Optional[plt.Figure]:
+) -> plt.Figure | None:
     """Per-method GT boundary × event-type **rate** heatmap (the comparable view).
 
     Each cell is ``events ÷ opportunities`` (boundary-anchored events by GT
@@ -376,9 +375,9 @@ def plot_indel_rates_by_boundary(
 def plot_indel_counts_by_boundary(
     all_indel_data: dict[str, dict],
     class_name: str,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     metadata: PlotMetadata | None = None,
-) -> Optional[plt.Figure]:
+) -> plt.Figure | None:
     """Per-method GT boundary × event-type **count** heatmap (log colour scale).
 
     The raw-magnitude companion to :func:`plot_indel_rates_by_boundary`.  A log
@@ -423,7 +422,7 @@ def plot_indel_counts_by_boundary(
 def plot_individual_error_lengths_histograms(
     all_indel_data: dict[str, dict],
     class_name: str,
-    save_dir: Optional[Path] = None,
+    save_dir: Path | None = None,
 ) -> dict[str, plt.Figure]:
     """One run-length histogram figure per exon-position category.
 

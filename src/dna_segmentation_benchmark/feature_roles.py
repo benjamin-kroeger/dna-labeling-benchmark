@@ -65,35 +65,20 @@ def allowed_feature_roles(label_config: LabelConfig) -> frozenset[str]:
 
 def role_to_label(label_config: LabelConfig, role: str) -> int:
     """Resolve a semantic role string to the configured integer label."""
-    if role == EXON_ROLE:
-        if label_config.exon_label is None:
-            raise ValueError("Role 'exon' is not available for this LabelConfig.")
-        return label_config.exon_label
-    if role == FIVE_PRIME_UTR_ROLE:
-        if label_config.five_prime_utr_label is None:
-            raise ValueError("Role 'five_prime_utr' is not available for this LabelConfig.")
-        return label_config.five_prime_utr_label
-    if role == CDS_ROLE:
-        if label_config.cds_label is None:
-            raise ValueError("Role 'cds' is not available for this LabelConfig.")
-        return label_config.cds_label
-    if role == THREE_PRIME_UTR_ROLE:
-        if label_config.three_prime_utr_label is None:
-            raise ValueError("Role 'three_prime_utr' is not available for this LabelConfig.")
-        return label_config.three_prime_utr_label
-    if role == INTRON_ROLE:
-        if label_config.intron_label is None:
-            raise ValueError("Role 'intron' is not available for this LabelConfig.")
-        return label_config.intron_label
-    if role == SPLICE_DONOR_ROLE:
-        if label_config.splice_donor_label is None:
-            raise ValueError("Role 'splice_donor' is not available for this LabelConfig.")
-        return label_config.splice_donor_label
-    if role == SPLICE_ACCEPTOR_ROLE:
-        if label_config.splice_acceptor_label is None:
-            raise ValueError("Role 'splice_acceptor' is not available for this LabelConfig.")
-        return label_config.splice_acceptor_label
-    raise ValueError(f"Unknown feature role: {role!r}")
+    labels = {
+        EXON_ROLE: label_config.exon_label,
+        FIVE_PRIME_UTR_ROLE: label_config.five_prime_utr_label,
+        CDS_ROLE: label_config.cds_label,
+        THREE_PRIME_UTR_ROLE: label_config.three_prime_utr_label,
+        INTRON_ROLE: label_config.intron_label,
+        SPLICE_DONOR_ROLE: label_config.splice_donor_label,
+        SPLICE_ACCEPTOR_ROLE: label_config.splice_acceptor_label,
+    }
+    if role not in labels:
+        raise ValueError(f"Unknown feature role: {role!r}")
+    if labels[role] is None:
+        raise ValueError(f"Role {role!r} is not available for this LabelConfig.")
+    return labels[role]
 
 
 def normalize_feature_role_map(

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -53,7 +52,7 @@ TOPOLOGY_CORRECT_CLASSES: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 
 
-def _transcript_match_pivot(df_sc: pd.DataFrame) -> Optional[pd.DataFrame]:
+def _transcript_match_pivot(df_sc: pd.DataFrame) -> pd.DataFrame | None:
     """Per-method × match-class raw count pivot from ``df_sc``.
 
     Shared by the standalone stacked bar and the boundary-shift figure, which
@@ -87,7 +86,7 @@ def _transcript_match_pivot(df_sc: pd.DataFrame) -> Optional[pd.DataFrame]:
     )
 
 
-def _draw_transcript_match_bar(ax: plt.Axes, df_sc: pd.DataFrame) -> Optional[pd.DataFrame]:
+def _draw_transcript_match_bar(ax: plt.Axes, df_sc: pd.DataFrame) -> pd.DataFrame | None:
     """Draw the transcript-match severity stacked bar onto *ax*.
 
     Renders one stacked bar per method (green→red severity gradient, raw count
@@ -185,9 +184,9 @@ def _topology_eligibility(raw_pivot: pd.DataFrame) -> dict[str, dict]:
 def plot_transcript_match_distribution(
     df_sc: pd.DataFrame,
     class_name: str,
-    save_path: Optional[Path] = None,
-    metadata: Optional[PlotMetadata] = None,
-) -> Optional[plt.Figure]:
+    save_path: Path | None = None,
+    metadata: PlotMetadata | None = None,
+) -> plt.Figure | None:
     """Stacked bar chart of transcript match class distribution per method.
 
     Each bar section is annotated with its raw count.
@@ -235,9 +234,9 @@ def plot_transcript_match_distribution(
 def plot_segment_count_delta(
     df_sc: pd.DataFrame,
     class_name: str,
-    save_path: Optional[Path] = None,
-    metadata: Optional[PlotMetadata] = None,
-) -> Optional[plt.Figure]:
+    save_path: Path | None = None,
+    metadata: PlotMetadata | None = None,
+) -> plt.Figure | None:
     """Bar chart of mean segment count delta per method.
 
     Positive values indicate over-segmentation, negative values indicate
@@ -327,9 +326,9 @@ def _short_method_labels(methods: list[str]) -> dict[str, str]:
 def plot_boundary_shift_distribution(
     df_sc: pd.DataFrame,
     class_name: str,
-    save_path: Optional[Path] = None,
-    metadata: Optional[PlotMetadata] = None,
-) -> Optional[plt.Figure]:
+    save_path: Path | None = None,
+    metadata: PlotMetadata | None = None,
+) -> plt.Figure | None:
     """Per-boundary offset distributions for topology-correct transcripts.
 
     Consumes the ``boundary_shift_offsets`` records (one per *shifted*
@@ -562,9 +561,9 @@ def plot_boundary_shift_distribution(
 def plot_per_transcript_exon_recovery(
     df_sc: pd.DataFrame,
     class_name: str,
-    save_path: Optional[Path] = None,
-    metadata: Optional[PlotMetadata] = None,
-) -> Optional[plt.Figure]:
+    save_path: Path | None = None,
+    metadata: PlotMetadata | None = None,
+) -> plt.Figure | None:
     """Three-panel histogram of per-transcript exon-recovery metrics.
 
     Complements the strict all-or-nothing ``exon_chain`` tiers with a

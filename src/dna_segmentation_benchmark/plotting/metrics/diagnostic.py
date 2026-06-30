@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -27,9 +26,9 @@ logger = logging.getLogger(__name__)
 def plot_position_bias(
     df_dd: pd.DataFrame,
     class_name: str,
-    save_path: Optional[Path] = None,
-    metadata: Optional[PlotMetadata] = None,
-) -> Optional[plt.Figure]:
+    save_path: Path | None = None,
+    metadata: PlotMetadata | None = None,
+) -> plt.Figure | None:
     """Per-nucleotide mismatch density across the coding span, split FN / FP.
 
     Each bin represents a 1-percentile slice of the coding region

@@ -2,8 +2,8 @@ import textwrap
 from pathlib import Path
 
 import numpy as np
-import seaborn as sns
 from matplotlib import pyplot as plt
+from matplotlib.colors import to_rgb
 
 from dna_segmentation_benchmark.plotting.config import PlotMetadata
 
@@ -29,7 +29,7 @@ def spezi_palette(n: int | None = None) -> list[tuple[float, float, float]]:
             hi -= 1
     if n is not None:
         ordered = ordered[:n]
-    return sns.color_palette(ordered)
+    return [to_rgb(c) for c in ordered]
 
 
 def severity_palette(n: int) -> list[tuple[float, float, float]]:

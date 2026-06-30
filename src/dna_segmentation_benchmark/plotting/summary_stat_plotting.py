@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -101,7 +100,7 @@ def compare_multiple_predictions(
         per_method_benchmark_res: dict[str, dict],
         label_config: LabelConfig,
         metrics_to_eval: list[EvalMetrics],
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
 ) -> dict[str, plt.Figure]:
     """Generate all summary plots and return them as a dict.
 

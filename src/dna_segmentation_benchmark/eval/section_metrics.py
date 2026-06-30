@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from .intersection_over_union import _compute_intersection_over_union_score
 from .statistics import Counts
 from ..label_definition import EvalMetrics
 
@@ -174,14 +173,9 @@ def _analyze_section_overlap_and_boundaries(
             # Offset = pred_edge - gt_edge, so a positive value means the
             # prediction's edge sits to the right (3') of the GT edge.
             boundary_offsets.append((p_min - gt_min, p_max - gt_max))
-            iou_scores.append(
-                _compute_intersection_over_union_score(
-                    gt_start=gt_min,
-                    gt_end=gt_max,
-                    pred_start=p_min,
-                    pred_end=p_max,
-                )
-            )
+            intersect = max(0, min(gt_max, p_max) - max(gt_min, p_min) + 1)
+            union = max(gt_max, p_max) - min(gt_min, p_min) + 1
+            iou_scores.append(intersect / union if union > 0 else 0.0)
 
     region_data: dict | None = None
     if need_region_discovery:

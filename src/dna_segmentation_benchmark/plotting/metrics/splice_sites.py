@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,7 +14,7 @@ from ..utils import _save_figure
 
 def plot_splice_site_confusion_matrices(
     per_method_data: dict[str, dict],
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
 ) -> plt.Figure | None:
     """One figure with one 2×2 heatmap per method.
 
@@ -59,7 +58,7 @@ def plot_splice_site_confusion_matrices(
 
 def plot_splice_site_pr_bar(
     per_method_data: dict[str, dict],
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
 ) -> plt.Figure | None:
     """Grouped bar chart: donor/acceptor precision & recall, one bar per method.
 

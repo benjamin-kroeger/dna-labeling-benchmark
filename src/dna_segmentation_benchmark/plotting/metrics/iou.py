@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 def plot_iou_metrics(
     df_iou: pd.DataFrame,
     class_name: str,
-    save_path_prefix: Optional[Path] = None,
+    save_path_prefix: Path | None = None,
     metadata_average: PlotMetadata | None = None,
     metadata_distribution: PlotMetadata | None = None,
 ) -> list[plt.Figure]:

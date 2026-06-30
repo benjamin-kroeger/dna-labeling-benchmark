@@ -22,7 +22,7 @@ pre-configured metric groupings so the dashboard is organised from the start.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -335,8 +335,8 @@ def _flatten_all_scalars(
 def log_benchmark_scalars(
     results: dict,
     label_config: LabelConfig,
-    step: Optional[int] = None,
-    method_prefix: Optional[str] = None,
+    step: int | None = None,
+    method_prefix: str | None = None,
 ) -> dict[str, float]:
     """Log scalar benchmark metrics to an active W&B run.
 
@@ -380,8 +380,8 @@ def log_benchmark_scalars(
 def log_benchmark_all_scalars(
     results: dict,
     label_config: LabelConfig,
-    step: Optional[int] = None,
-    method_prefix: Optional[str] = None,
+    step: int | None = None,
+    method_prefix: str | None = None,
 ) -> dict[str, float]:
     """Log every numeric scalar in the benchmark result to an active W&B run.
 
@@ -428,8 +428,8 @@ def log_benchmark_all_scalars(
 def log_benchmark_media(
     results: dict,
     label_config: LabelConfig,
-    step: Optional[int] = None,
-    method_prefix: Optional[str] = None,
+    step: int | None = None,
+    method_prefix: str | None = None,
 ) -> dict[str, Any]:
     """Log all diagnostic plots to W&B as stepwise media history.
 
@@ -524,7 +524,7 @@ def init_wandb_with_presets(
     run_name: str,
     label_config: LabelConfig,
     classes: list[int],
-    config: Optional[dict] = None,
+    config: dict | None = None,
     **wandb_init_kwargs,
 ) -> Any:
     """Initialise a W&B run with pre-configured metric groupings.
