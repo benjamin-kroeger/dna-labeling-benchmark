@@ -132,13 +132,20 @@ def _stream_benchmark_over_mappings(
         chunk_size = max(1, len(mappings) // (n_workers * 50))
         chunks = [mappings[i:i + chunk_size] for i in range(0, len(mappings), chunk_size)]
         ctx = multiprocessing.get_context("fork")  # ponytail: Linux fork; for macOS use spawn + initializer
-        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
-            futures = {pool.submit(_bench_worker_chunk, chunk): len(chunk) for chunk in chunks}
-            with tqdm(total=len(mappings), desc="Benchmarking", unit="mapping") as pbar:
-                for future in as_completed(futures):
-                    for pred_name, (merged_data, count) in future.result().items():
-                        benches[pred_name].merge_from_merged(merged_data, count)
-                    pbar.update(futures[future])
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
+                futures = {pool.submit(_bench_worker_chunk, chunk): len(chunk) for chunk in chunks}
+                with tqdm(total=len(mappings), desc="Benchmarking", unit="mapping") as pbar:
+                    for future in as_completed(futures):
+                        for pred_name, (merged_data, count) in future.result().items():
+                            benches[pred_name].merge_from_merged(merged_data, count)
+                        pbar.update(futures[future])
+        finally:
+            # Release the run's gt/pred DataFrames + indices; this global is only
+            # ever reassigned, so without this it pins one full run's data across
+            # calls (e.g. a clade's per-species loop) and inflates the next run's
+            # peak — enough to OOM the heavy pooled run that follows.
+            _BENCH_STATE = {}
     else:
         for mapping in tqdm(mappings, desc="Benchmarking", unit="mapping"):
             gt_arr, pred_arrays = build_paired_arrays(

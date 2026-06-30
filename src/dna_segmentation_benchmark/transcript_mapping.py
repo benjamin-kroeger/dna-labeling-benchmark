@@ -87,23 +87,43 @@ class LocusMatchingMode(str, Enum):
         Use this mode for multi-isoform tools (Helixer, SegmentNT, …).
 
     BEST_PER_LOCUS
-        Per locus only the single highest-scoring (GT, pred) pair per predictor
-        is kept, so a predictor is never penalised for emitting fewer isoforms
-        than the reference.  But every GT locus is still scored **once per
-        predictor**: a locus the predictor matched contributes its best pair,
-        and a locus it matched nothing in contributes a locus-level **FN** entry
-        (the reference footprint is the union of the locus's isoforms).  The
-        per-transcript denominator is therefore the full set of GT loci and is
-        comparable across predictors.
+        Every GT locus is scored **exactly once per predictor**, so a predictor
+        is never rewarded for emitting more isoforms nor penalised for emitting
+        fewer than the reference.  The per-transcript denominator is therefore
+        the full set of GT loci and is directly comparable across predictors.
+        Each (locus, predictor) pair resolves to one of three entries:
+
+        * **Case A — match.**  The predictor's single highest-scoring (GT, pred)
+          pair in the locus is kept; all other isoforms and predictions in that
+          locus are dropped.
+
+        * **Case C — overlap, wrong structure.**  The predictor matched nothing
+          in the locus but has a transcript overlapping it (no shared junction).
+          That prediction is paired against the real GT isoform it best overlaps
+          (``junction_f1 = 0``), so a confidently-wrong call is penalised on its
+          coinciding bases rather than silently dropped.
+
+        * **Case B — clean miss.**  The predictor has no transcript overlapping
+          the locus at all: a locus-level FN against the representative (longest)
+          isoform, paired with a null prediction.
 
         Use this mode for single-transcript tools (Augustus, …).
 
-        Precision note: predictions that overlap **no** GT locus become FP
-        entries here, but an overlapping-but-unmatched prediction is **not** —
-        charging it as a separate FP would double-count the bases it shares with
-        a GT locus.  Such predictions are counted by the global precision metric
-        instead, so per-transcript precision can read slightly optimistically
-        relative to the global numbers; pair the two views.
+        Each predictor accumulates independently, and Case C only fires for a
+        predictor that matched nothing in the locus, so the GT isoform it scores
+        against is never also counted in a Case A entry for that same predictor —
+        no GT base is double-counted within a predictor's per-transcript numbers.
+
+        Precision note: predictions that overlap **no** GT locus become
+        intergenic FP entries (null GT).  But an *extra* prediction that overlaps
+        a locus the predictor **already matched** (Case A) is **dropped** from the
+        per-transcript view — counting it would force a second entry for that
+        locus and double-count the GT bases the matched pair already covers.
+        Those dropped bases are still charged by the **global** ``nucleotide``
+        precision (union over all predicted bases), so per-transcript precision
+        can read slightly optimistically relative to the global numbers; pair the
+        two views.  Scoring every overlapping isoform is what ``FULL_DISCOVERY``
+        is for.
     """
 
     FULL_DISCOVERY = "full_discovery"
