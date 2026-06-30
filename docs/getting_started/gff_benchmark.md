@@ -123,6 +123,46 @@ transcripts are paired with predictions inside one locus:
 
 `BEST_PER_LOCUS` is usually the better fit for single-transcript predictors.
 
+### How `BEST_PER_LOCUS` scores each locus
+
+Every GT locus is scored **exactly once per predictor**, so a predictor is
+never rewarded for emitting more isoforms nor penalized for emitting fewer than
+the reference. The per-transcript denominator is the full set of GT loci and is
+directly comparable across predictors. Each (locus, predictor) pair resolves to
+one of three entries:
+
+- **Case A — match.** The predictor's single best-scoring (GT, prediction) pair
+  in the locus is kept; all other isoforms and predictions in that locus are
+  dropped.
+- **Case C — overlap, wrong structure.** The predictor matched nothing in the
+  locus but has a transcript overlapping it without a shared junction. That
+  prediction is paired against the real GT isoform it best overlaps (junction-F1
+  of 0), so a confidently-wrong call is penalized on its coinciding bases rather
+  than silently dropped.
+- **Case B — clean miss.** The predictor has no transcript overlapping the locus
+  at all: a locus-level false negative against the representative (longest)
+  isoform, paired with a null prediction.
+
+Because each predictor accumulates independently and Case C only fires when the
+predictor matched nothing in the locus, the GT isoform scored in Case C is never
+also counted in a Case A entry for that same predictor — no GT base is
+double-counted within a predictor's per-transcript numbers.
+
+### Precision caveat: pair the per-transcript and global views
+
+A prediction that overlaps **no** GT locus becomes an intergenic false positive.
+But an *extra* prediction that overlaps a locus the predictor **already matched**
+(Case A) is **dropped** from the per-transcript view: counting it would force a
+second entry for a locus that is only allowed one, and double-count the GT bases
+the matched pair already covers.
+
+Those dropped bases are not lost — they are charged by the **global**
+`nucleotide` precision, which is a union over all predicted bases and counts
+each genomic base once regardless of how many transcripts cover it. As a result
+per-transcript precision can read slightly optimistically relative to the global
+numbers, so read the two views together. If you want every overlapping isoform
+scored on its own, use `FULL_DISCOVERY` instead.
+
 ## Why Results Can Differ From gffcompare
 
 Some metric names are intentionally familiar, especially `intron_chain`, but

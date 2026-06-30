@@ -1,115 +1,120 @@
 <mxfile host="app.diagrams.net">
   <diagram name="dna-segmentation-benchmark" id="0">
-    <mxGraphModel dx="2175" dy="1269" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1120" math="0" shadow="0">
+    <mxGraphModel dx="2512" dy="1263" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1840" pageHeight="1300" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-
-        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#333333;" value="DNA Segmentation Benchmark — Architecture" vertex="1">
-          <mxGeometry height="30" width="1540" x="80" y="20" as="geometry" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#333333;" value="DNA Segmentation Benchmark — Architecture" vertex="1">
+          <mxGeometry height="40" width="1720" x="60" y="24" as="geometry" />
         </mxCell>
-
-        <mxCell id="config" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;verticalAlign=middle;" value="&lt;b&gt;LabelConfig · AnnotationMode · BenchmarkScope · EvalMetrics&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px'&gt;&lt;i&gt;label_definition.py&lt;/i&gt; — sets the label vocabulary &amp; scope and selects which metric groups run; referenced by every layer below&lt;/span&gt;" vertex="1">
-          <mxGeometry height="55" width="1540" x="80" y="70" as="geometry" />
+        <mxCell id="config" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;verticalAlign=middle;" value="&lt;b&gt;LabelConfig · AnnotationMode · BenchmarkScope · EvalMetrics&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;label_definition.py — sets the label vocabulary &amp; scope and selects which metric groups run; referenced by every layer below&lt;/i&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry height="72" width="1720" x="60" y="84" as="geometry" />
         </mxCell>
-
-        <mxCell id="label-a" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#555555;" value="&lt;b&gt;PATH A — numpy arrays (in-memory)&lt;/b&gt;" vertex="1">
-          <mxGeometry height="20" width="340" x="180" y="140" as="geometry" />
+        <mxCell id="label-a" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#555555;" value="&lt;b&gt;PATH A — numpy arrays (in-memory)&lt;/b&gt;" vertex="1">
+          <mxGeometry height="26" width="380" x="180" y="180" as="geometry" />
         </mxCell>
-        <mxCell id="label-b" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#555555;" value="&lt;b&gt;PATH B — GFF / GTF files&lt;/b&gt;" vertex="1">
-          <mxGeometry height="20" width="340" x="940" y="140" as="geometry" />
+        <mxCell id="label-b" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#555555;" value="&lt;b&gt;PATH B — GFF / GTF files&lt;/b&gt;" vertex="1">
+          <mxGeometry height="26" width="380" x="820" y="180" as="geometry" />
         </mxCell>
-
-        <mxCell id="patha-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;GT / Pred numpy arrays&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;list[np.ndarray] token pairs&lt;/span&gt;" vertex="1">
-          <mxGeometry height="70" width="340" x="180" y="165" as="geometry" />
+        <mxCell id="patha-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" value="&lt;b&gt;GT / Pred numpy arrays&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;list[np.ndarray] token pairs&lt;/span&gt;" vertex="1">
+          <mxGeometry height="90" width="380" x="180" y="212" as="geometry" />
         </mxCell>
-        <mxCell id="pathb-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;GT / Pred GFF / GTF files&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;benchmark_from_gff · pipeline.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="70" width="340" x="940" y="165" as="geometry" />
+        <mxCell id="pathb-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" value="&lt;b&gt;GT / Pred GFF / GTF files&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;benchmark_from_gff · pipeline.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="90" width="380" x="820" y="212" as="geometry" />
         </mxCell>
-        <mxCell id="datasets-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;dashed=1;" value="&lt;b&gt;load_dataset · list_datasets&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;datasets/ — curated FASTA + annotation&lt;/span&gt;" vertex="1">
-          <mxGeometry height="70" width="280" x="1340" y="165" as="geometry" />
+        <mxCell id="datasets-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;dashed=1;" value="&lt;b&gt;load_dataset · list_datasets&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;datasets/ — curated FASTA + annotation&lt;/span&gt;" vertex="1">
+          <mxGeometry height="90" width="320" x="1300" y="212" as="geometry" />
         </mxCell>
-
-        <mxCell id="ingest" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;Ingest GFF/GTF → paired arrays&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;collect_gff · io_utils.py / feature_roles.py&lt;/span&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;map_transcripts · build_paired_arrays · transcript_mapping.py&lt;/span&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;LocusMatchingMode: best-per-locus / full-discovery&lt;/span&gt;" vertex="1">
-          <mxGeometry height="95" width="340" x="940" y="305" as="geometry" />
+        <mxCell id="ingest" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;Ingest GFF/GTF → paired arrays&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;collect_gff · io_utils.py / feature_roles.py&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;map_transcripts · build_paired_arrays · transcript_mapping.py&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;LocusMatchingMode: best-per-locus / full-discovery&lt;/span&gt;" vertex="1">
+          <mxGeometry height="120" width="380" x="820" y="352" as="geometry" />
         </mxCell>
-
-        <mxCell id="evaluator" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" value="&lt;b&gt;Evaluator&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px'&gt;benchmark_gt_vs_pred_single / _multiple · evaluate_predictors.py&lt;/span&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;shared core: preprocessing.py · accumulators.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="85" width="500" x="620" y="445" as="geometry" />
-        </mxCell>
-
-        <mxCell id="metrics-container" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9f9f9;strokeColor=#999999;dashed=1;fontSize=12;verticalAlign=top;fontStyle=1;" value="Metric groups — eight independent analyses, selected via EvalMetrics" vertex="1">
-          <mxGeometry height="300" width="1540" x="80" y="565" as="geometry" />
-        </mxCell>
-
-        <mxCell id="m-region" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;REGION_DISCOVERY&lt;/b&gt;&lt;br&gt;&lt;i&gt;Did we find the right regions?&lt;/i&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;section_metrics.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="105" width="350" x="102" y="615" as="geometry" />
-        </mxCell>
-        <mxCell id="m-boundary" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;BOUNDARY_EXACTNESS&lt;/b&gt;&lt;br&gt;&lt;i&gt;How precise are the boundaries?&lt;/i&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;section_metrics.py · boundary_precision.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="105" width="350" x="484" y="615" as="geometry" />
-        </mxCell>
-        <mxCell id="m-nuc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;NUCLEOTIDE_CLASSIFICATION&lt;/b&gt;&lt;br&gt;&lt;i&gt;Per base, how accurate is it?&lt;/i&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;inline · evaluate_predictors.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="105" width="350" x="866" y="615" as="geometry" />
-        </mxCell>
-        <mxCell id="m-indel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;INDEL&lt;/b&gt;&lt;br&gt;&lt;i&gt;What structural errors exist?&lt;/i&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;indel_metrics.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="105" width="350" x="1248" y="615" as="geometry" />
-        </mxCell>
-
-        <mxCell id="m-structural" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;STRUCTURAL_COHERENCE&lt;/b&gt;&lt;br&gt;&lt;i&gt;Is the whole segment chain correct?&lt;/i&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;chain_comparison.py · structure.py · splice_sites.py · transcript_classification.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="105" width="350" x="102" y="740" as="geometry" />
-        </mxCell>
-        <mxCell id="m-phase" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;PHASE_DRIFT&lt;/b&gt;&lt;br&gt;&lt;i&gt;Is the CDS reading phase preserved?&lt;/i&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;frame_shift.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="105" width="350" x="484" y="740" as="geometry" />
-        </mxCell>
-        <mxCell id="m-diag" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;DIAGNOSTIC_DEPTH&lt;/b&gt;&lt;br&gt;&lt;i&gt;Why is it structurally wrong?&lt;/i&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;structural_summary.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="105" width="350" x="866" y="740" as="geometry" />
-        </mxCell>
-        <mxCell id="m-transitions" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;STATE_TRANSITIONS&lt;/b&gt;&lt;br&gt;&lt;i&gt;Where do label transitions go wrong?&lt;/i&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;state_transitions.py&lt;/span&gt;" vertex="1">
-          <mxGeometry height="105" width="350" x="1248" y="740" as="geometry" />
-        </mxCell>
-
-        <mxCell id="plotting" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;" value="&lt;b&gt;plotting/&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;single_pred_plotting.py · summary_stat_plotting.py&lt;/span&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;compare_multiple_predictions · per-metric subplots (metrics/)&lt;/span&gt;" vertex="1">
-          <mxGeometry height="90" width="360" x="300" y="915" as="geometry" />
-        </mxCell>
-        <mxCell id="global-metrics" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;dashed=1;" value="&lt;b&gt;global_metrics.py&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;compute_global_metrics&lt;/span&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;corpus-level · GFF path only&lt;/span&gt;" vertex="1">
-          <mxGeometry height="90" width="360" x="750" y="915" as="geometry" />
-        </mxCell>
-        <mxCell id="wandb" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;dashed=1;" value="&lt;b&gt;wandb_logger.py&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px'&gt;log scalars · media / videos&lt;/span&gt;&lt;br&gt;&lt;span style='font-size:9px;color:#777'&gt;optional — online / during-training logging&lt;/span&gt;" vertex="1">
-          <mxGeometry height="90" width="360" x="1200" y="915" as="geometry" />
-        </mxCell>
-
-        <mxCell id="caption" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#777777;fontStyle=2;" value="Two entry paths (in-memory arrays or GFF/GTF files) converge on one evaluator; the config selects which of the eight metric groups run." vertex="1">
-          <mxGeometry height="30" width="1540" x="80" y="1030" as="geometry" />
-        </mxCell>
-
-        <mxCell id="e-datasets" edge="1" parent="1" source="datasets-box" target="pathb-box" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=open;endFill=0;fontSize=10;fontStyle=2;" value="fasta + annotation paths">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-a" edge="1" parent="1" source="patha-box" target="evaluator" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-pb1" edge="1" parent="1" source="pathb-box" target="ingest" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-pb2" edge="1" parent="1" source="ingest" target="evaluator" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-eval-metrics" edge="1" parent="1" source="evaluator" target="metrics-container" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;fontSize=10;fontStyle=2;" value="compute selected metric groups">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-plot" edge="1" parent="1" source="metrics-container" target="plotting" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.26;exitY=1;exitDx=0;exitDy=0;fontSize=10;fontStyle=2;" value="figures">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-wandb" edge="1" parent="1" source="metrics-container" target="wandb" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=open;endFill=0;exitX=0.85;exitY=1;exitDx=0;exitDy=0;fontSize=10;fontStyle=2;" value="optional logging">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-global" edge="1" parent="1" source="evaluator" target="global-metrics" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=open;endFill=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;fontSize=10;fontStyle=2;" value="corpus-level · GFF path only">
+        <mxCell id="cmF-DOPQKFoCpON-O_Zs-1" edge="1" parent="1" source="evaluator" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;dashed=1;dashPattern=1 2;" target="global-metrics">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="1660" y="487" />
-              <mxPoint x="1660" y="890" />
+              <mxPoint x="1130" y="572" />
+              <mxPoint x="1130" y="572" />
             </Array>
           </mxGeometry>
+        </mxCell>
+        <mxCell id="cmF-DOPQKFoCpON-O_Zs-2" connectable="0" parent="cmF-DOPQKFoCpON-O_Zs-1" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="&lt;span style=&quot;font-size: 12px; font-style: italic;&quot;&gt;corpus-level · GFF path only&lt;/span&gt;" vertex="1">
+          <mxGeometry relative="1" x="0.202" y="-4" as="geometry">
+            <mxPoint x="-29" y="-4" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="evaluator" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;" value="&lt;b&gt;Evaluator&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;benchmark_gt_vs_pred_single / _multiple · evaluate_predictors.py&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;shared core: preprocessing.py · accumulators.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="100" width="560" x="460" y="522" as="geometry" />
+        </mxCell>
+        <mxCell id="metrics-container" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9f9f9;strokeColor=#999999;dashed=1;fontSize=14;verticalAlign=top;fontStyle=1;" value="Metric groups — eight independent analyses, selected via EvalMetrics" vertex="1">
+          <mxGeometry height="388" width="1720" x="60" y="662" as="geometry" />
+        </mxCell>
+        <mxCell id="m-region" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;REGION_DISCOVERY&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;Did we find the right regions?&lt;/i&gt;&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;section_metrics.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="132" width="385" x="90" y="722" as="geometry" />
+        </mxCell>
+        <mxCell id="m-boundary" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;BOUNDARY_EXACTNESS&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;How precise are the boundaries?&lt;/i&gt;&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;section_metrics.py · boundary_precision.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="132" width="385" x="515" y="722" as="geometry" />
+        </mxCell>
+        <mxCell id="m-nuc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;NUCLEOTIDE_CLASSIFICATION&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;Per base, how accurate is it?&lt;/i&gt;&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;inline · evaluate_predictors.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="132" width="385" x="940" y="722" as="geometry" />
+        </mxCell>
+        <mxCell id="m-indel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;INDEL&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;What structural errors exist?&lt;/i&gt;&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;indel_metrics.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="132" width="385" x="1365" y="722" as="geometry" />
+        </mxCell>
+        <mxCell id="m-structural" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;STRUCTURAL_COHERENCE&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;Is the whole segment chain correct?&lt;/i&gt;&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;chain_comparison.py · structure.py · splice_sites.py · transcript_classification.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="132" width="385" x="90" y="890" as="geometry" />
+        </mxCell>
+        <mxCell id="m-phase" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;PHASE_DRIFT&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;Is the CDS reading phase preserved?&lt;/i&gt;&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;frame_shift.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="132" width="385" x="515" y="890" as="geometry" />
+        </mxCell>
+        <mxCell id="m-diag" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;DIAGNOSTIC_DEPTH&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;Why is it structurally wrong?&lt;/i&gt;&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;structural_summary.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="132" width="385" x="940" y="890" as="geometry" />
+        </mxCell>
+        <mxCell id="m-transitions" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" value="&lt;b&gt;STATE_TRANSITIONS&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;Where do label transitions go wrong?&lt;/i&gt;&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;state_transitions.py&lt;/span&gt;" vertex="1">
+          <mxGeometry height="132" width="385" x="1365" y="890" as="geometry" />
+        </mxCell>
+        <mxCell id="plotting" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=13;" value="&lt;b&gt;plotting/&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;summary_stat_plotting.py&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;compare_multiple_predictions · per-metric subplots (metrics/)&lt;/span&gt;" vertex="1">
+          <mxGeometry height="100" width="380" x="300" y="1100" as="geometry" />
+        </mxCell>
+        <mxCell id="global-metrics" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;dashed=1;" value="&lt;b&gt;global_metrics.py&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;compute_global_metrics&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;corpus-level · GFF path only&lt;/span&gt;" vertex="1">
+          <mxGeometry height="100" width="380" x="1300" y="522" as="geometry" />
+        </mxCell>
+        <mxCell id="json-out" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" value="&lt;b&gt;results JSON&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;_serialise_results · json.dumps · cli.py&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;default output — no plotting or wandb needed&lt;/span&gt;" vertex="1">
+          <mxGeometry height="100" width="380" x="770" y="1100" as="geometry" />
+        </mxCell>
+        <mxCell id="wandb" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=13;dashed=1;" value="&lt;b&gt;wandb_logger.py&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;log scalars · media / videos&lt;/span&gt;&lt;br&gt;&lt;span style=&#39;font-size:11px;color:#777&#39;&gt;optional — online / during-training logging&lt;/span&gt;" vertex="1">
+          <mxGeometry height="100" width="380" x="1240" y="1100" as="geometry" />
+        </mxCell>
+        <mxCell id="caption" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=13;fontColor=#777777;fontStyle=2;" value="Two entry paths (in-memory arrays or GFF/GTF files) converge on one evaluator; the config selects which of the eight metric groups run." vertex="1">
+          <mxGeometry height="34" width="1720" x="60" y="1230" as="geometry" />
+        </mxCell>
+        <mxCell id="e-datasets" edge="1" parent="1" source="datasets-box" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=open;endFill=0;fontSize=12;fontStyle=2;" target="pathb-box" value="fasta + annotation paths">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-a" edge="1" parent="1" source="patha-box" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="evaluator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-pb1" edge="1" parent="1" source="pathb-box" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="ingest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-pb2" edge="1" parent="1" source="ingest" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="evaluator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-eval-metrics" edge="1" parent="1" source="evaluator" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;fontSize=12;fontStyle=2;" target="metrics-container" value="compute selected metric groups">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-plot" edge="1" parent="1" source="metrics-container" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;fontSize=12;fontStyle=2;" target="plotting" value="figures">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-json" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=12;fontStyle=2;" target="json-out" value="serialise results">
+          <mxGeometry relative="1" x="0.3328" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="960" y="1050" />
+            </Array>
+            <mxPoint x="960" y="1060" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-wandb" edge="1" parent="1" source="metrics-container" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=open;endFill=0;exitX=0.8;exitY=1;exitDx=0;exitDy=0;fontSize=12;fontStyle=2;" target="wandb" value="optional logging">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
