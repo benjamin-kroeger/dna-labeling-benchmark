@@ -1,11 +1,11 @@
 """Plots for the boundary-typed INDEL metric.
 
-Each method's INDEL payload is ``{"by_boundary": {"LEFT:RIGHT": {event_type:
-[run_length, ...]}}, "junction_opportunities": {"LEFT:RIGHT": int},
-"n_gt_segments": int, "n_pred_segments": int}`` — the boundary-typed run lengths
-plus the *opportunity* denominators needed to turn counts into rates.
-``"LEFT:RIGHT"`` is the GT label-name pair flanking a mismatch run (5'→3' order;
-``"none"`` for a sequence end).
+Each method's INDEL payload is ``{"by_boundary": {exon_type: {event_type:
+[run_length, ...]}}, "exon_opportunities": {exon_type: int},
+"n_gt_segments": int, "n_pred_segments": int}`` — run lengths keyed by the GT
+exon position they touch, plus the per-exon-type *opportunity* counts needed to
+turn counts into rates.  ``exon_type`` is one of ``five_prime_terminal_exon``,
+``internal_exon``, ``three_prime_terminal_exon``, ``single_exon_gene``.
 
 Views produced:
 
@@ -50,15 +50,20 @@ _EVENT_ORDER = (
     "whole_deletions",
 )
 
-#: Boundary-anchored events: rate denominator = GT junction transitions of the
-#: same ``LEFT:RIGHT`` type.
-_JUNCTION_EVENTS = frozenset(
-    {"5_prime_extensions", "3_prime_extensions", "5_prime_deletions", "3_prime_deletions"}
+#: Events whose rate denominator is the count of GT exons of that position type
+#: (anchored slips sit on / extend one exon; splits and whole deletions consume
+#: one exon).  ``joined`` and ``whole_insertions`` normalise differently (intron
+#: / gene counts) and are handled explicitly in :func:`_event_denominator`.
+_EXON_OPPORTUNITY_EVENTS = frozenset(
+    {
+        "5_prime_extensions",
+        "3_prime_extensions",
+        "5_prime_deletions",
+        "3_prime_deletions",
+        "split",
+        "whole_deletions",
+    }
 )
-#: Events normalised by the number of GT coding segments.
-_GT_SEGMENT_EVENTS = frozenset({"joined", "split", "whole_deletions"})
-#: Events normalised by the number of predicted coding segments (precision-like).
-_PRED_SEGMENT_EVENTS = frozenset({"whole_insertions"})
 
 
 # ---------------------------------------------------------------------------
@@ -100,18 +105,28 @@ def _present_boundaries(all_indel_data: dict[str, dict]) -> list[str]:
 
 
 def _event_denominator(payload: dict, event_type: str, boundary: str) -> int:
-    """Opportunity count for one (event, boundary), per the §1 family rules.
+    """Opportunity count for one (event, boundary) under exon-typing.
 
-    Boundary-anchored events divide by GT junctions of the matching type; split /
-    join / whole deletions by GT segment count; whole insertions by predicted
-    segment count.
+    All exon-keyed events (5'/3' extensions & deletions, splits, whole deletions)
+    divide by the count of GT exons of that position type.  ``joined`` divides by
+    the GT intron count; ``whole_insertions`` divide by gene count at a terminal
+    exon, intron count internally, and have no bounded opportunity at a single-
+    exon gene (returns 0 → masked).  ``n_genes`` / ``n_introns`` are derived from
+    ``exon_opportunities`` + ``n_gt_segments`` (each window is one transcript).
     """
-    if event_type in _JUNCTION_EVENTS:
-        return int(payload.get("junction_opportunities", {}).get(boundary, 0))
-    if event_type in _GT_SEGMENT_EVENTS:
-        return int(payload.get("n_gt_segments", 0))
-    if event_type in _PRED_SEGMENT_EVENTS:
-        return int(payload.get("n_pred_segments", 0))
+    exon_opp = payload.get("exon_opportunities", {})
+    if event_type in _EXON_OPPORTUNITY_EVENTS:
+        return int(exon_opp.get(boundary, 0))
+    n_genes = int(exon_opp.get("five_prime_terminal_exon", 0)) + int(exon_opp.get("single_exon_gene", 0))
+    n_introns = max(0, int(payload.get("n_gt_segments", 0)) - n_genes)
+    if event_type == "joined":
+        return n_introns
+    if event_type == "whole_insertions":
+        if boundary in ("five_prime_terminal_exon", "three_prime_terminal_exon"):
+            return n_genes
+        if boundary == "internal_exon":
+            return n_introns
+        return 0  # single_exon_gene: no bounded opportunity → masked in rate plot
     return 0
 
 
@@ -321,13 +336,14 @@ def plot_indel_rates_by_boundary(
     save_path: Path | None = None,
     metadata: PlotMetadata | None = None,
 ) -> plt.Figure | None:
-    """Per-method GT boundary × event-type **rate** heatmap (the comparable view).
+    """Per-method exon-position × event-type **rate** heatmap (the comparable view).
 
-    Each cell is ``events ÷ opportunities`` (boundary-anchored events by GT
-    junctions of that type; split/join/whole-deletions by GT segment count;
-    whole-insertions by predicted segment count).  Colour = rate (shared linear
-    scale); the cell annotation is the rate value.  Cells with no opportunity
-    or zero events are masked grey.
+    Each cell is ``events ÷ opportunities``: anchored slips, splits and whole
+    deletions divide by the count of GT exons of that position type; joins by GT
+    intron count; whole insertions by gene count (terminal exons) or intron count
+    (internal), with single-exon-gene whole insertions left un-normalised.
+    Colour = rate (shared linear scale); the cell annotation is the rate value.
+    Cells with no opportunity or zero events are masked grey.
     """
     boundaries = _present_boundaries(all_indel_data)
     events = _present_events(all_indel_data)

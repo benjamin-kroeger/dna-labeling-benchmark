@@ -1,33 +1,32 @@
-"""INDEL metric: classify GT/prediction coding mismatches, typed by boundary.
+"""INDEL metric: classify GT/prediction coding mismatches by the GT exon they touch.
 
 Insertion and deletion runs (coding present on one row but not the other) are
 sorted into 5'/3' extensions-or-deletions, whole insertions/deletions, and
-join/split events.  Each run additionally keeps the **GT label pair flanking the
-run** so that, e.g., a 5'-extension at a UTR→CDS boundary is distinguished from
-one at an intron→CDS boundary.
+join/split events.  Each run is keyed by the **semantic position of the GT exon
+it affects** — ``five_prime_terminal_exon``, ``internal_exon``,
+``three_prime_terminal_exon`` or ``single_exon_gene`` — read from the precomputed
+per-position ``seg_type_arr``.  Deletions sit on a GT exon; anchored insertions
+extend an adjacent exon; joins bridge an intron (always ``internal_exon``); whole
+insertions are free-floating predicted exons keyed by a nearest-GT-exon scan.
 
 Orientation assumption
 ----------------------
 All input is assumed to be presented **5'→3'**: lower array index = 5', higher
-index = 3'.  Boundary tuples are therefore in array order, so ``(UTR, CDS)``
-(5'UTR / start-codon boundary) and ``(CDS, UTR)`` (3'UTR / stop-codon boundary)
-are kept distinct.  Re-orienting minus-strand input is the caller's
-responsibility.
+index = 3'.  Re-orienting minus-strand input is the caller's responsibility.
 
 Output shape
 ------------
-``_eval_indel`` returns ``{"by_boundary": {"LEFT:RIGHT": {bucket: [lengths]}}}``
-where ``"LEFT:RIGHT"`` is the ``"<5'-flank>:<3'-flank>"`` GT label-name pair
-(e.g. ``"FIVE_PRIME_UTR:CDS"``), :data:`_NO_NEIGHBOUR` (``"none"``) standing in
-for a missing neighbour at a sequence end, and each ``lengths`` entry is a run
-length in nucleotides.  Only run *lengths* are stored — never index arrays —
-because that is all downstream plotting needs and it keeps the per-boundary
-fan-out small.
+``eval_indel`` returns ``{"by_boundary": {exon_type: {bucket: [lengths]}},
+"exon_opportunities": {exon_type: count}, "n_gt_segments": int,
+"n_pred_segments": int}`` where ``exon_type`` is one of the four semantic
+positions above and each ``lengths`` entry is a run length in nucleotides.
+``exon_opportunities`` counts GT exons per type — the denominator from which the
+plotter derives per-exon, per-gene and per-intron rates.  Only run *lengths* are
+stored (never index arrays); that is all downstream plotting needs.
 
-The label-name keys are produced here, at the one layer where ``label_config``
-is available, so they are the single canonical form for tests, plotting, the
-accumulator merge, and JSON serialisation alike (``json.dumps`` cannot key a
-dict by a tuple).
+The semantic-type keys are produced here, the one layer where ``label_config`` is
+available, so they are the single canonical form for tests, plotting, the
+accumulator merge, and JSON serialisation alike.
 """
 
 from __future__ import annotations
@@ -82,7 +81,7 @@ def eval_indel(
     n_gt_segments: int,
     n_pred_segments: int,
 ) -> dict:
-    """Sort insertion/deletion runs into per-boundary 5'/3'/whole/join-split buckets.
+    """Sort insertion/deletion runs into per-exon 5'/3'/whole/join-split buckets.
 
     Parameters
     ----------
@@ -92,27 +91,25 @@ def eval_indel(
     gt_positive_mask, pred_positive_mask : np.ndarray
         Boolean coding masks for the active evaluation scope.
     label_config : LabelConfig
-        Maps integer flank labels to names (boundary keys, junction keys).
+        Used (with ``gt_labels``) to build the per-position GT exon-type array.
     gt_labels : np.ndarray
-        The *unpadded* full GT label row.  Used to read the GT label on each
-        side of a mismatch run, which types the boundary the run straddles.
+        The *unpadded* full GT label row.  Used to type each GT coding segment
+        by its outer flanks when building ``seg_type_arr``.
     n_gt_segments, n_pred_segments : int
-        Number of GT / predicted coding segments in the active scope.  Serve as
-        the *opportunity* denominators for segment-level events (split / whole
-        deletions use ``n_gt_segments``; whole insertions use
-        ``n_pred_segments``) so downstream consumers can turn counts into rates.
+        Number of GT / predicted coding segments in the active scope.
+        ``n_gt_segments`` lets the plotter derive intron counts;
+        ``n_pred_segments`` is retained for diagnostics (no longer a denominator).
 
     Returns
     -------
     dict
-        ``{"by_boundary": {"LEFT:RIGHT": {bucket: [length, ...]}},
-        "junction_opportunities": {"LEFT:RIGHT": int},
+        ``{"by_boundary": {exon_type: {bucket: [length, ...]}},
+        "exon_opportunities": {exon_type: int},
         "n_gt_segments": int, "n_pred_segments": int}``.
 
-        ``junction_opportunities`` counts the 5'/3' edges of GT coding segments,
-        typed by their outer GT flank (array edge = ``"none"`` = terminal), and is
-        the denominator for boundary-anchored events (extensions / deletions) of
-        the matching key, so a count becomes "fraction of that boundary type that
+        ``exon_opportunities`` counts GT exons per semantic type and is the
+        denominator from which the plotter derives per-exon, per-gene and
+        per-intron rates, so a count becomes "fraction of that exon type that
         suffered this error".
     """
     # _classify_mismatches looks one position before/after each group in the
@@ -134,54 +131,39 @@ def eval_indel(
 
     by_boundary: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     _classify_mismatches(
-        padded_insertions, padded_arr, gt_labels, label_config, _INSERTION_BUCKETS, by_boundary, is_insertion=True,
+        padded_insertions, padded_arr, _INSERTION_BUCKETS, by_boundary, is_insertion=True,
         seg_type_arr=seg_type_arr,
     )
     _classify_mismatches(
-        padded_deletions, padded_arr, gt_labels, label_config, _DELETION_BUCKETS, by_boundary, is_insertion=False,
+        padded_deletions, padded_arr, _DELETION_BUCKETS, by_boundary, is_insertion=False,
         seg_type_arr=seg_type_arr,
     )
 
     return {
         "by_boundary": {boundary: dict(buckets) for boundary, buckets in by_boundary.items()},
-        "junction_opportunities": _junction_opportunities(gt_positive_mask, gt_labels, label_config, seg_type_arr),
+        "exon_opportunities": _exon_opportunities(gt_positive_mask, seg_type_arr),
         "n_gt_segments": int(n_gt_segments),
         "n_pred_segments": int(n_pred_segments),
     }
 
 
-def _junction_opportunities(
-    gt_positive_mask: np.ndarray,
-    gt_labels: np.ndarray,
-    label_config: LabelConfig,
-    seg_type_arr: np.ndarray,
-) -> dict[str, int]:
-    """Count per-boundary opportunities for boundary-anchored slips.
+def _exon_opportunities(gt_positive_mask: np.ndarray, seg_type_arr: np.ndarray) -> dict[str, int]:
+    """Count GT exons per semantic position type (+1 per coding segment).
 
-    Single-exon genes (both outer flanks terminal) contribute 2 opportunities to
-    the ``single_exon_gene`` bucket (one per junction edge), consistent with the
-    numerator events that also key to ``single_exon_gene`` via ``seg_type_arr``.
-
-    All other segments use the original per-junction key: each junction is typed
-    by the GT flank just *outside* the segment on that side.  This preserves
-    existing per-junction rates for multi-exon genes while routing single-exon
-    gene junctions to their own denominator bucket.
+    The denominator for exon-keyed events: each GT exon contributes one
+    opportunity to its own type.  An exon has one 5' and one 3' boundary, so a
+    single count serves both the 5'- and 3'-side event columns.  Downstream the
+    plotter derives gene and intron counts from this dict —
+    ``n_genes = #five_prime_terminal_exon + #single_exon_gene`` and
+    ``n_introns = n_gt_segments - n_genes`` — both of which assume each
+    evaluation window is a complete transcript (true under per-transcript scoping).
     """
     opportunities: dict[str, int] = {}
     for segment in get_contiguous_groups(np.where(gt_positive_mask)[0]):
         if segment.size == 0:
             continue
-        start = int(segment[0])
-        end = int(segment[-1])
-        if str(seg_type_arr[start]) == "single_exon_gene":
-            opportunities["single_exon_gene"] = opportunities.get("single_exon_gene", 0) + 2
-        else:
-            start_name = label_config.name_of(int(gt_labels[start]))
-            end_name = label_config.name_of(int(gt_labels[end]))
-            key_5 = semantic_boundary_label(_flank_name(gt_labels, start - 1, label_config), start_name)
-            key_3 = semantic_boundary_label(end_name, _flank_name(gt_labels, end + 1, label_config))
-            opportunities[key_5] = opportunities.get(key_5, 0) + 1
-            opportunities[key_3] = opportunities.get(key_3, 0) + 1
+        key = str(seg_type_arr[int(segment[0])])
+        opportunities[key] = opportunities.get(key, 0) + 1
     return opportunities
 
 
@@ -197,34 +179,46 @@ def _flank_name(gt_labels: np.ndarray, idx: int, label_config: LabelConfig) -> s
     return label_config.name_of(int(gt_labels[idx]))
 
 
-def _outer_flank_name(
-    gt_labels: np.ndarray, idx: int, label_config: LabelConfig, seg_type_arr: np.ndarray
-) -> str:
-    """Like _flank_name but treats a single-exon-gene coding position as terminal.
+def _whole_insertion_key(seg_type_arr: np.ndarray, lo: int, hi: int) -> str:
+    """Classify a free-floating predicted exon (whole insertion) by GT context.
 
-    When the outer flank of a whole/join/split run lands inside a single-exon-gene
-    segment, the coding label (EXON/CDS) would otherwise give ``internal_exon``
-    via ``semantic_boundary_label``.  That is wrong — the run sits in the
-    inter-gene gap, not inside an intron — so we return ``_NO_NEIGHBOUR`` instead.
+    Scans outward for the nearest GT exon on each side (``seg_type_arr`` is
+    non-``None`` only at GT-coding positions).  A whole insertion that fills an
+    entire GT intron has *coding* immediate flanks, so the classification cannot
+    rely on the immediate flank label — only on the nearest exons' types.
+
+    * inside one gene's intron (left exon continues 3', right exon continues 5')
+      → ``internal_exon``
+    * a gene only to one side → that terminal exon (gene to the right → 5'
+      terminal / hallucinated upstream; to the left → 3' terminal / downstream)
+    * genes on both sides (between two genes) or no genes → ``single_exon_gene``
     """
-    if idx < 0 or idx >= len(gt_labels):
-        return _NO_NEIGHBOUR
-    if seg_type_arr[idx] is not None and str(seg_type_arr[idx]) == "single_exon_gene":
-        return _NO_NEIGHBOUR
-    return label_config.name_of(int(gt_labels[idx]))
+    left = next((str(x) for x in seg_type_arr[:lo][::-1] if x is not None), None)
+    right = next((str(x) for x in seg_type_arr[hi + 1 :] if x is not None), None)
+    is_intron = left in {"five_prime_terminal_exon", "internal_exon"} and right in {
+        "internal_exon",
+        "three_prime_terminal_exon",
+    }
+    if left is None and right is None:
+        return "single_exon_gene"
+    if is_intron:
+        return "internal_exon"
+    if right is not None and left is None:
+        return "five_prime_terminal_exon"
+    if left is not None and right is None:
+        return "three_prime_terminal_exon"
+    return "single_exon_gene"
 
 
 def _classify_mismatches(
     grouped_indices: list[np.ndarray],
     gt_pred_arr: np.ndarray,
-    gt_labels: np.ndarray,
-    label_config: LabelConfig,
     bucket_names: tuple[str, str, str, str],
     out: dict[str, dict[str, list[int]]],
     is_insertion: bool,
     seg_type_arr: np.ndarray,
 ) -> None:
-    """Sort contiguous mismatch groups into four buckets, keyed by GT segment type.
+    """Sort contiguous mismatch groups into four buckets, keyed by the GT exon they touch.
 
     The four ``bucket_names`` slots correspond, in order, to:
 
@@ -233,15 +227,15 @@ def _classify_mismatches(
     * joins / splits                 (run anchored on both sides)
     * whole insertions / whole deletions (run anchored on neither side)
 
-    **Boundary key** for boundary-anchored events (5'/3' buckets): the semantic
-    type of the adjacent GT coding segment, read from ``seg_type_arr`` at the
-    coding position immediately adjacent to the run.  This ensures single-exon
-    genes key as ``single_exon_gene`` even though one immediate flank of the run
-    is always the coding label — previously the immediate-flank approach could
-    never produce ``single_exon_gene`` for anchored events.
+    **Boundary key** = the semantic position of the GT exon the event affects,
+    read from ``seg_type_arr`` (which already encodes ``single_exon_gene``):
 
-    For joined / split / whole events the boundary key uses the outer flanks of
-    the mismatch run (both sides non-coding), which cannot produce this ambiguity.
+    * Deletions are GT-coding throughout, so every deletion bucket keys to the
+      exon the run sits on (``seg_type_arr`` at a run position).
+    * Anchored insertions (5'/3' extensions) key to the adjacent GT exon they extend.
+    * Joins bridge two exons across an intron → always ``internal_exon``.
+    * Whole insertions are free-floating predicted exons → keyed by the
+      nearest-GT-exon scan in :func:`_whole_insertion_key`.
     """
     name_5_prime, name_3_prime, name_both, name_neither = bucket_names
 
@@ -257,7 +251,7 @@ def _classify_mismatches(
         target_on_3_prime = bool(gt_pred_arr[0, last_idx + 1]) and bool(gt_pred_arr[1, last_idx + 1])
         target_on_5_prime = bool(gt_pred_arr[0, first_idx - 1]) and bool(gt_pred_arr[1, first_idx - 1])
 
-        # Back to unpadded coordinates for the GT-label flank lookup.
+        # Back to unpadded coordinates for the seg_type_arr lookup.
         adjusted = mismatch - 1
 
         if target_on_3_prime and target_on_5_prime:
@@ -269,45 +263,20 @@ def _classify_mismatches(
         else:
             bucket = name_neither
 
-        if bucket == name_5_prime:
-            # Adjacent segment starts/continues at adjusted[-1]+1 (unpadded).
-            probe = int(adjusted[-1]) + 1
-            if str(seg_type_arr[probe]) == "single_exon_gene":
-                boundary_key = "single_exon_gene"
-            elif is_insertion:
-                # Inner-edge key: label at last run position, then first coding position.
-                # Avoids mis-keying multi-base insertions that bridge to a far segment.
-                boundary_key = semantic_boundary_label(
-                    _flank_name(gt_labels, probe - 1, label_config),
-                    _flank_name(gt_labels, probe, label_config),
-                )
-            else:
-                boundary_key = semantic_boundary_label(
-                    _flank_name(gt_labels, int(adjusted[0]) - 1, label_config),
-                    _flank_name(gt_labels, probe, label_config),
-                )
+        if not is_insertion:
+            # Deletion run is GT-coding throughout → it sits on one GT exon.
+            boundary_key = str(seg_type_arr[int(adjusted[0])])
+        elif bucket == name_5_prime:
+            # 5'-extension: anchored on its 3' side by the exon it extends.
+            boundary_key = str(seg_type_arr[int(adjusted[-1]) + 1])
         elif bucket == name_3_prime:
-            # Adjacent segment ends/continues at adjusted[0]-1 (unpadded).
-            probe = int(adjusted[0]) - 1
-            if str(seg_type_arr[probe]) == "single_exon_gene":
-                boundary_key = "single_exon_gene"
-            elif is_insertion:
-                boundary_key = semantic_boundary_label(
-                    _flank_name(gt_labels, probe, label_config),
-                    _flank_name(gt_labels, probe + 1, label_config),
-                )
-            else:
-                boundary_key = semantic_boundary_label(
-                    _flank_name(gt_labels, probe, label_config),
-                    _flank_name(gt_labels, int(adjusted[-1]) + 1, label_config),
-                )
+            # 3'-extension: anchored on its 5' side by the exon it extends.
+            boundary_key = str(seg_type_arr[int(adjusted[0]) - 1])
+        elif bucket == name_both:
+            # Join: fills the intron between two exons.
+            boundary_key = "internal_exon"
         else:
-            # Joins, splits, whole events: probe both outer positions.  Use
-            # _outer_flank_name so that a coding position in a single-exon-gene
-            # segment is treated as terminal (inter-gene gap, not an intron).
-            boundary_key = semantic_boundary_label(
-                _outer_flank_name(gt_labels, int(adjusted[0]) - 1, label_config, seg_type_arr),
-                _outer_flank_name(gt_labels, int(adjusted[-1]) + 1, label_config, seg_type_arr),
-            )
+            # Whole insertion: free-floating predicted exon in GT non-coding.
+            boundary_key = _whole_insertion_key(seg_type_arr, int(adjusted[0]), int(adjusted[-1]))
 
         out[boundary_key][bucket].append(int(adjusted.size))

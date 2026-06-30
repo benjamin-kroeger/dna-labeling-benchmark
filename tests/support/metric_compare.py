@@ -47,14 +47,14 @@ def _eval_indel_metrics(expected_indel, computed_indel):
     ``by_boundary`` is compared strictly (each bucket holds a list of run
     *lengths*, compared order-insensitively because multiple runs at the same
     boundary/bucket carry no intrinsic ordering).  The opportunity denominators
-    (``junction_opportunities``, ``n_gt_segments``, ``n_pred_segments``) are
+    (``exon_opportunities``, ``n_gt_segments``, ``n_pred_segments``) are
     compared only when a fixture spells them out, so older fixtures that assert
     only ``by_boundary`` still pass.
     """
     computed_indel = _default_scope_payload(expected_indel, computed_indel)
     assert "by_boundary" in computed_indel, "INDEL output is missing 'by_boundary'"
 
-    for denom_key in ("junction_opportunities", "n_gt_segments", "n_pred_segments"):
+    for denom_key in ("exon_opportunities", "n_gt_segments", "n_pred_segments"):
         if denom_key in expected_indel:
             assert expected_indel[denom_key] == computed_indel[denom_key], (
                 f"INDEL {denom_key} differs: expected {expected_indel[denom_key]}, "

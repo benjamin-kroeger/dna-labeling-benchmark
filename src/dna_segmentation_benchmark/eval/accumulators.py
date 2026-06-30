@@ -94,22 +94,21 @@ class TransitionsAccumulator:
 
 @dataclass
 class IndelAccumulator:
-    """Concatenates boundary-typed mismatch run lengths and their denominators.
+    """Concatenates exon-typed mismatch run lengths and their denominators.
 
-    Fragments carry ``{"INDEL": {"by_boundary": {"LEFT:RIGHT": {bucket:
-    [length, ...]}}, "junction_opportunities": {"LEFT:RIGHT": int},
+    Fragments carry ``{"INDEL": {"by_boundary": {exon_type: {bucket:
+    [length, ...]}}, "exon_opportunities": {exon_type: int},
     "n_gt_segments": int, "n_pred_segments": int}}``.  Run lengths are merged per
-    ``"LEFT:RIGHT"`` boundary name key and per bucket; the *opportunity*
-    denominators (junction transition counts and segment counts) are summed so
-    downstream consumers can turn pooled counts into per-junction / per-segment
-    rates.  Keys are already canonical label-name strings, so the merge is
-    purely key-agnostic.
+    exon-type key and per bucket; the *opportunity* denominators (per-exon-type
+    counts and segment counts) are summed so downstream consumers can turn pooled
+    counts into per-exon / per-gene / per-intron rates.  Keys are already
+    canonical exon-type strings, so the merge is purely key-agnostic.
     """
 
     KEY: ClassVar[str] = "INDEL"
 
     by_boundary: dict = field(default_factory=lambda: defaultdict(lambda: defaultdict(list)))
-    junction_opportunities: dict = field(default_factory=lambda: defaultdict(int))
+    exon_opportunities: dict = field(default_factory=lambda: defaultdict(int))
     n_gt_segments: int = 0
     n_pred_segments: int = 0
 
@@ -120,8 +119,8 @@ class IndelAccumulator:
         for boundary, bucket_map in payload.get("by_boundary", {}).items():
             for bucket, lengths in bucket_map.items():
                 self.by_boundary[boundary][bucket].extend(lengths)
-        for boundary, count in payload.get("junction_opportunities", {}).items():
-            self.junction_opportunities[boundary] += count
+        for boundary, count in payload.get("exon_opportunities", {}).items():
+            self.exon_opportunities[boundary] += count
         self.n_gt_segments += int(payload.get("n_gt_segments", 0))
         self.n_pred_segments += int(payload.get("n_pred_segments", 0))
 
@@ -134,7 +133,7 @@ class IndelAccumulator:
                     boundary: {bucket: list(lengths) for bucket, lengths in bucket_map.items()}
                     for boundary, bucket_map in self.by_boundary.items()
                 },
-                "junction_opportunities": dict(self.junction_opportunities),
+                "exon_opportunities": dict(self.exon_opportunities),
                 "n_gt_segments": self.n_gt_segments,
                 "n_pred_segments": self.n_pred_segments,
             }
@@ -149,8 +148,8 @@ class IndelAccumulator:
         for boundary, bucket_map in payload.get("by_boundary", {}).items():
             for bucket, lengths in bucket_map.items():
                 self.by_boundary[boundary][bucket].extend(lengths)
-        for k, v in payload.get("junction_opportunities", {}).items():
-            self.junction_opportunities[k] += v
+        for k, v in payload.get("exon_opportunities", {}).items():
+            self.exon_opportunities[k] += v
         self.n_gt_segments += payload.get("n_gt_segments", 0)
         self.n_pred_segments += payload.get("n_pred_segments", 0)
 

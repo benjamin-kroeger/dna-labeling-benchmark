@@ -87,11 +87,11 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
     ),
     "indel_rates_by_boundary": PlotMetadata(
         display_name="INDEL Rate by GT Boundary",
-        description="Per-method GT boundary × event-type heatmap of error rate "
+        description="Per-method exon-position × event-type heatmap of error rate "
         "(events ÷ opportunities): the cross-method comparable INDEL view. "
-        "Boundary-anchored slips divide by GT junctions of that boundary type; "
-        "joined/split/whole_deletions by GT segment count; whole_insertions by "
-        "predicted segment count.",
+        "Anchored slips, splits and whole_deletions divide by the count of GT "
+        "exons of that position type; joined by GT intron count; whole_insertions "
+        "by gene count (terminal exons) or intron count (internal).",
         caveat="Cells with no opportunity or zero events are masked grey. "
         "Rates normalise out corpus size, so methods on different inputs stay comparable.",
     ),

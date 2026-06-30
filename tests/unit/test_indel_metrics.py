@@ -7,18 +7,13 @@ from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelCon
 
 
 def test_multibase_insertion_keyed_to_segment_edge_not_outer_flank():
-    """A boundary-anchored insertion must be keyed by the GT coding-segment type,
-    matching the ``junction_opportunities`` denominator.
+    """A boundary-anchored insertion is keyed by the GT exon it extends,
+    matching the ``exon_opportunities`` denominator.
 
-    Regression (M-2): a multi-base 3'-extension that bridges the gap toward the
-    next coding segment used to be keyed by the run's *outer* flank — which lands
-    on the next segment's coding base across the gap — mislabelling a terminal
-    edge as ``internal_exon``.
-
-    With the segment-type fix, single-exon segments (NONCODING on *both* outer
-    flanks) key as ``single_exon_gene`` regardless of which junction the run
-    abuts.  The gap here is NONCODING (background, label 8), so both segments
-    are single-exon genes — and the 3'-extension keys accordingly.
+    A multi-base 3'-extension is keyed by the adjacent GT exon's semantic type
+    (via ``seg_type_arr``), not by the run's outer flank.  The gap here is
+    NONCODING (background, label 8), so both segments are single-exon genes — and
+    the 3'-extension keys to ``single_exon_gene``.
     """
     cfg = LabelConfig(
         annotation_mode=AnnotationMode.EXON_INTRON,
@@ -54,12 +49,12 @@ def test_multibase_insertion_keyed_to_segment_edge_not_outer_flank():
     assert bb["single_exon_gene"]["3_prime_extensions"] == [2]
     assert "3_prime_extensions" not in bb.get("internal_exon", {})
     assert "3_prime_extensions" not in bb.get("three_prime_terminal_exon", {})
-    assert "single_exon_gene" in result["junction_opportunities"]
+    assert "single_exon_gene" in result["exon_opportunities"]
 
 
 def test_boundary_anchored_events_keyed_by_segment_type_multi_exon():
-    """For multi-exon genes (INTRON gap), boundary-anchored events preserve the
-    old per-junction key (inner-edge label pair), unchanged by the single-exon fix.
+    """For multi-exon genes, a boundary-anchored event keys to the exon it
+    extends, not to the junction the run slips into.
     """
     cfg = LabelConfig(
         annotation_mode=AnnotationMode.EXON_INTRON,
@@ -86,9 +81,34 @@ def test_boundary_anchored_events_keyed_by_segment_type_multi_exon():
     )
     bb = result["by_boundary"]
     # Segment [0,1] is 5'-terminal (left outer = "none", right outer = INTRON).
-    # The 3'-extension runs into the intron: inner-edge key (EXON, INTRON)
-    # → internal_exon (old behaviour preserved for multi-exon genes).
-    assert bb["internal_exon"]["3_prime_extensions"] == [2]
+    # The 3'-extension extends that exon, so it keys to the exon it extends:
+    # five_prime_terminal_exon (not the internal junction it runs into).
+    assert bb["five_prime_terminal_exon"]["3_prime_extensions"] == [2]
     assert "3_prime_extensions" not in bb.get("single_exon_gene", {})
     # The missed segment [4,5] has INTRON on left, "none" on right → 3'-terminal.
     assert bb["three_prime_terminal_exon"]["whole_deletions"] == [2]
+
+
+def test_event_denominator_intron_and_single_exon_gene():
+    """``_event_denominator``: joins divide by intron count; single-exon-gene
+    whole insertions have no bounded opportunity (0 → masked in the rate plot).
+    """
+    from dna_segmentation_benchmark.plotting.metrics.indel import _event_denominator
+
+    # 3-exon transcript: one exon of each multi-exon type.
+    # n_genes = 1 (one 5'-terminal, no single-exon); n_introns = 3 - 1 = 2.
+    payload = {
+        "exon_opportunities": {
+            "five_prime_terminal_exon": 1,
+            "internal_exon": 1,
+            "three_prime_terminal_exon": 1,
+        },
+        "n_gt_segments": 3,
+    }
+    assert _event_denominator(payload, "joined", "internal_exon") == 2
+    assert _event_denominator(payload, "whole_insertions", "internal_exon") == 2
+    assert _event_denominator(payload, "whole_insertions", "five_prime_terminal_exon") == 1
+    assert _event_denominator(payload, "whole_insertions", "single_exon_gene") == 0
+    # Anchored slips, splits and whole deletions → per-exon-type count.
+    assert _event_denominator(payload, "3_prime_deletions", "five_prime_terminal_exon") == 1
+    assert _event_denominator(payload, "whole_deletions", "three_prime_terminal_exon") == 1
