@@ -349,7 +349,8 @@ _FULL_SWEEP_METRICS = [
 # ---------------------------------------------------------------------------
 
 #: Flank names that indicate a gene/sequence boundary (not an internal junction).
-_TERMINAL_FLANKS: frozenset[str] = frozenset({"NONCODING", "none"})
+#: UTR labels are terminal for CDS segments (start/stop codon boundary).
+_TERMINAL_FLANKS: frozenset[str] = frozenset({"NONCODING", "none", "FIVE_PRIME_UTR", "THREE_PRIME_UTR"})
 
 #: Canonical display order for the four semantic exon-position categories.
 SEMANTIC_BOUNDARY_ORDER: tuple[str, ...] = (
@@ -363,9 +364,10 @@ SEMANTIC_BOUNDARY_ORDER: tuple[str, ...] = (
 def semantic_boundary_label(left: str, right: str) -> str:
     """Map a GT flank pair to a biological exon-position category.
 
-    A flank is *terminal* when it is ``"NONCODING"`` (gene/intergenic boundary)
-    or ``"none"`` (sequence edge).  All other labels (``"INTRON"``, ``"EXON"``,
-    ``"CDS"``, UTR labels, splice-site labels) are *internal*.
+    A flank is *terminal* when it is outside the intron chain: ``"NONCODING"``
+    (intergenic), ``"none"`` (sequence edge), or a UTR label (``"FIVE_PRIME_UTR"``
+    / ``"THREE_PRIME_UTR"`` — marks the CDS start/stop-codon boundary in
+    UTR_CDS_INTRON mode).  ``"INTRON"`` is the only *internal* flank.
 
     Returns one of the four values in :data:`SEMANTIC_BOUNDARY_ORDER`.
     """

@@ -254,11 +254,15 @@ SINGLE_SEQUENCE_TEST_CASES = [
         id='phase_drift_pred_too_few_cds',
     ),
     pytest.param(
-        np.array([[-1, -1, -1, 5, 5, 5, 5, 5, -1, -1, -1, -1, 5, 5, 5, 5, 5, -1, -1, 5, 5], [5, 5, 5, 5, 5, -1, -1, -1, 5, 5, 5, 5, -1, 5, 5, 5, 5, 5, 5, -1, -1]]),
+        np.array([[-1, -1, -1, 5, 5,  5,  5,  5, -1, -1, -1, -1,  5, 5, 5, 5, 5, -1, -1,  5,  5],
+                          [5,  5,  5,  5, 5, -1, -1, -1,  5,  5,  5,  5, -1, 5, 5, 5, 5,  5,  5, -1, -1]]),
         CUSTOM_CONFIG,
         [EvalMetrics.INDEL],
         {
-            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"5_prime_extensions": [3], "5_prime_deletions": [1]}, "internal_exon": {"whole_insertions": [4]}, "three_prime_terminal_exon": {"3_prime_deletions": [3], "3_prime_extensions": [2]}, "single_exon_gene": {"whole_deletions": [2]}}},
+            # All GT exon segments are separated by NONCODING (no intron label in
+            # CUSTOM_CONFIG), so every segment has NONCODING on both outer flanks
+            # and is correctly classified as single_exon_gene.
+            "INDEL": {"by_boundary": {"single_exon_gene": {"5_prime_extensions": [3], "5_prime_deletions": [1], "3_prime_extensions": [2], "3_prime_deletions": [3], "whole_deletions": [2], "whole_insertions": [4]}}},
         },
         id='Different_label_test',
     ),
@@ -276,16 +280,17 @@ SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
         # Coding segments touch BOTH array edges (per-transcript windowing): the
         # 5' edge of seg A and the 3' edge of seg B are gene boundaries that
-        # coincide with the array end, so their flank is "none" (terminal).  Both
-        # the numerator (5'/3' deletion runs) and the denominator
-        # (junction_opportunities) must type these as terminal-exon boundaries.
-        # A plain label-transition count would miss the two edge boundaries and
-        # report only 1 opportunity each instead of 2.
-        np.array([[0, 0, 0, 0, 8, 8, 0, 0, 0, 0], [8, 8, 0, 0, 8, 8, 0, 0, 0, 8]]),
+        # coincide with the array end, so their flank is "none" (terminal).
+        # The gap between the two segments is NONCODING (not INTRON), so both
+        # segments have NONCODING/"none" on both outer flanks → single_exon_gene.
+        # Each contributes 2 opportunities to single_exon_gene (one per edge),
+        # preserving the invariant that both array-edge junctions are counted.
+        np.array([[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],
+                          [8, 8, 0, 0, 8, 8, 0, 0, 0, 8]]),
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL],
         {
-            "INDEL": {"by_boundary": {"five_prime_terminal_exon": {"5_prime_deletions": [2]}, "three_prime_terminal_exon": {"3_prime_deletions": [1]}}, "junction_opportunities": {"five_prime_terminal_exon": 2, "three_prime_terminal_exon": 2}, "n_gt_segments": 2, "n_pred_segments": 2},
+            "INDEL": {"by_boundary": {"single_exon_gene": {"5_prime_deletions": [2], "3_prime_deletions": [1]}}, "junction_opportunities": {"single_exon_gene": 4}, "n_gt_segments": 2, "n_pred_segments": 2},
         },
         id='indel_window_edge_terminal_exon',
     ),

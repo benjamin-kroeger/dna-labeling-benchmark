@@ -106,7 +106,8 @@ def benchmark_gt_vs_pred_single(
         Maps integer tokens to names and declares semantic roles.
     metrics : list[EvalMetrics] | None
         Which metric groups to compute.  Defaults to
-        ``[REGION_DISCOVERY, BOUNDARY_EXACTNESS, NUCLEOTIDE_CLASSIFICATION]``.
+    ``[REGION_DISCOVERY, BOUNDARY_EXACTNESS, NUCLEOTIDE_CLASSIFICATION,
+        STATE_TRANSITIONS]``.
     mask_labels : np.ndarray | None
         Optional boolean mask (True = exclude). Must match length of GT.
     infer_introns : bool
@@ -487,7 +488,9 @@ def benchmark_gt_vs_pred_multiple(
     label_config : LabelConfig
         Token-to-name mapping and semantic roles.
     metrics : list[EvalMetrics] | None
-        Metric groups to compute.
+        Metric groups to compute.  Defaults to ``_DEFAULT_METRICS``
+        (``REGION_DISCOVERY``, ``BOUNDARY_EXACTNESS``,
+        ``NUCLEOTIDE_CLASSIFICATION``, ``STATE_TRANSITIONS``).
     return_individual_results : bool
         If ``True``, return per-sequence results as a list instead of
         aggregating.

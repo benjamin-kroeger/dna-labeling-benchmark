@@ -227,8 +227,8 @@ def benchmark_from_gff(
     metrics : list[EvalMetrics] | None
         Metric groups to compute.  Defaults to ``_DEFAULT_METRICS``
         (``REGION_DISCOVERY``, ``BOUNDARY_EXACTNESS``,
-        ``NUCLEOTIDE_CLASSIFICATION``) — the same default used by
-        :func:`benchmark_gt_vs_pred_single` /
+        ``NUCLEOTIDE_CLASSIFICATION``, ``STATE_TRANSITIONS``) — the same
+        default used by :func:`benchmark_gt_vs_pred_single` /
         :func:`benchmark_gt_vs_pred_multiple`, so all entry points agree.
     gt_feature_role_map : dict[str, str] | None
         Maps GT GFF/GTF feature types to benchmark roles.  When ``None``,

@@ -92,6 +92,8 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         # match rate instead of duplicating it as precision and recall.
         "intron_chain/match_rate": ("intron_chain", "precision"),
         "exon_chain/match_rate": ("exon_chain", "precision"),
+        "exon_chain_multi/match_rate": ("exon_chain_multi", "precision"),
+        "exon_chain_single/match_rate": ("exon_chain_single", "precision"),
         "segment_count_delta/mean": ("segment_count_delta", "mean"),
         "segment_count_delta/mae": ("segment_count_delta", "mae"),
         "exon_recall_per_transcript/mean": ("exon_recall_per_transcript",),
@@ -522,8 +524,6 @@ def log_benchmark_media_videos() -> dict[str, Any]:
 def init_wandb_with_presets(
     project: str,
     run_name: str,
-    label_config: LabelConfig,
-    classes: list[int],
     config: dict | None = None,
     **wandb_init_kwargs,
 ) -> Any:
@@ -539,10 +539,6 @@ def init_wandb_with_presets(
         W&B project name.
     run_name : str
         Display name for this run.
-    label_config : LabelConfig
-        Currently unused; kept for API compatibility.
-    classes : list[int]
-        Currently unused; kept for API compatibility.
     config : dict, optional
         Extra configuration to attach to the W&B run (e.g., hyperparameters).
     **wandb_init_kwargs
