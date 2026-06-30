@@ -210,7 +210,7 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         "(array-3' positive), not strand-resolved.",
     ),
     "ts_level_match_rate": PlotMetadata(
-        display_name="Transcript-Level Match Rate",
+        display_name="Transcript-Level Match Rate (Multi-Exon Only)",
         description="Per-tier rate at which a predicted transcript's full chain (its set "
         "of intron/exon boundaries) matches GT. Each tier is all-or-nothing — the fraction "
         "of transcripts whose ENTIRE chain satisfies it. A chain mismatch is booked as both FP "
@@ -222,8 +222,23 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Intron Superset: all GT introns recovered (pred ⊇ GT) — recall-flavoured",
             "Exact exon-chain rate: entire exon boundary chain matches GT exactly",
             "Exon Subset / Superset: analogous set semantics for exons",
+            "Exon-chain tiers count MULTI-exon transcripts only — every bar covers "
+            "transcripts with introns, apples-to-apples with the intron tiers. "
+            "Single-exon genes are reported in their own plot.",
             "Intron boundaries: DONOR.start → ACCEPTOR.end when splice-site labels are "
             "configured (gffcompare semantics); else raw intron-segment boundaries.",
+        ),
+    ),
+    "single_exon_match_rate": PlotMetadata(
+        display_name="Single-Exon Gene Match Rate",
+        description="Fraction of single-exon genes whose single coding segment exactly matches GT "
+        "(start and end both correct). Single-exon transcripts have no introns, so they are "
+        "excluded from the multi-exon chain tiers; this plot reports them on their own. It is a "
+        "sub-category of boundary exactness, surfaced separately so it does not dilute the "
+        "multi-exon chain rates.",
+        bullet_points=(
+            "Single-exon exact match: the one coding segment's (start, end) equals GT exactly",
+            "All-or-nothing per gene, so precision = recall = F1 (the representative match rate)",
         ),
     ),
     "transcript_match": PlotMetadata(

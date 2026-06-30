@@ -231,3 +231,61 @@ def test_large_array_gap_cutoff_falls_back_without_clear_mode_split():
     )
 
     assert cutoff == 200
+
+
+# ---------------------------------------------------------------------------
+# Single-exon vs multi-exon exon-chain split
+# ---------------------------------------------------------------------------
+
+
+def test_single_exon_routes_to_single_bucket_only():
+    """A single-exon transcript scores exon_chain_single; multi buckets stay empty."""
+    res = _chain([(10, 49)], [(10, 49)])
+    assert res["exon_chain_single"] == res["exon_chain"]
+    assert res["exon_chain_multi"] == Counts()
+    assert res["exon_chain_multi_subset"] == Counts()
+    assert res["exon_chain_multi_superset"] == Counts()
+
+
+def test_multi_exon_routes_to_multi_buckets_only():
+    """A multi-exon transcript scores the exon_chain_multi tiers; single stays empty."""
+    gt = [(10, 19), (40, 59), (90, 109)]
+    pred = [(10, 19), (40, 61), (90, 109)]  # one shifted exon -> chain mismatch
+    res = _chain(gt, pred)
+    assert res["exon_chain_multi"] == res["exon_chain"]
+    assert res["exon_chain_multi_subset"] == res["exon_chain_subset"]
+    assert res["exon_chain_multi_superset"] == res["exon_chain_superset"]
+    assert res["exon_chain_single"] == Counts()
+
+
+@pytest.mark.parametrize(
+    "gt, pred",
+    [
+        ([(10, 49)], [(10, 49)]),                              # single, match
+        ([(10, 49)], [(10, 51)]),                              # single, mismatch
+        ([(10, 19), (40, 59), (90, 109)], [(10, 19), (40, 59), (90, 109)]),  # multi, match
+        ([(10, 19), (40, 59), (90, 109)], [(10, 19), (40, 61), (90, 109)]),  # multi, mismatch
+    ],
+)
+def test_single_plus_multi_reconstructs_exon_chain(gt, pred):
+    """exon_chain_single + exon_chain_multi == exon_chain (exact tier) per pair."""
+    res = _chain(gt, pred)
+    assert res["exon_chain_single"] + res["exon_chain_multi"] == res["exon_chain"]
+
+
+def test_combined_single_and_multi_exon_buckets_do_not_bleed():
+    """Accumulated counts: single-exon hit + multi-exon miss stay in separate buckets."""
+    # single-exon, exact match → exon_chain_single tp=1, exon_chain_multi empty
+    single_hit = _chain([(10, 49)], [(10, 49)])
+    # multi-exon, shifted boundary → exon_chain_multi fp=1/fn=1, exon_chain_single empty
+    multi_miss = _chain([(10, 19), (40, 59)], [(10, 19), (40, 61)])
+
+    combined_single = single_hit["exon_chain_single"] + multi_miss["exon_chain_single"]
+    combined_multi = single_hit["exon_chain_multi"] + multi_miss["exon_chain_multi"]
+    combined_total = single_hit["exon_chain"] + multi_miss["exon_chain"]
+
+    # buckets are disjoint: only single contributed a tp, only multi contributed fp/fn
+    assert combined_single == Counts(tp=1)
+    assert combined_multi == Counts(fp=1, fn=1)
+    # additive: the two buckets reconstruct the overall chain count
+    assert combined_single + combined_multi == combined_total

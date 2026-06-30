@@ -178,10 +178,21 @@ def compute_scoped_chain_metrics(
     subset = bool(pred_set) and pred_set <= gt_set
     superset = bool(pred_set) and pred_set >= gt_set
 
+    is_single_exon = len(gt_segs) == 1
     chain_metrics = {
         "exon_chain": Counts(tp=1) if exact else Counts(fp=1, fn=1),
         "exon_chain_subset": Counts(tp=1) if subset else Counts(fp=1, fn=1),
         "exon_chain_superset": Counts(tp=1) if superset else Counts(fp=1, fn=1),
+        # Population-split siblings (additive): the exon_chain* keys above stay
+        # all-transcript; these partition the same per-pair result by single- vs
+        # multi-exon GT.  The inapplicable bucket is empty Counts so each rate's
+        # denominator covers only its population — the same idiom
+        # compute_intron_chain_metrics uses to drop single-exon pairs.  Single-
+        # exon gets the exact tier only.
+        "exon_chain_multi": Counts() if is_single_exon else (Counts(tp=1) if exact else Counts(fp=1, fn=1)),
+        "exon_chain_multi_subset": Counts() if is_single_exon else (Counts(tp=1) if subset else Counts(fp=1, fn=1)),
+        "exon_chain_multi_superset": Counts() if is_single_exon else (Counts(tp=1) if superset else Counts(fp=1, fn=1)),
+        "exon_chain_single": (Counts(tp=1) if exact else Counts(fp=1, fn=1)) if is_single_exon else Counts(),
     }
     chain_metrics.update(_compute_boundary_shift_from_segments(gt_segs, pred_segs))
     chain_metrics.update(_compute_exon_recovery_from_segments(gt_segs, pred_segs))

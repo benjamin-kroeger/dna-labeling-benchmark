@@ -388,6 +388,10 @@ class StructuralAccumulator:
         "exon_chain",
         "exon_chain_subset",
         "exon_chain_superset",
+        "exon_chain_multi",
+        "exon_chain_multi_subset",
+        "exon_chain_multi_superset",
+        "exon_chain_single",
     )
     INTRON_CHAIN_KEYS: ClassVar[tuple] = (
         "intron_chain",

@@ -381,17 +381,20 @@ def compare_multiple_predictions(
 
             # Combined match-rate overview — one figure (x = tier, hue = method),
             # reusing plot_ml_metrics_bar.
-            _PR_KEYS = ("intron_chain", "intron_chain_subset", "intron_chain_superset", "exon_chain", "exon_chain_superset", "exon_chain_subset")
+            _PR_KEYS = ("intron_chain", "intron_chain_subset", "intron_chain_superset", "exon_chain_multi", "exon_chain_multi_superset", "exon_chain_multi_subset")
             # These are whole-chain, all-or-nothing rates (fraction of transcripts
             # whose entire chain matches), NOT per-junction Sn/Sp — the "rate"
-            # wording keeps that distinction explicit.
+            # wording keeps that distinction explicit.  The exon-chain tiers use
+            # the multi-exon-only variants so every bar covers transcripts with
+            # introns (apples-to-apples with the intron tiers, which are already
+            # multi-exon-only); single-exon genes get their own plot below.
             _PR_DISPLAY = {
                 "intron_chain": "Exact intron-chain rate",
                 "intron_chain_subset": "Intron Subset",
                 "intron_chain_superset": "Intron Superset",
-                "exon_chain": "Exact exon-chain rate",
-                "exon_chain_superset": "Exon Superset",
-                "exon_chain_subset": "Exon Subset",
+                "exon_chain_multi": "Exact exon-chain rate",
+                "exon_chain_multi_superset": "Exon Superset",
+                "exon_chain_multi_subset": "Exon Subset",
             }
             _method_scores: dict[str, dict] = {}
             for _, _row in df_sc_scope.iterrows():
@@ -433,6 +436,35 @@ def compare_multiple_predictions(
                 )
                 for _fig in _pr_figs.values():
                     figures[_figure_key("transcript_match_rate", scope, default_scope)] = _fig
+
+            # Single-exon genes — separate view.  These have no introns, so they
+            # are excluded from every tier above; here we just report how often
+            # the single coding exon is exactly right (a sub-category of boundary
+            # exactness).  One bar per method, reusing plot_ml_metrics_bar.
+            _single_rows = []
+            for _, _row in df_sc_scope.iterrows():
+                if _row["metric_key"] == "exon_chain_single" and isinstance(_row["value"], dict):
+                    _v = _row["value"]
+                    _vals = {"Single-exon exact match": _v.get("precision", 0.0)}
+                    _se = _v.get("precision_stderr")
+                    if _se is not None:
+                        _vals["Single-exon exact match_stderr"] = _se
+                    _single_rows.append(
+                        {
+                            "method_name": _row["method_name"],
+                            "metric_group": EvalMetrics.STRUCTURAL_COHERENCE.name,
+                            "metric_key": "single_exon_match_rate",
+                            "value": _vals,
+                        }
+                    )
+            if _single_rows:
+                _df_single = pd.DataFrame(_single_rows)
+                _single_prefix = (output_dir / f"transcript_match_rate{'' if scope == default_scope else f'_{scope}'}") if output_dir else None
+                _single_figs = plot_ml_metrics_bar(
+                    _df_single, class_name, save_path_prefix=_single_prefix, metadata_map=PLOT_METADATA
+                )
+                for _fig in _single_figs.values():
+                    figures[_figure_key("single_exon_match_rate", scope, default_scope)] = _fig
 
             fig = plot_transcript_match_distribution(
                 df_sc_scope,

@@ -7,7 +7,7 @@ transcript-level structure as the ground truth.
 
 ---
 
-## Intron/Exon Chain Match Rate
+## Intron/Exon Chain Match Rate (Multi-Exon Only)
 
 Chain metrics measure whether the complete set of intron or exon boundaries in
 a predicted transcript matches the ground truth. For each chain type the
@@ -21,6 +21,12 @@ benchmark reports three sibling metrics:
 - `{chain}_superset` — true when the predicted set is a superset of GT (every
   GT boundary is recovered). This is recall-oriented: it penalises missed
   boundaries.
+
+**Population scope:** the exon-chain tiers (`exon_chain_multi`,
+`exon_chain_multi_subset`, `exon_chain_multi_superset`) cover **multi-exon
+transcripts only**, keeping them apples-to-apples with the intron-chain tiers
+(which are inherently multi-exon). Single-exon genes are reported separately
+— see [Single-Exon Match Rate](#single-exon-gene-match-rate) below.
 
 For a single (GT, prediction) pair the strict metric is all-or-nothing:
 
@@ -72,7 +78,25 @@ enable intron inference at the public entry points (e.g. pass
 `infer_introns=True` to `benchmark_gt_vs_pred_single` /
 `benchmark_gt_vs_pred_multiple`).
 
-![Intron/exon chain match rate](../images/transcript_match_rate.png)
+![Intron/exon chain match rate (multi-exon only)](../images/transcript_match_rate.png)
+
+---
+
+## Single-Exon Gene Match Rate
+
+Single-exon transcripts have no introns, so they are excluded from all
+chain-tier plots above. The single-exon match rate reports how often the one
+coding segment's `(start, end)` matches GT exactly — an all-or-nothing
+boundary check surfaced in its own plot so it does not dilute the multi-exon
+chain rates.
+
+Because a chain mismatch is booked as both FP and FN, precision = recall = F1
+here too; one representative match rate is reported per method.
+
+The key accumulated is `exon_chain_single`; single-exon pairs contribute
+nothing to `exon_chain_multi*` and vice versa.
+
+![Single-exon gene match rate](../images/single_exon_match_rate.png)
 
 ---
 
