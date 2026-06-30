@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import numpy as np
 
 from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
@@ -16,37 +14,7 @@ from dna_segmentation_benchmark.wandb_logger import (
     log_benchmark_scalars,
 )
 
-
-class _FakeWandb:
-    class Image:
-        def __init__(self, fig):
-            self.fig = fig
-
-    class Video:
-        def __init__(self, data, fps, format):
-            self.data = data
-            self.fps = fps
-            self.format = format
-
-    class Table:
-        def __init__(self, columns, data):
-            self.columns = columns
-            self.data = data
-
-    def __init__(self):
-        self.logged: list[dict] = []
-        self.defined_metrics: list[str] = []
-        self.inits: list[dict] = []
-
-    def log(self, data, step=None):
-        self.logged.append({"data": data, "step": step})
-
-    def define_metric(self, pattern):
-        self.defined_metrics.append(pattern)
-
-    def init(self, **kwargs):
-        self.inits.append(kwargs)
-        return SimpleNamespace(**kwargs)
+from support.wandb_stub import FakeWandb
 
 
 def _boundary_landscape_fixture():
@@ -74,12 +42,7 @@ def _false_transition_fixture():
     }
 
 
-def test_log_benchmark_scalars_logs_only_selected_online_metrics(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_scalars_logs_only_selected_online_metrics(wandb_stub):
 
     results = {
         "BOUNDARY_EXACTNESS": {
@@ -112,8 +75,8 @@ def test_log_benchmark_scalars_logs_only_selected_online_metrics(monkeypatch):
         method_prefix="val",
     )
 
-    assert fake_wandb.logged[0]["step"] == 7
-    assert fake_wandb.logged[0]["data"] == logged
+    assert wandb_stub.logged[0]["step"] == 7
+    assert wandb_stub.logged[0]["data"] == logged
     assert set(logged.keys()) == {
         "val/boundary_exactness/iou_mean",
         "val/region_discovery/neighborhood_hit/precision",
@@ -142,12 +105,7 @@ def test_log_benchmark_scalars_logs_only_selected_online_metrics(monkeypatch):
     assert logged["val/nucleotide_classification/nucleotide/f1"] == 0.97
 
 
-def test_log_benchmark_scalars_includes_diagnostic_depth_metrics(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_scalars_includes_diagnostic_depth_metrics(wandb_stub):
 
     results = {
         "DIAGNOSTIC_DEPTH": {
@@ -163,12 +121,7 @@ def test_log_benchmark_scalars_includes_diagnostic_depth_metrics(monkeypatch):
     assert logged["diagnostic_depth/length_emd/mae"] == 15.0
 
 
-def test_log_benchmark_scalars_includes_splice_site_metrics(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_scalars_includes_splice_site_metrics(wandb_stub):
 
     results = {
         "STRUCTURAL_COHERENCE": {
@@ -193,12 +146,7 @@ def test_log_benchmark_scalars_includes_splice_site_metrics(monkeypatch):
     assert logged["struct_coherence/splice_site_results/acceptor_recall"] == 0.88
 
 
-def test_log_benchmark_scalars_skips_missing_splice_site_results(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_scalars_skips_missing_splice_site_results(wandb_stub):
 
     results = {
         "STRUCTURAL_COHERENCE": {
@@ -214,12 +162,7 @@ def test_log_benchmark_scalars_skips_missing_splice_site_results(monkeypatch):
     assert "struct_coherence/intron_chain/match_rate" in logged
 
 
-def test_log_benchmark_all_scalars_logs_everything(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_all_scalars_logs_everything(wandb_stub):
 
     results = {
         "BOUNDARY_EXACTNESS": {
@@ -235,7 +178,7 @@ def test_log_benchmark_all_scalars_logs_everything(monkeypatch):
 
     logged = log_benchmark_all_scalars(results, BEND_LABEL_CONFIG, step=5, method_prefix="final")
 
-    assert fake_wandb.logged[0]["step"] == 5
+    assert wandb_stub.logged[0]["step"] == 5
     assert "final/boundary_exactness/iou_stats/mean" in logged
     assert "final/boundary_exactness/iou_stats/std" in logged
     assert "final/nucleotide_classification/nucleotide/precision" in logged
@@ -247,12 +190,7 @@ def test_log_benchmark_all_scalars_logs_everything(monkeypatch):
     )
 
 
-def test_log_benchmark_all_scalars_unwraps_pipeline_wrapper(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_all_scalars_unwraps_pipeline_wrapper(wandb_stub):
 
     results = {
         "aggregated": {
@@ -266,12 +204,7 @@ def test_log_benchmark_all_scalars_unwraps_pipeline_wrapper(monkeypatch):
     assert "boundary_exactness/iou_stats/mean" in logged
 
 
-def test_log_benchmark_media_logs_boundary_position_and_transition_plots(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_media_logs_boundary_position_and_transition_plots(wandb_stub):
     clear_benchmark_media_video_buffer()
 
     results = {
@@ -301,24 +234,19 @@ def test_log_benchmark_media_logs_boundary_position_and_transition_plots(monkeyp
         method_prefix="val",
     )
 
-    assert fake_wandb.logged[0]["step"] == 3
-    assert fake_wandb.logged[0]["data"] == logged
+    assert wandb_stub.logged[0]["step"] == 3
+    assert wandb_stub.logged[0]["data"] == logged
     assert set(logged.keys()) == {
         "val/plots/boundary_landscape",
         "val/plots/position_bias",
         "val/plots/transition_matrices",
         "val/plots/false_transitions",
     }
-    assert all(isinstance(value, _FakeWandb.Image) for value in logged.values())
+    assert all(isinstance(value, FakeWandb.Image) for value in logged.values())
 
 
-def test_log_benchmark_media_logs_all_figures_as_images(monkeypatch):
+def test_log_benchmark_media_logs_all_figures_as_images(wandb_stub):
     """Every figure produced by the plotting layer is logged, not just a hardcoded subset."""
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
     clear_benchmark_media_video_buffer()
 
     results = {
@@ -344,17 +272,12 @@ def test_log_benchmark_media_logs_all_figures_as_images(monkeypatch):
     logged = log_benchmark_media(results, BEND_LABEL_CONFIG, step=1)
 
     # All logged values are Image objects — no figure is silently dropped
-    assert all(isinstance(v, _FakeWandb.Image) for v in logged.values())
+    assert all(isinstance(v, FakeWandb.Image) for v in logged.values())
     # All keys are under plots/
     assert all(k.startswith("plots/") for k in logged.keys())
 
 
-def test_log_benchmark_media_buffers_frames_for_video_generation(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_media_buffers_frames_for_video_generation(wandb_stub):
     clear_benchmark_media_video_buffer()
 
     results = {
@@ -392,20 +315,15 @@ def test_log_benchmark_media_buffers_frames_for_video_generation(monkeypatch):
         "plots/false_transitions_video",
     }
     for video in logged.values():
-        assert isinstance(video, _FakeWandb.Video)
+        assert isinstance(video, FakeWandb.Video)
         assert video.data.ndim == 4
         assert video.data.shape[1] == 3
 
 
-def test_log_benchmark_media_only_buffers_video_buffer_figures(monkeypatch):
+def test_log_benchmark_media_only_buffers_video_buffer_figures(wandb_stub):
     """Figures not in _VIDEO_BUFFER_FIGURE_KEYS are logged as images but not buffered."""
     from dna_segmentation_benchmark.wandb_logger import _BUFFERED_MEDIA_FRAMES, _VIDEO_BUFFER_FIGURE_KEYS
 
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
     clear_benchmark_media_video_buffer()
 
     results = {
@@ -440,12 +358,7 @@ def test_log_benchmark_media_only_buffers_video_buffer_figures(monkeypatch):
     assert all(k.startswith("val/plots/") for k in logged)
 
 
-def test_log_benchmark_media_videos_normalizes_frame_shapes(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_log_benchmark_media_videos_normalizes_frame_shapes(wandb_stub, monkeypatch):
     clear_benchmark_media_video_buffer()
     monkeypatch.setattr(
         "dna_segmentation_benchmark.wandb_logger._BUFFERED_MEDIA_FRAMES",
@@ -459,21 +372,16 @@ def test_log_benchmark_media_videos_normalizes_frame_shapes(monkeypatch):
 
     logged = log_benchmark_media_videos()
 
-    assert fake_wandb.logged[0]["step"] is None
+    assert wandb_stub.logged[0]["step"] is None
     assert set(logged.keys()) == {"val/plots/position_bias_video"}
     video = logged["val/plots/position_bias_video"]
-    assert isinstance(video, _FakeWandb.Video)
+    assert isinstance(video, FakeWandb.Video)
     assert video.fps == 2
     assert video.format == "gif"
     assert video.data.shape == (2, 3, 20, 30)
 
 
-def test_init_wandb_with_presets_uses_metric_family_grouping(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
-        lambda: fake_wandb,
-    )
+def test_init_wandb_with_presets_uses_metric_family_grouping(wandb_stub):
 
     init_wandb_with_presets(
         project="demo-project",
@@ -482,17 +390,17 @@ def test_init_wandb_with_presets_uses_metric_family_grouping(monkeypatch):
         classes=[0, 2],
     )
 
-    assert "region_discovery/*" in fake_wandb.defined_metrics
-    assert "boundary_exactness/*" in fake_wandb.defined_metrics
-    assert "struct_coherence/*" in fake_wandb.defined_metrics
-    assert "diagnostic_depth/*" in fake_wandb.defined_metrics
-    assert "nucleotide_classification/*" in fake_wandb.defined_metrics
-    assert "val/region_discovery/*" in fake_wandb.defined_metrics
-    assert "val/boundary_exactness/*" in fake_wandb.defined_metrics
-    assert "val/struct_coherence/*" in fake_wandb.defined_metrics
-    assert "plots/*" in fake_wandb.defined_metrics
-    assert "val/*" in fake_wandb.defined_metrics
-    assert "val/plots/*" in fake_wandb.defined_metrics
+    assert "region_discovery/*" in wandb_stub.defined_metrics
+    assert "boundary_exactness/*" in wandb_stub.defined_metrics
+    assert "struct_coherence/*" in wandb_stub.defined_metrics
+    assert "diagnostic_depth/*" in wandb_stub.defined_metrics
+    assert "nucleotide_classification/*" in wandb_stub.defined_metrics
+    assert "val/region_discovery/*" in wandb_stub.defined_metrics
+    assert "val/boundary_exactness/*" in wandb_stub.defined_metrics
+    assert "val/struct_coherence/*" in wandb_stub.defined_metrics
+    assert "plots/*" in wandb_stub.defined_metrics
+    assert "val/*" in wandb_stub.defined_metrics
+    assert "val/plots/*" in wandb_stub.defined_metrics
 
 
 def test_compare_multiple_predictions_uses_generic_transition_key_for_single_method():

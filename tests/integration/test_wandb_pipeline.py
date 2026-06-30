@@ -2,7 +2,7 @@
 
 The unit tests in ``test_wandb_logger.py`` feed the logger hand-built result
 dicts.  These tests instead run the actual ``benchmark_from_gff`` pipeline and
-push its output through the logger (via the ``_FakeWandb`` stub), so the logger
+push its output through the logger (via the ``FakeWandb`` stub), so the logger
 and the pipeline result schema are verified together — a change to either that
 desyncs them is caught here.
 """
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import pytest
 
-from dna_segmentation_benchmark.eval.evaluate_predictors import EvalMetrics
 from dna_segmentation_benchmark.pipeline import benchmark_from_gff
 from dna_segmentation_benchmark.transcript_mapping import LocusMatchingMode
 from dna_segmentation_benchmark.wandb_logger import (
@@ -22,15 +21,8 @@ from dna_segmentation_benchmark.wandb_logger import (
     log_benchmark_scalars,
 )
 
-from conftest import _FakeWandb
-
-METRICS = [
-    EvalMetrics.REGION_DISCOVERY,
-    EvalMetrics.BOUNDARY_EXACTNESS,
-    EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
-    EvalMetrics.STRUCTURAL_COHERENCE,
-    EvalMetrics.DIAGNOSTIC_DEPTH,
-]
+from support.constants import MEDIA_METRICS
+from support.wandb_stub import FakeWandb
 
 
 @pytest.fixture
@@ -40,7 +32,7 @@ def pipeline_result(gencode_gtf, augustus_gff, exon_intron_config):
         gt_path=gencode_gtf,
         pred_paths={"augustus": augustus_gff},
         label_config=exon_intron_config,
-        metrics=METRICS,
+        metrics=MEDIA_METRICS,
         locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
         infer_introns=True,
     )
@@ -89,12 +81,12 @@ def test_log_media_and_videos_from_real_output(pipeline_result, exon_intron_conf
     media = log_benchmark_media(aggregated, exon_intron_config, step=1, method_prefix="val")
 
     assert media  # at least one figure produced from real results
-    assert all(isinstance(v, _FakeWandb.Image) for v in media.values())
+    assert all(isinstance(v, FakeWandb.Image) for v in media.values())
     assert all(key.startswith("val/plots/") for key in media)
 
     videos = log_benchmark_media_videos()
     assert videos  # buffered figures (e.g. transition matrices) became videos
-    assert all(isinstance(v, _FakeWandb.Video) for v in videos.values())
+    assert all(isinstance(v, FakeWandb.Video) for v in videos.values())
     assert all(key.endswith("_video") for key in videos)
 
 

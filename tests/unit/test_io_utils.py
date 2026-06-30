@@ -16,23 +16,13 @@ from dna_segmentation_benchmark.io_utils import (
     collect_gff,
     read_gff_to_arrays,
 )
-from pathlib import Path
-from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
+
+from support.gff import UTR_ROLE_MAP
 
 
 # ------------------------------------------------------------------
-# Fixtures
+# Fixtures (``simple_config`` / ``utr_config`` come from conftest)
 # ------------------------------------------------------------------
-
-
-@pytest.fixture
-def simple_config():
-    """Two-token label config (coding=0, background=1)."""
-    return LabelConfig(
-        annotation_mode=AnnotationMode.EXON_INTRON,
-        background_label=1,
-        exon_label=0,
-    )
 
 
 @pytest.fixture
@@ -87,17 +77,6 @@ chr1\tTest\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=u3;Parent=tx1
     f = tmp_path / "utr.gff"
     f.write_text(content)
     return str(f)
-
-
-@pytest.fixture
-def utr_config():
-    return LabelConfig(
-        annotation_mode=AnnotationMode.UTR_CDS_INTRON,
-        background_label=9,
-        five_prime_utr_label=4,
-        cds_label=0,
-        three_prime_utr_label=5,
-    )
 
 
 # ------------------------------------------------------------------
@@ -227,11 +206,7 @@ def test_utr_cds_feature_role_painting(utr_gff, utr_config):
     arrays = read_gff_to_arrays(
         utr_gff,
         utr_config,
-        feature_role_map={
-            "five_prime_UTR": "five_prime_utr",
-            "CDS": "cds",
-            "three_prime_UTR": "three_prime_utr",
-        },
+        feature_role_map=UTR_ROLE_MAP,
     )
 
     arr = arrays["tx1_+"]

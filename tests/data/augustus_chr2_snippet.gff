@@ -1,0 +1,21 @@
+##gff-version 3
+chr2	AUGUSTUS	gene	1100	2700	.	+	.	ID=g1
+chr2	AUGUSTUS	transcript	1100	2700	.	+	.	ID=g1.t1;Parent=g1
+chr2	AUGUSTUS	start_codon	1100	1102	.	+	0	Parent=g1.t1
+chr2	AUGUSTUS	CDS	1100	1200	.	+	0	ID=g1.t1.cds;Parent=g1.t1
+chr2	AUGUSTUS	CDS	1500	1700	.	+	0	ID=g1.t1.cds;Parent=g1.t1
+chr2	AUGUSTUS	CDS	2500	2700	.	+	0	ID=g1.t1.cds;Parent=g1.t1
+chr2	AUGUSTUS	stop_codon	2698	2700	.	+	0	Parent=g1.t1
+chr2	AUGUSTUS	gene	5100	6800	.	-	.	ID=g2
+chr2	AUGUSTUS	transcript	5100	6800	.	-	.	ID=g2.t1;Parent=g2
+chr2	AUGUSTUS	start_codon	6798	6800	.	-	0	Parent=g2.t1
+chr2	AUGUSTUS	CDS	5100	5300	.	-	0	ID=g2.t1.cds;Parent=g2.t1
+chr2	AUGUSTUS	CDS	5600	5800	.	-	0	ID=g2.t1.cds;Parent=g2.t1
+chr2	AUGUSTUS	CDS	6500	6800	.	-	0	ID=g2.t1.cds;Parent=g2.t1
+chr2	AUGUSTUS	stop_codon	5100	5102	.	-	0	Parent=g2.t1
+chr2	AUGUSTUS	gene	8060	8400	.	+	.	ID=g3
+chr2	AUGUSTUS	transcript	8060	8400	.	+	.	ID=g3.t1;Parent=g3
+chr2	AUGUSTUS	CDS	8060	8400	.	+	0	ID=g3.t1.cds;Parent=g3.t1
+chr2	AUGUSTUS	gene	9000	9300	.	+	.	ID=g4
+chr2	AUGUSTUS	transcript	9000	9300	.	+	.	ID=g4.t1;Parent=g4
+chr2	AUGUSTUS	CDS	9000	9300	.	+	0	ID=g4.t1.cds;Parent=g4.t1

@@ -14,12 +14,11 @@ from dna_segmentation_benchmark.eval.splice_sites import eval_splice_site_juncti
 from dna_segmentation_benchmark.eval.structure import ExtractedStructure, Segment
 from dna_segmentation_benchmark.label_definition import LabelConfig, AnnotationMode
 
-# Label constants (matching BEND_LABEL_CONFIG conventions)
-EXON, DONOR, INTRON, ACCEPTOR, BG = 0, 1, 2, 3, 8
+from support.constants import ACCEPTOR, DONOR, EXON, INTRON, NONCODING
 
 CFG = LabelConfig(
     annotation_mode=AnnotationMode.EXON_INTRON,
-    background_label=BG,
+    background_label=NONCODING,
     exon_label=EXON,
     intron_label=INTRON,
     splice_donor_label=DONOR,

@@ -9,10 +9,8 @@ from dna_segmentation_benchmark.label_definition import (
     BEND_LABEL_CONFIG,
 )
 
-# ------------------------------------------------------------------
-# Convenience token constants
-# ------------------------------------------------------------------
-EXON, DONOR, INTRON, ACCEPTOR, NONCODING = 0, 1, 2, 3, 8
+# Label tokens (background=8, exon=0, donor=1, intron=2, acceptor=3) are written
+# as literals in the arrays below; the structural comments name them.
 
 # A second label set to prove label-agnosticism
 CUSTOM_CONFIG = LabelConfig(

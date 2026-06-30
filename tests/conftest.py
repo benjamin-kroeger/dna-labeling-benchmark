@@ -1,15 +1,19 @@
-"""Shared fixtures and helpers for the integration tests.
+"""Shared fixtures for the test suite.
+
+Importable shared *code* (the W&B stub, GFF helpers, parametrized case data and
+the metric-comparison machinery) lives in the ``support`` package; this module
+holds only the pytest *fixtures* that wrap it.
 
 Provides:
 
-* Paths to the committed dummy GENCODE / Augustus fixtures (swap in real
-  trimmed data later — see ``tests/fixtures/_make_dummy_fixtures.py``).
-* Label-config fixtures for the two annotation modes the suite exercises.
-* GFF3 (de)serialisation helpers that turn a normalised ``collect_gff``
-  DataFrame back into a file, so known-answer *predictions* can be derived by
-  perturbing the ground truth (controlled-mutant approach).
-* A ``_FakeWandb`` stub + ``wandb_stub`` fixture so the W&B logger can be
-  driven by real pipeline output without a live W&B run.
+* Paths to the committed dummy GENCODE / Augustus sample files under ``data/``
+  (swap in real trimmed data later — see ``tests/data/_make_dummy_fixtures.py``).
+* Label-config fixtures for the annotation modes the suite exercises.
+* GFF3 (de)serialisation + perturbation helpers (re-exported from
+  ``support.gff``) so known-answer predictions can be derived by perturbing the
+  ground truth (controlled-mutant approach).
+* A ``wandb_stub`` fixture backed by ``support.wandb_stub.FakeWandb`` so the W&B
+  logger can be driven by real pipeline output without a live W&B run.
 """
 
 from __future__ import annotations
@@ -18,13 +22,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import matplotlib
-import numpy as np
 import pandas as pd
 import pytest
 
 matplotlib.use("Agg")  # headless figure rendering for the media tests
 
-from dna_segmentation_benchmark.io_utils import DEFAULT_TRANSCRIPT_TYPES, collect_gff
+from dna_segmentation_benchmark.io_utils import collect_gff
 from dna_segmentation_benchmark.label_definition import (
     AnnotationMode,
     BEND_LABEL_CONFIG,
@@ -32,9 +35,12 @@ from dna_segmentation_benchmark.label_definition import (
     LabelConfig,
 )
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-GENCODE_GTF = FIXTURES_DIR / "gencode_chr2_snippet.gtf"
-AUGUSTUS_GFF = FIXTURES_DIR / "augustus_chr2_snippet.gff"
+from support import gff
+from support.wandb_stub import FakeWandb
+
+DATA_DIR = Path(__file__).parent / "data"
+GENCODE_GTF = DATA_DIR / "gencode_chr2_snippet.gtf"
+AUGUSTUS_GFF = DATA_DIR / "augustus_chr2_snippet.gff"
 
 # Transcript on Gene A — the multi-exon protein-coding gene used as the base
 # for the controlled-mutant prediction tests.
@@ -42,7 +48,7 @@ TARGET_TRANSCRIPT = "ENSTA"
 
 
 # ---------------------------------------------------------------------------
-# Fixture paths and label configs
+# Sample-file paths and label configs
 # ---------------------------------------------------------------------------
 
 
@@ -83,97 +89,74 @@ def cds_config() -> LabelConfig:
     )
 
 
-# ---------------------------------------------------------------------------
-# GFF3 (de)serialisation + perturbation helpers
-# ---------------------------------------------------------------------------
-
-
-def write_gff3(df: pd.DataFrame, path, transcript_types: list[str] | None = None) -> str:
-    """Serialise a normalised ``collect_gff`` DataFrame back to a GFF3 file.
-
-    Reconstructs transcript rows (``ID=<gff_id>``) and their child features
-    (``Parent=<transcript gff_id>``).  Gene rows (no parent) are dropped; the
-    pipeline only needs transcripts and their children.
-    """
-    transcript_types = transcript_types or list(DEFAULT_TRANSCRIPT_TYPES)
-    lines = ["##gff-version 3"]
-
-    for row in df.itertuples(index=False):
-        if row.type in transcript_types:
-            lines.append(
-                "\t".join(
-                    [str(row.seqid), "test", str(row.type), str(int(row.start)),
-                     str(int(row.end)), ".", str(row.strand), ".", f"ID={row.gff_id}"]
-                )
-            )
-
-    counters: dict[tuple, int] = {}
-    for row in df.itertuples(index=False):
-        if row.type in transcript_types or pd.isna(row.parent):
-            continue
-        idx = counters.get((row.parent, row.type), 0)
-        counters[(row.parent, row.type)] = idx + 1
-        lines.append(
-            "\t".join(
-                [str(row.seqid), "test", str(row.type), str(int(row.start)),
-                 str(int(row.end)), ".", str(row.strand), ".",
-                 f"ID={row.parent}.{row.type}.{idx};Parent={row.parent}"]
-            )
-        )
-
-    Path(path).write_text("\n".join(lines) + "\n")
-    return str(path)
-
-
-def transcript_subset(df: pd.DataFrame, transcript_id: str) -> pd.DataFrame:
-    """Return the transcript row + child rows for one transcript."""
-    is_tx = df["type"].isin(DEFAULT_TRANSCRIPT_TYPES) & (df["gff_id"] == transcript_id)
-    is_child = ~df["type"].isin(DEFAULT_TRANSCRIPT_TYPES) & (df["parent"] == transcript_id)
-    return df[is_tx | is_child].copy()
-
-
-def drop_internal_exon(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove the middle exon (and any CDS inside it) — simulates exon skipping."""
-    exons = df[df["type"] == "exon"].sort_values("start")
-    if len(exons) < 3:
-        raise ValueError("drop_internal_exon needs a transcript with >= 3 exons.")
-    middle = exons.iloc[len(exons) // 2]
-    inside_cds = (
-        (df["type"] == "CDS")
-        & (df["start"] >= middle.start)
-        & (df["end"] <= middle.end)
+@pytest.fixture
+def simple_config() -> LabelConfig:
+    """Minimal two-token EXON_INTRON config (background=1, exon=0)."""
+    return LabelConfig(
+        annotation_mode=AnnotationMode.EXON_INTRON,
+        background_label=1,
+        exon_label=0,
     )
-    return df[~((df.index == middle.name) | inside_cds)].copy()
 
 
-def extend_first_cds(df: pd.DataFrame, delta: int = 1) -> pd.DataFrame:
-    """Extend the first CDS by ``delta`` bp — simulates a small CDS indel."""
-    df = df.copy()
-    first_cds = df[df["type"] == "CDS"].sort_values("start").index[0]
-    df.loc[first_cds, "end"] = int(df.loc[first_cds, "end"]) + delta
-    return df
+@pytest.fixture
+def utr_config() -> LabelConfig:
+    """UTR_CDS_INTRON config at the default transcript-exon scope (background=9)."""
+    return LabelConfig(
+        annotation_mode=AnnotationMode.UTR_CDS_INTRON,
+        background_label=9,
+        five_prime_utr_label=4,
+        cds_label=0,
+        three_prime_utr_label=5,
+    )
 
 
-def merge_first_two_exons(df: pd.DataFrame) -> pd.DataFrame:
-    """Fuse the first two exons into one — simulates intron retention."""
-    df = df.copy()
-    exons = df[df["type"] == "exon"].sort_values("start")
-    if len(exons) < 2:
-        raise ValueError("merge_first_two_exons needs a transcript with >= 2 exons.")
-    first, second = exons.iloc[0], exons.iloc[1]
-    df.loc[first.name, "end"] = int(second.end)
-    return df.drop(index=second.name)
+# ---------------------------------------------------------------------------
+# Shared UTR/CDS GFF sample files
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def utr_gt_gff(tmp_path) -> str:
+    """Ground truth with explicit 5'UTR / CDS / 3'UTR roles for one transcript."""
+    return gff.write_gff(
+        tmp_path / "utr_gt.gff",
+        [
+            "chr1\tTest\tmRNA\t1\t30\t.\t+\t.\tID=gt_tx1",
+            "chr1\tTest\tfive_prime_UTR\t1\t5\t.\t+\t.\tID=gt_u5;Parent=gt_tx1",
+            "chr1\tTest\tCDS\t6\t20\t.\t+\t0\tID=gt_cds;Parent=gt_tx1",
+            "chr1\tTest\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=gt_u3;Parent=gt_tx1",
+        ],
+    )
+
+
+@pytest.fixture
+def utr_pred_gff(tmp_path) -> str:
+    """Prediction with a 5'UTR over-extended into the CDS region (no CDS feature)."""
+    return gff.write_gff(
+        tmp_path / "utr_pred.gff",
+        [
+            "chr1\tPred\tmRNA\t1\t30\t.\t+\t.\tID=pred_tx1",
+            "chr1\tPred\tfive_prime_UTR\t1\t20\t.\t+\t.\tID=pred_u5;Parent=pred_tx1",
+            "chr1\tPred\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=pred_u3;Parent=pred_tx1",
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# GFF3 perturbation helpers (controlled mutants)
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def gff3_tools():
-    """Bundle of GFF3 (de)serialisation + perturbation helpers."""
+    """Bundle of GFF3 (de)serialisation + perturbation helpers (from support.gff)."""
     return SimpleNamespace(
-        write_gff3=write_gff3,
-        transcript_subset=transcript_subset,
-        drop_internal_exon=drop_internal_exon,
-        extend_first_cds=extend_first_cds,
-        merge_first_two_exons=merge_first_two_exons,
+        write_gff3=gff.write_gff3,
+        transcript_subset=gff.transcript_subset,
+        drop_internal_exon=gff.drop_internal_exon,
+        extend_first_cds=gff.extend_first_cds,
+        merge_first_two_exons=gff.merge_first_two_exons,
         target_transcript=TARGET_TRANSCRIPT,
     )
 
@@ -183,44 +166,10 @@ def gff3_tools():
 # ---------------------------------------------------------------------------
 
 
-class _FakeWandb:
-    """Minimal in-memory stand-in for the ``wandb`` module."""
-
-    class Image:
-        def __init__(self, fig):
-            self.fig = fig
-
-    class Video:
-        def __init__(self, data, fps, format):
-            self.data = data
-            self.fps = fps
-            self.format = format
-
-    class Table:
-        def __init__(self, columns, data):
-            self.columns = columns
-            self.data = data
-
-    def __init__(self):
-        self.logged: list[dict] = []
-        self.defined_metrics: list[str] = []
-        self.inits: list[dict] = []
-
-    def log(self, data, step=None):
-        self.logged.append({"data": data, "step": step})
-
-    def define_metric(self, pattern):
-        self.defined_metrics.append(pattern)
-
-    def init(self, **kwargs):
-        self.inits.append(kwargs)
-        return SimpleNamespace(**kwargs)
-
-
 @pytest.fixture
-def wandb_stub(monkeypatch) -> _FakeWandb:
-    """Patch the logger's wandb accessor with a fresh ``_FakeWandb`` and return it."""
-    fake = _FakeWandb()
+def wandb_stub(monkeypatch) -> FakeWandb:
+    """Patch the logger's wandb accessor with a fresh ``FakeWandb`` and return it."""
+    fake = FakeWandb()
     monkeypatch.setattr(
         "dna_segmentation_benchmark.wandb_logger._require_wandb",
         lambda: fake,

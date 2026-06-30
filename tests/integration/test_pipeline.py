@@ -22,12 +22,8 @@ from dna_segmentation_benchmark.transcript_mapping import (
     map_transcripts,
 )
 
-EXON_INTRON_METRICS = [
-    EvalMetrics.REGION_DISCOVERY,
-    EvalMetrics.BOUNDARY_EXACTNESS,
-    EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
-    EvalMetrics.STRUCTURAL_COHERENCE,
-]
+from support.constants import CORE_METRICS
+from support.gff import write_gff
 
 
 def _nucleotide(result: dict, predictor: str) -> dict:
@@ -45,7 +41,7 @@ def test_pipeline_runs_end_to_end_gencode_vs_augustus(gencode_gtf, augustus_gff,
         gt_path=gencode_gtf,
         pred_paths={"augustus": augustus_gff},
         label_config=exon_intron_config,
-        metrics=EXON_INTRON_METRICS,
+        metrics=CORE_METRICS,
         locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
         infer_introns=True,
     )
@@ -54,7 +50,7 @@ def test_pipeline_runs_end_to_end_gencode_vs_augustus(gencode_gtf, augustus_gff,
     assert set(results["augustus"]) == {"aggregated", "global"}
 
     aggregated = results["augustus"]["aggregated"]
-    for metric in EXON_INTRON_METRICS:
+    for metric in CORE_METRICS:
         assert metric.name in aggregated
     assert aggregated["metadata"]["annotation_mode"] == "EXON_INTRON"
 
@@ -111,7 +107,7 @@ def test_identity_prediction_is_perfect(gencode_gtf, exon_intron_config):
         gt_path=gencode_gtf,
         pred_paths={"perfect": gencode_gtf},
         label_config=exon_intron_config,
-        metrics=EXON_INTRON_METRICS,
+        metrics=CORE_METRICS,
         infer_introns=True,
     )
     nuc = _nucleotide(results, "perfect")
@@ -350,13 +346,13 @@ def test_cds_scope_mode_runs_and_populates_metrics(gencode_gtf, augustus_gff, cd
 
 def _strand_gene(path, strand, exons, txid):
     """Write a tiny single-transcript GFF3 with exon==CDS structure."""
-    lines = ["##gff-version 3"]
     start, end = exons[0][0], exons[-1][1]
-    lines.append(f"chr9\tT\ttranscript\t{start}\t{end}\t.\t{strand}\t.\tID={txid}")
-    for i, (a, b) in enumerate(exons):
-        lines.append(f"chr9\tT\texon\t{a}\t{b}\t.\t{strand}\t.\tID={txid}.e{i};Parent={txid}")
-    path.write_text("\n".join(lines) + "\n")
-    return str(path)
+    rows = [f"chr9\tT\ttranscript\t{start}\t{end}\t.\t{strand}\t.\tID={txid}"]
+    rows += [
+        f"chr9\tT\texon\t{a}\t{b}\t.\t{strand}\t.\tID={txid}.e{i};Parent={txid}"
+        for i, (a, b) in enumerate(exons)
+    ]
+    return write_gff(path, rows)
 
 
 def test_minus_strand_orientation_symmetry(exon_intron_config, tmp_path):

@@ -15,7 +15,6 @@ import pandas as pd
 import pytest
 
 from dna_segmentation_benchmark.io_utils import collect_gff
-from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
 from dna_segmentation_benchmark.transcript_mapping import (
     LocusMatchingMode,
     MatchClass,
@@ -28,20 +27,13 @@ from dna_segmentation_benchmark.transcript_mapping import (
     map_transcripts,
 )
 
+from support.gff import UTR_ROLE_MAP, UTR_ROLE_MAP_NO_CDS, write_gff
+
 
 # ------------------------------------------------------------------
-# Fixtures
+# Fixtures (``simple_config`` / ``utr_config`` / ``utr_gt_gff`` /
+# ``utr_pred_gff`` come from conftest)
 # ------------------------------------------------------------------
-
-
-@pytest.fixture
-def simple_label_config():
-    """A minimal two-token label config."""
-    return LabelConfig(
-        annotation_mode=AnnotationMode.EXON_INTRON,
-        background_label=1,
-        exon_label=0,
-    )
 
 
 @pytest.fixture
@@ -201,44 +193,6 @@ chr1\tPredOver\tmRNA\t1\t150\t.\t+\t.\tID=pred_over
 chr1\tPredOver\tCDS\t10\t120\t.\t+\t0\tID=pred_over_cds;Parent=pred_over
 """
     f = tmp_path / "pred_over.gff"
-    f.write_text(content)
-    return str(f)
-
-
-@pytest.fixture
-def utr_label_config():
-    return LabelConfig(
-        annotation_mode=AnnotationMode.UTR_CDS_INTRON,
-        background_label=9,
-        five_prime_utr_label=4,
-        cds_label=0,
-        three_prime_utr_label=5,
-    )
-
-
-@pytest.fixture
-def utr_gt_gff(tmp_path):
-    content = """\
-##gff-version 3
-chr1\tTest\tmRNA\t1\t30\t.\t+\t.\tID=gt_tx1
-chr1\tTest\tfive_prime_UTR\t1\t5\t.\t+\t.\tID=gt_u5;Parent=gt_tx1
-chr1\tTest\tCDS\t6\t20\t.\t+\t0\tID=gt_cds;Parent=gt_tx1
-chr1\tTest\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=gt_u3;Parent=gt_tx1
-"""
-    f = tmp_path / "utr_gt.gff"
-    f.write_text(content)
-    return str(f)
-
-
-@pytest.fixture
-def utr_pred_gff(tmp_path):
-    content = """\
-##gff-version 3
-chr1\tPred\tmRNA\t1\t30\t.\t+\t.\tID=pred_tx1
-chr1\tPred\tfive_prime_UTR\t1\t20\t.\t+\t.\tID=pred_u5;Parent=pred_tx1
-chr1\tPred\tthree_prime_UTR\t21\t30\t.\t+\t.\tID=pred_u3;Parent=pred_tx1
-"""
-    f = tmp_path / "utr_pred.gff"
     f.write_text(content)
     return str(f)
 
@@ -624,35 +578,30 @@ class TestBestPerLocusOverlapVsMiss:
     """An overlapping-but-wrong prediction (Case C) must be scored against the
     real GT, NOT dropped or treated as a clean miss (Case B)."""
 
-    @staticmethod
-    def _write(path, rows):
-        path.write_text("##gff-version 3\n" + "\n".join(rows) + "\n")
-        return str(path)
-
     def _scenario(self, tmp_path):
         # One GT locus: 2-exon transcript gtB, intron 1101..1299.
-        gt = self._write(tmp_path / "gt.gff3", [
+        gt = write_gff(tmp_path / "gt.gff3", [
             "chr1\tT\ttranscript\t1000\t1400\t.\t+\t.\tID=gtB",
             "chr1\tT\texon\t1000\t1100\t.\t+\t.\tID=gtB.e1;Parent=gtB",
             "chr1\tT\texon\t1300\t1400\t.\t+\t.\tID=gtB.e2;Parent=gtB",
         ])
         # 'silent' predicts nothing (Case B).
-        silent = self._write(tmp_path / "silent.gff3", [])
+        silent = write_gff(tmp_path / "silent.gff3", [])
         # 'ugly' overlaps the locus with a DIFFERENT intron (1151..1249) → no
         # shared junction → junction_f1 == 0 (Case C).
-        ugly = self._write(tmp_path / "ugly.gff3", [
+        ugly = write_gff(tmp_path / "ugly.gff3", [
             "chr1\tT\ttranscript\t1000\t1400\t.\t+\t.\tID=ugX",
             "chr1\tT\texon\t1000\t1150\t.\t+\t.\tID=ugX.e1;Parent=ugX",
             "chr1\tT\texon\t1250\t1400\t.\t+\t.\tID=ugX.e2;Parent=ugX",
         ])
         return gt, silent, ugly
 
-    def test_case_c_scored_against_real_gt_not_dropped(self, tmp_path, simple_label_config):
+    def test_case_c_scored_against_real_gt_not_dropped(self, tmp_path, simple_config):
         gt, silent, ugly = self._scenario(tmp_path)
         mappings = map_transcripts(
             gt_path=gt,
             pred_paths={"silent": silent, "ugly": ugly},
-            label_config=simple_label_config,
+            label_config=simple_config,
             locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
         )
         # 'silent' → Case B: a clean-miss FN entry, no prediction.
@@ -679,7 +628,7 @@ class TestBestPerLocusOverlapVsMiss:
         assert pm.junction_f1 == 0.0
         assert pm.match_class == MatchClass.OVERLAPPING
 
-    def test_case_c_pred_array_is_non_null(self, tmp_path, simple_label_config):
+    def test_case_c_pred_array_is_non_null(self, tmp_path, simple_config):
         """The Case-C entry yields a real (non-null) prediction array, so the
         wrong prediction is actually scored — unlike the clean miss."""
         gt, silent, ugly = self._scenario(tmp_path)
@@ -688,7 +637,7 @@ class TestBestPerLocusOverlapVsMiss:
         mappings = map_transcripts(
             gt_path=gt,
             pred_paths={"silent": silent, "ugly": ugly},
-            label_config=simple_label_config,
+            label_config=simple_config,
             locus_matching_mode=LocusMatchingMode.BEST_PER_LOCUS,
         )
         ugly_entry = next(
@@ -699,9 +648,9 @@ class TestBestPerLocusOverlapVsMiss:
             mapping=ugly_entry,
             gt_df=gt_df,
             pred_dfs=pred_dfs,
-            label_config=simple_label_config,
+            label_config=simple_config,
         )
-        exon = simple_label_config.exon_label
+        exon = simple_config.exon_label
         # 'ugly' painted exon bases; 'silent' (null) painted none.
         assert (pred_arrs["ugly"] == exon).any()
         assert not (pred_arrs["silent"] == exon).any()
@@ -726,7 +675,7 @@ class TestBuildPairedArrays:
         return gt_df, pred_dfs
 
     def test_unmatched_prediction_gt_from_region(
-        self, gt_gff, pred_b_gff, simple_label_config,
+        self, gt_gff, pred_b_gff, simple_config,
     ):
         """An unmatched prediction's GT array reflects actual GT features."""
         mappings = map_transcripts(
@@ -747,7 +696,7 @@ class TestBuildPairedArrays:
             mapping=unmatched[0],
             gt_df=gt_df,
             pred_dfs=pred_dfs,
-            label_config=simple_label_config,
+            label_config=simple_config,
         )
 
         # predB_t1 is at 500-600, no GT features there -> all background
@@ -756,7 +705,7 @@ class TestBuildPairedArrays:
         )
 
     def test_coding_regions_in_gt_array(
-        self, gt_gff, pred_a_gff, simple_label_config,
+        self, gt_gff, pred_a_gff, simple_config,
     ):
         """A real GT mapping paints CDS regions as coding."""
         mappings = map_transcripts(
@@ -776,7 +725,7 @@ class TestBuildPairedArrays:
             mapping=mRNA1_mapping,
             gt_df=gt_df,
             pred_dfs=pred_dfs,
-            label_config=simple_label_config,
+            label_config=simple_config,
         )
 
         # mRNA1 spans 1-100 (100 bases), CDS at 10-30
@@ -786,7 +735,7 @@ class TestBuildPairedArrays:
         np.testing.assert_array_equal(gt_arr[30:], np.full(70, 1))
 
     def test_prediction_array_content(
-        self, gt_gff, pred_a_gff, simple_label_config,
+        self, gt_gff, pred_a_gff, simple_config,
     ):
         """Prediction arrays have coding regions at expected positions."""
         mappings = map_transcripts(
@@ -806,7 +755,7 @@ class TestBuildPairedArrays:
             mapping=mRNA1_mapping,
             gt_df=gt_df,
             pred_dfs=pred_dfs,
-            label_config=simple_label_config,
+            label_config=simple_config,
         )
 
         assert "PredA" in pred_arrs
@@ -820,7 +769,7 @@ class TestBuildPairedArrays:
         np.testing.assert_array_equal(pred_arr[35:], np.full(65, 1))
 
     def test_unmatched_predictor_gets_background(
-        self, gt_gff, pred_a_gff, pred_b_gff, simple_label_config,
+        self, gt_gff, pred_a_gff, pred_b_gff, simple_config,
     ):
         """A predictor with no match at a GT locus gets all-background."""
         mappings = map_transcripts(
@@ -847,7 +796,7 @@ class TestBuildPairedArrays:
             mapping=mRNA2_mapping,
             gt_df=gt_df,
             pred_dfs=pred_dfs,
-            label_config=simple_label_config,
+            label_config=simple_config,
         )
 
         # PredB has no match -> all background
@@ -858,23 +807,14 @@ class TestBuildPairedArrays:
         )
 
     def test_utr_role_maps_paint_distinct_labels(
-        self, utr_gt_gff, utr_pred_gff, utr_label_config,
+        self, utr_gt_gff, utr_pred_gff, utr_config,
     ):
         mappings = map_transcripts(
             gt_path=utr_gt_gff,
             pred_paths={"Pred": utr_pred_gff},
-            label_config=utr_label_config,
-            gt_feature_role_map={
-                "five_prime_UTR": "five_prime_utr",
-                "CDS": "cds",
-                "three_prime_UTR": "three_prime_utr",
-            },
-            pred_feature_role_maps={
-                "Pred": {
-                    "five_prime_UTR": "five_prime_utr",
-                    "three_prime_UTR": "three_prime_utr",
-                }
-            },
+            label_config=utr_config,
+            gt_feature_role_map=UTR_ROLE_MAP,
+            pred_feature_role_maps={"Pred": UTR_ROLE_MAP_NO_CDS},
         )
 
         mapping = next(m for m in mappings if m.gt_id == "gt_tx1")
@@ -883,18 +823,9 @@ class TestBuildPairedArrays:
             mapping=mapping,
             gt_df=gt_df,
             pred_dfs=pred_dfs,
-            label_config=utr_label_config,
-            gt_feature_role_map={
-                "five_prime_UTR": "five_prime_utr",
-                "CDS": "cds",
-                "three_prime_UTR": "three_prime_utr",
-            },
-            pred_feature_role_maps={
-                "Pred": {
-                    "five_prime_UTR": "five_prime_utr",
-                    "three_prime_UTR": "three_prime_utr",
-                }
-            },
+            label_config=utr_config,
+            gt_feature_role_map=UTR_ROLE_MAP,
+            pred_feature_role_maps={"Pred": UTR_ROLE_MAP_NO_CDS},
         )
 
         np.testing.assert_array_equal(gt_arr[0:5], np.full(5, 4))
@@ -906,7 +837,7 @@ class TestBuildPairedArrays:
         np.testing.assert_array_equal(pred_arr[20:30], np.full(10, 5))
 
     def test_matched_prediction_overhang_is_captured(
-        self, gt_over_gff, pred_over_gff, simple_label_config,
+        self, gt_over_gff, pred_over_gff, simple_config,
     ):
         """A matched prediction over-extending past the GT span must not be
         clipped: the window widens to the union of GT and pred spans so the
@@ -923,7 +854,7 @@ class TestBuildPairedArrays:
             mapping=mapping,
             gt_df=gt_df,
             pred_dfs=pred_dfs,
-            label_config=simple_label_config,
+            label_config=simple_config,
         )
 
         # Window = union of GT (1-100) and pred (1-150) -> length 150.
@@ -941,7 +872,7 @@ class TestBuildPairedArrays:
         np.testing.assert_array_equal(pred_arr[120:150], np.full(30, 1))
 
     def test_minus_strand_arrays_are_biologically_oriented(
-        self, gt_gff, pred_a_gff, simple_label_config,
+        self, gt_gff, pred_a_gff, simple_config,
     ):
         """Minus-strand arrays are in biological 5'→3' order.
 
@@ -961,7 +892,7 @@ class TestBuildPairedArrays:
             mapping=mRNA2_mapping,
             gt_df=gt_df,
             pred_dfs=pred_dfs,
-            label_config=simple_label_config,
+            label_config=simple_config,
         )
 
         assert len(gt_arr) == 201

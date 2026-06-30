@@ -7,10 +7,8 @@ from dna_segmentation_benchmark.eval.state_transitions import (
 )
 from dna_segmentation_benchmark.label_definition import AnnotationMode, BEND_LABEL_CONFIG, LabelConfig
 
-# ------------------------------------------------------------------
-# Convenience token constants (BEND_LABEL_CONFIG label values)
-# ------------------------------------------------------------------
-EXON, DONOR, INTRON, ACCEPTOR, NONCODING = 0, 1, 2, 3, 8
+from support.constants import ACCEPTOR, DONOR, EXON, INTRON, NONCODING
+
 _LABEL_IDS = [EXON, DONOR, INTRON, ACCEPTOR, NONCODING]
 _L = len(_LABEL_IDS)
 _IDX = {lid: i for i, lid in enumerate(_LABEL_IDS)}  # label → matrix row/col index
