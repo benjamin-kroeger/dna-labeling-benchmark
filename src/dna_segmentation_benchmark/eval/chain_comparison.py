@@ -6,12 +6,12 @@ segments of a class between ground-truth and predicted label arrays.
 Metrics
 -------
 * **Intron chain (strict / subset / superset)** — binary TP/FN/FP comparing
-  the full intron-segment boundary sets.  When ``splice_donor_label`` and
-  ``splice_acceptor_label`` are defined in the ``LabelConfig``, each logical
-  intron spans from the *start* of its donor segment to the *end* of its
-  acceptor segment (``DONOR.start → ACCEPTOR.end``), matching the splice-
-  junction positions that gffcompare uses.  Without splice-site labels the raw
-  intron-segment boundaries are used instead.
+  the intron boundary sets.  An intron is the gap *between consecutive in-scope
+  segments* (e.g. between CDS exons when the scope is CDS), matching
+  gffcompare's intron-chain definition.  Because introns are derived from the
+  same scoped segment set as the exon chain, UTR introns are excluded under CDS
+  scope — a UTR-aware prediction is not penalised against a CDS-only ground
+  truth — and an exact exon-chain match implies an exact intron-chain match.
 * **Exon chain (strict / subset / superset)** — same set semantics applied to
   coding segments, directly comparable to intron chain.
 * **Boundary shift** — per-transcript count and total bp offset of shifted
@@ -44,72 +44,43 @@ from ..label_definition import BenchmarkScope
 # ---------------------------------------------------------------------------
 
 
-def _extract_logical_intron_spans(
-        structure: ExtractedStructure,
-        label_config: LabelConfig,
-) -> set[tuple[int, int]]:
-    """Return (start, end) spans for each logical intron in *structure*.
+def _intron_spans_from_segments(segments: tuple[Segment, ...]) -> set[tuple[int, int]]:
+    """Introns as the gaps between consecutive in-scope segments.
 
-    When both ``splice_donor_label`` and ``splice_acceptor_label`` are set,
-    each logical intron is formed by a ``DONOR (INTRON*) ACCEPTOR`` run and
-    spans ``(DONOR.start, ACCEPTOR.end)`` — the actual splice-junction
-    positions.  Malformed runs (donor without a following acceptor) are
-    silently skipped.
-
-    When splice-site labels are not configured, falls back to the raw
-    intron-label segment boundaries.
+    This is gffcompare's intron-chain definition: an intron is the span between
+    one exon's end and the next exon's start.  With ``scope=CDS`` the segments
+    are CDS exons, so the gaps are CDS introns only — a splice junction inside a
+    UTR is never produced, because UTR segments are not in the CDS scope.
     """
-    donor_label = label_config.splice_donor_label
-    acceptor_label = label_config.splice_acceptor_label
-    intron_label = label_config.intron_label
-
-    if donor_label is None or acceptor_label is None:
-        return {(s.start, s.end) for s in structure.filter_by_label(intron_label)}
-
-    # If splice-site labels are configured but absent from this structure
-    # (e.g. a model that only outputs intron labels), fall back to raw intron
-    # segment boundaries so the comparison remains consistent with the pred side.
-    if not any(s.label == donor_label for s in structure.segments):
-        return {(s.start, s.end) for s in structure.filter_by_label(intron_label)}
-
-    spans: set[tuple[int, int]] = set()
-    segments = structure.segments
-    i = 0
-    while i < len(segments):
-        seg = segments[i]
-        if seg.label == donor_label:
-            donor_start = seg.start
-            j = i + 1
-            while j < len(segments) and segments[j].label == intron_label:
-                j += 1
-            if j < len(segments) and segments[j].label == acceptor_label:
-                spans.add((donor_start, segments[j].end))
-                i = j + 1
-                continue
-        i += 1
-    return spans
+    return {
+        (segments[i].end + 1, segments[i + 1].start - 1)
+        for i in range(len(segments) - 1)
+    }
 
 
 def compute_intron_chain_metrics(
         gt_structure: ExtractedStructure,
         pred_structure: ExtractedStructure,
         label_config: LabelConfig,
+        scope: BenchmarkScope | str,
 ) -> dict:
-    """Compare logical intron chains for one transcript pair.
+    """Compare intron chains for one transcript pair, scoped like the exon chain.
 
-    Extracts logical intron spans via :func:`_extract_logical_intron_spans`
-    (which groups ``DONOR + INTRON* + ACCEPTOR`` into a single span when
-    splice-site labels are defined), then performs the same strict / subset /
-    superset set comparison as the exon chain metrics.
+    An intron is the gap between consecutive in-scope segments
+    (:func:`_intron_spans_from_segments`), matching gffcompare.  With
+    ``scope=CDS`` these are CDS introns only: UTR introns are excluded by
+    construction, so a UTR-aware predictor is not penalised against a CDS-only
+    ground truth.  Both chains derive from the same scoped segment set, so an
+    exact exon-chain match implies an exact intron-chain match.
 
     Scoring is **transcript-level (whole-chain)**: this pair contributes
     ``tp=1`` only when the entire GT intron set equals the predicted set,
     otherwise ``fp=1, fn=1``.  When :func:`summarise_counts` aggregates these
     across transcripts, the resulting precision/recall is the *fraction of
     transcripts with an exact intron-chain match* — **not** the fraction of
-    individual introns correctly predicted.  For an intron-level gradation of
-    "nearly right" chains, see the per-transcript exon-recovery scalars in
-    :func:`_compute_exon_recovery_from_segments`.
+    individual introns correctly predicted.  Single-exon transcripts have no
+    introns, contribute empty :class:`Counts` and drop out, so the denominator
+    matches the ``exon_chain_multi`` population exactly.
 
     Returns
     -------
@@ -120,11 +91,8 @@ def compute_intron_chain_metrics(
     if label_config.intron_label is None:
         raise ValueError("Intron-chain comparison requires an intron label to be defined in the label configuration.")
 
-    _raise_if_introns_missing_but_inferable(gt_structure, label_config, "GT")
-    _raise_if_introns_missing_but_inferable(pred_structure, label_config, "prediction")
-
-    gt_spans = _extract_logical_intron_spans(gt_structure, label_config)
-    pred_spans = _extract_logical_intron_spans(pred_structure, label_config)
+    gt_spans = _intron_spans_from_segments(_segments_for_scope(gt_structure, scope, label_config))
+    pred_spans = _intron_spans_from_segments(_segments_for_scope(pred_structure, scope, label_config))
 
     prefix = "intron_chain"
     if not gt_spans:
@@ -244,32 +212,6 @@ def _compute_boundary_shift_from_segments(
         "boundary_shift_total": total,
         "boundary_shift_offsets": offsets,
     }
-
-
-def _raise_if_introns_missing_but_inferable(
-        structure: ExtractedStructure,
-        label_config: LabelConfig,
-        side_name: str,
-) -> None:
-    """Reject exon/CDS-only structures before intron-chain scoring."""
-    intron = label_config.intron_label
-    if intron is None:
-        return
-
-    coding_segs = _segments_for_scope(
-        structure,
-        BenchmarkScope.TRANSCRIPT_EXON,
-        label_config,
-    )
-    intron_segs = structure.filter_by_label(intron)
-    if len(coding_segs) > 1 and not intron_segs:
-        raise ValueError(
-            f"{side_name} contains multiple coding segments but no intron-label "
-            "segments. Pass infer_introns=True to benchmark_gt_vs_pred_single "
-            "or benchmark_gt_vs_pred_multiple if introns should be inferred "
-            "from coding gaps, or provide explicit intron labels before "
-            "requesting STRUCTURAL_COHERENCE.",
-        )
 
 
 # ---------------------------------------------------------------------------

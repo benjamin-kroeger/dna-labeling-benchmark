@@ -9,6 +9,7 @@ import pytest
 from dna_segmentation_benchmark.eval.chain_comparison import (
     _compute_exon_recovery_from_segments,
     _segments_for_scope,
+    compute_intron_chain_metrics,
     compute_scoped_chain_metrics,
 )
 from dna_segmentation_benchmark.eval.evaluate_predictors import (
@@ -18,7 +19,11 @@ from dna_segmentation_benchmark.eval.evaluate_predictors import (
 from dna_segmentation_benchmark.eval import preprocessing
 from dna_segmentation_benchmark.eval.statistics import Counts
 from dna_segmentation_benchmark.eval.structure import extract_structure
-from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG, BenchmarkScope
+from dna_segmentation_benchmark.label_definition import (
+    BEND_LABEL_CONFIG,
+    BenchmarkScope,
+    LabelConfig,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -152,16 +157,23 @@ def test_boundary_shift_counted_for_genuine_internal_shift():
     assert res["transcript_match_class"] == "boundary_shift_internal"
 
 
-def test_intron_chain_fails_when_introns_are_inferable_but_missing():
+def test_intron_chain_derives_introns_from_exon_gaps_without_explicit_labels():
+    """Intron chain works without explicit/inferred introns (gffcompare-style).
+
+    An intron is the gap between exons, so a CDS-only array with plain
+    background gaps still yields a well-defined intron chain — no infer_introns
+    and no explicit intron labels required.
+    """
     labels = np.array([8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8])
 
-    with pytest.raises(ValueError, match="infer_introns=True"):
-        benchmark_gt_vs_pred_single(
-            gt_labels=labels,
-            pred_labels=labels,
-            label_config=BEND_LABEL_CONFIG,
-            metrics=[EvalMetrics.STRUCTURAL_COHERENCE],
-        )
+    result = benchmark_gt_vs_pred_single(
+        gt_labels=labels,
+        pred_labels=labels,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.STRUCTURAL_COHERENCE],
+    )
+
+    assert result["STRUCTURAL_COHERENCE"]["intron_chain"] == Counts(tp=1, fp=0, fn=0)
 
 
 def test_infer_introns_fills_gaps_before_structural_metrics():
@@ -289,3 +301,58 @@ def test_combined_single_and_multi_exon_buckets_do_not_bleed():
     assert combined_multi == Counts(fp=1, fn=1)
     # additive: the two buckets reconstruct the overall chain count
     assert combined_single + combined_multi == combined_total
+
+
+# ---------------------------------------------------------------------------
+# Intron chain scoping: UTR introns excluded under CDS scope (gffcompare)
+# ---------------------------------------------------------------------------
+
+
+def _paint(segments: list[tuple[int, int, int]], total_length: int, cfg: LabelConfig) -> np.ndarray:
+    """Paint a label array from (start, end, label) triples; rest is background."""
+    arr = np.full(total_length, cfg.background_label, dtype=np.int64)
+    for start, end, label in segments:
+        arr[start:end + 1] = label
+    return arr
+
+
+def test_intron_chain_excludes_utr_introns_under_cds_scope():
+    """Only internal CDS introns are scored; a predicted UTR intron is ignored.
+
+    GT is CDS-only (as in a CDS-only reference annotation).  The prediction is
+    UTR-aware and adds a 5'UTR intron the GT cannot contain.  Under CDS scope
+    the two intron chains match (the UTR intron is excluded by construction);
+    under transcript-exon scope the same UTR intron leaks in and breaks the
+    match — documenting exactly what CDS-scoping fixes.
+    """
+    cfg = LabelConfig.default_utr_cds_intron()
+    cds, utr5, utr3, intron = (
+        cfg.cds_label,
+        cfg.five_prime_utr_label,
+        cfg.three_prime_utr_label,
+        cfg.intron_label,
+    )
+
+    # GT: two CDS exons + one CDS intron, no UTRs.
+    gt = _paint([(10, 19, cds), (20, 29, intron), (30, 39, cds)], 50, cfg)
+    # Pred: identical CDS chain, plus a 5'UTR split by an extra (UTR) intron
+    # and a trailing 3'UTR.
+    pred = _paint(
+        [
+            (0, 2, utr5), (3, 5, intron), (6, 9, utr5),  # predicted 5'UTR intron
+            (10, 19, cds), (20, 29, intron), (30, 39, cds),
+            (40, 42, utr3),
+        ],
+        50,
+        cfg,
+    )
+    gt_struct = extract_structure(gt, cfg)
+    pred_struct = extract_structure(pred, cfg)
+
+    # CDS scope: only the internal CDS intron (20,29) is scored on both sides.
+    cds_scope = compute_intron_chain_metrics(gt_struct, pred_struct, cfg, BenchmarkScope.CDS)
+    assert cds_scope["intron_chain"] == Counts(tp=1)
+
+    # Transcript-exon scope: the predicted UTR intron leaks in -> mismatch.
+    txp_scope = compute_intron_chain_metrics(gt_struct, pred_struct, cfg, BenchmarkScope.TRANSCRIPT_EXON)
+    assert txp_scope["intron_chain"] == Counts(fp=1, fn=1)

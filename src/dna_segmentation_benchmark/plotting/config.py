@@ -225,8 +225,9 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
             "Exon-chain tiers count MULTI-exon transcripts only — every bar covers "
             "transcripts with introns, apples-to-apples with the intron tiers. "
             "Single-exon genes are reported in their own plot.",
-            "Intron boundaries: DONOR.start → ACCEPTOR.end when splice-site labels are "
-            "configured (gffcompare semantics); else raw intron-segment boundaries.",
+            "An intron is the gap between consecutive in-scope segments (gffcompare "
+            "semantics). Under CDS scope these are CDS introns only — UTR introns are "
+            "excluded, so both chains share the same scoped boundary set.",
         ),
     ),
     "single_exon_match_rate": PlotMetadata(

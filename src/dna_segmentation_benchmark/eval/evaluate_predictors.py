@@ -365,7 +365,7 @@ def _eval_structural(gt_labels: np.ndarray, pred_labels: np.ndarray, label_confi
         scope,
     )
     if label_config.intron_label is not None:
-        structural_coherence_results.update(compute_intron_chain_metrics(gt_struct, pred_struct, label_config))
+        structural_coherence_results.update(compute_intron_chain_metrics(gt_struct, pred_struct, label_config, scope))
     if (
         label_config.intron_label is not None
         and label_config.splice_donor_label is not None
