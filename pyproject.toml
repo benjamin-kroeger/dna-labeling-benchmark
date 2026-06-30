@@ -77,5 +77,6 @@ markers = [
 dna-benchmark = "dna_segmentation_benchmark.cli:cli"
 
 [project.urls]
-"Source Code" = "https://github.com/PredictProtein/benchmark"
-"Bug Tracker" = "https://github.com/PredictProtein/benchmark/issues"
+"Documentation" = "https://dna-labeling-benchmark.readthedocs.io/en/latest/"
+"Source Code" = "https://github.com/benjamin-kroeger/dna-labeling-benchmark"
+"Bug Tracker" = "https://github.com/benjamin-kroeger/dna-labeling-benchmark/issues"
