@@ -70,8 +70,12 @@ def plot_boundary_precision_landscapes(
             fontsize=14,
             pad=15,
         )
-        axes[0].set_ylabel(bias_matrix.index.name, fontsize=12)
-        axes[0].set_xlabel(bias_matrix.columns.name, fontsize=12)
+        # Reconcile the residual sign with the biological edit at each edge:
+        # the sign→extension/deletion mapping is opposite between the two edges.
+        # 5' edge (rows): residual < 0 → exon starts earlier → extension.
+        # 3' edge (cols): residual < 0 → exon ends earlier → deletion.
+        axes[0].set_ylabel(f"{bias_matrix.index.name}\n(−) extension     |     deletion (+)", fontsize=12)
+        axes[0].set_xlabel(f"{bias_matrix.columns.name}\n(−) deletion     |     extension (+)", fontsize=12)
 
         # Add crosshairs at the (0,0) perfect-match centre
         axes[0].axvline(max_range + 0.5, color="red", linestyle="--", alpha=0.5)
