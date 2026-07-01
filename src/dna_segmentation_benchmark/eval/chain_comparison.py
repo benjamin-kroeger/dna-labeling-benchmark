@@ -12,8 +12,16 @@ Metrics
   same scoped segment set as the exon chain, UTR introns are excluded under CDS
   scope — a UTR-aware prediction is not penalised against a CDS-only ground
   truth — and an exact exon-chain match implies an exact intron-chain match.
-* **Exon chain (strict / subset / superset)** — same set semantics applied to
-  coding segments, directly comparable to intron chain.
+* **Exon chain (exact / subset / superset)** — the same whole-chain set
+  comparison applied to exon spans, reported for three populations: all
+  transcripts (``exon_chain*`` — the gffcompare-parity headline, "fraction of
+  transcripts whose exon set is recovered exactly"), multi-exon transcripts only
+  (``exon_chain_multi*`` — apples-to-apples with the intron chain, which is
+  inherently multi-exon) and single-exon transcripts only (``exon_chain_single``,
+  exact tier only).  For the exact tier the all-transcript key partitions cleanly
+  into ``exon_chain_multi`` + ``exon_chain_single``; the subset/superset tiers
+  have no single-exon sibling, so their all-transcript keys still include the
+  single-exon pairs that ``exon_chain_multi_*`` drop.
 * **Boundary shift** — per-transcript count and total bp offset of shifted
   segment boundaries (only for equal-count pairs), plus the signed,
   position-tagged per-boundary offsets that drive the shift-distribution
@@ -128,7 +136,61 @@ def compute_scoped_chain_metrics(
         label_config: LabelConfig,
         scope: BenchmarkScope | str,
 ) -> dict:
-    """Compare exonic segment chains for an explicit benchmark scope."""
+    """Compare exon chains for one transcript pair within a benchmark scope.
+
+    The exon "chain" is the set of scoped exon ``(start, end)`` spans, with
+    adjacent compatible labels already collapsed by :func:`_segments_for_scope`
+    (so a ``5'UTR`` + ``CDS`` exon counts once).  Scoring is **transcript-level
+    (whole-chain, all-or-nothing)**, mirroring
+    :func:`compute_intron_chain_metrics`: the pair scores ``tp=1`` only when the
+    predicted span set exactly equals the GT set, otherwise ``fp=1, fn=1``.
+    Because a mismatch books *both* an fp and an fn, per pair ``fp == fn``; once
+    :func:`summarise_counts` aggregates across transcripts, precision == recall
+    and the headline value is simply the **fraction of transcripts whose entire
+    exon chain was recovered exactly** — "how many transcripts did I get right"
+    — *not* a per-exon rate.
+
+    Match tiers (each an independent all-or-nothing comparison, encoding the
+    *direction* of error, not just pass/fail):
+
+    * ``exact``    — ``pred == gt``.
+    * ``subset``   — ``pred ⊆ gt``: every predicted exon is real, but GT exons
+      may be missing (a conservative / under-calling predictor).
+    * ``superset`` — ``pred ⊇ gt``: every GT exon is present, but the prediction
+      adds spurious exons (an over-calling / over-splitting predictor).
+
+    Population variants — the same per-pair result reported over three GT
+    populations:
+
+    * ``exon_chain`` / ``_subset`` / ``_superset`` — **all** GT transcripts,
+      single- and multi-exon alike.  This is the **gffcompare-parity headline**:
+      gffcompare reports transcript-level accuracy over every transcript, so this
+      key is the directly comparable "fraction of transcripts fully recovered".
+    * ``exon_chain_multi`` / ``_subset`` / ``_superset`` — **multi-exon GT only**
+      (a one-span "chain" is not really a chain).  The apples-to-apples partner
+      of the intron-chain tiers, whose population is already multi-exon-only
+      (single-exon transcripts have no introns).
+    * ``exon_chain_single`` — **single-exon GT only**, exact tier only (a lone
+      exon has no subset/superset structure to distinguish).
+
+    The inapplicable population bucket is empty :class:`Counts`, so each
+    variant's aggregated denominator covers only its own population — the same
+    drop-out idiom :func:`compute_intron_chain_metrics` uses for single-exon
+    pairs.  Only the exact tier partitions cleanly:
+    ``exon_chain == exon_chain_multi ⊕ exon_chain_single``.  The subset/superset
+    tiers have no single-exon sibling, so ``exon_chain_subset`` /
+    ``exon_chain_superset`` still include single-exon pairs that
+    ``exon_chain_multi_*`` exclude.
+
+    Returns
+    -------
+    dict
+        The seven chain-tier :class:`Counts` above, plus the per-transcript
+        diagnostics merged in from :func:`_compute_boundary_shift_from_segments`
+        and :func:`_compute_exon_recovery_from_segments`, a
+        ``transcript_match_class`` label (when classifiable) and the signed
+        ``segment_count_delta`` (``len(pred) - len(gt)``).
+    """
     gt_segs = _segments_for_scope(gt_structure, scope, label_config)
     pred_segs = _segments_for_scope(pred_structure, scope, label_config)
 
@@ -151,12 +213,13 @@ def compute_scoped_chain_metrics(
         "exon_chain": Counts(tp=1) if exact else Counts(fp=1, fn=1),
         "exon_chain_subset": Counts(tp=1) if subset else Counts(fp=1, fn=1),
         "exon_chain_superset": Counts(tp=1) if superset else Counts(fp=1, fn=1),
-        # Population-split siblings (additive): the exon_chain* keys above stay
-        # all-transcript; these partition the same per-pair result by single- vs
-        # multi-exon GT.  The inapplicable bucket is empty Counts so each rate's
-        # denominator covers only its population — the same idiom
-        # compute_intron_chain_metrics uses to drop single-exon pairs.  Single-
-        # exon gets the exact tier only.
+        # Population-split siblings (see docstring): the exon_chain* keys above
+        # stay all-transcript; these re-book the same per-pair result over the
+        # single- vs multi-exon GT population.  The inapplicable bucket is empty
+        # Counts so each rate's denominator covers only its population — the same
+        # idiom compute_intron_chain_metrics uses to drop single-exon pairs.
+        # Single-exon gets the exact tier only, so only the exact tier partitions
+        # cleanly (exon_chain == exon_chain_multi + exon_chain_single).
         "exon_chain_multi": Counts() if is_single_exon else (Counts(tp=1) if exact else Counts(fp=1, fn=1)),
         "exon_chain_multi_subset": Counts() if is_single_exon else (Counts(tp=1) if subset else Counts(fp=1, fn=1)),
         "exon_chain_multi_superset": Counts() if is_single_exon else (Counts(tp=1) if superset else Counts(fp=1, fn=1)),
