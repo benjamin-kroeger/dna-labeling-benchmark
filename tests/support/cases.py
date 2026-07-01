@@ -108,8 +108,11 @@ SINGLE_SEQUENCE_TEST_CASES = [
             "INDEL": {
                 "by_boundary": {
                     "five_prime_terminal_exon": {"split": [1, 1]},
+                    # idx 9 is a predicted exon flanked by predicted introns → internal.
                     "internal_exon": {"split": [1, 1], "whole_insertions": [1]},
-                    "three_prime_terminal_exon": {"whole_insertions": [1]},
+                    # idx 23 is a lone predicted exon in background (no predicted
+                    # introns either side) → single_exon_gene, not 3'-terminal.
+                    "single_exon_gene": {"whole_insertions": [1]},
                 },
                 "exon_opportunities": {
                     "five_prime_terminal_exon": 1,
@@ -188,7 +191,16 @@ SINGLE_SEQUENCE_TEST_CASES = [
             EvalMetrics.NUCLEOTIDE_CLASSIFICATION,
         ],
         {
-            "INDEL": {"by_boundary": {"single_exon_gene": {"whole_insertions": [5, 5, 2]}}},
+            # One hallucinated multi-exon gene (exon-intron-exon-intron-exon), not
+            # three single-exon genes: the predicted introns between the false exons
+            # make the first 5'-terminal, the middle internal, the last 3'-terminal.
+            "INDEL": {
+                "by_boundary": {
+                    "five_prime_terminal_exon": {"whole_insertions": [5]},
+                    "internal_exon": {"whole_insertions": [5]},
+                    "three_prime_terminal_exon": {"whole_insertions": [2]},
+                }
+            },
             "REGION_DISCOVERY": {
                 "neighborhood_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0},
                 "internal_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0},
@@ -232,7 +244,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
         id="in_depth_section_test",
     ),
     pytest.param(
-        np.array([[0, 0, 0, 0, 2, 2, 2, 0, 0, 0], [8, 8, 8, 0, 0, 0, 0, 0, 8, 8]]),
+        np.array(
+            [
+                [0, 0, 0, 0, 2, 2, 2, 0, 0, 0],
+                [8, 8, 8, 0, 0, 0, 0, 0, 8, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [
             EvalMetrics.INDEL,
@@ -312,7 +329,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
         id="exon_fully_correct_2",
     ),
     pytest.param(
-        np.array([[8, 8, 8, 0, 0, 2, 2, 2, 2, 0, 0], [8, 8, 8, 0, 2, 2, 2, 8, 8, 8, 8]]),
+        np.array(
+            [
+                [8, 8, 8, 0, 0, 2, 2, 2, 2, 0, 0],
+                [8, 8, 8, 0, 2, 2, 2, 8, 8, 8, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [
             EvalMetrics.INDEL,
@@ -385,7 +407,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
     ),
     pytest.param(
         # Perfect prediction: GT == pred, every overlap position has frame 0.
-        np.array([[0, 0, 0, 8, 8, 8, 0, 0, 0], [0, 0, 0, 8, 8, 8, 0, 0, 0]]),
+        np.array(
+            [
+                [0, 0, 0, 8, 8, 8, 0, 0, 0],
+                [0, 0, 0, 8, 8, 8, 0, 0, 0],
+            ]
+        ),
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
@@ -398,7 +425,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
         # one trailing background in GT. The single-base lag creates a persistent
         # frame offset of 1 at every overlap position (mod-3 arithmetic: |pred_cumsum
         # - gt_cumsum| = 1 at all overlap sites).
-        np.array([[0, 0, 0, 0, 0, 0, 8], [8, 0, 0, 0, 0, 0, 0]]),
+        np.array(
+            [
+                [0, 0, 0, 0, 0, 0, 8],
+                [8, 0, 0, 0, 0, 0, 0],
+            ]
+        ),
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
@@ -409,7 +441,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
         # Pred is shifted 2 positions to the right: cumsum difference is 2 at every
         # overlap position.
-        np.array([[0, 0, 0, 0, 0, 0, 8, 8], [8, 8, 0, 0, 0, 0, 0, 0]]),
+        np.array(
+            [
+                [0, 0, 0, 0, 0, 0, 8, 8],
+                [8, 8, 0, 0, 0, 0, 0, 0],
+            ]
+        ),
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
@@ -420,7 +457,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
         # GT and pred CDS regions are completely non-overlapping: valid_mask is all
         # False so every position stays at inf.
-        np.array([[0, 0, 0, 8, 8, 8], [8, 8, 8, 0, 0, 0]]),
+        np.array(
+            [
+                [0, 0, 0, 8, 8, 8],
+                [8, 8, 8, 0, 0, 0],
+            ]
+        ),
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
@@ -482,7 +524,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
         # GT CDS count (4) is not divisible by 3: the metric skips the sequence and
         # returns an empty frame list.
-        np.array([[0, 0, 0, 0, 8, 8, 8], [0, 0, 0, 0, 0, 0, 0]]),
+        np.array(
+            [
+                [0, 0, 0, 0, 8, 8, 8],
+                [0, 0, 0, 0, 0, 0, 0],
+            ]
+        ),
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
@@ -493,7 +540,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
     pytest.param(
         # Pred has only 1 CDS base (< 3): the metric returns an empty frame list
         # without attempting computation.
-        np.array([[0, 0, 0, 8, 0, 0, 0], [8, 0, 8, 8, 8, 8, 8]]),
+        np.array(
+            [
+                [0, 0, 0, 8, 0, 0, 0],
+                [8, 0, 8, 8, 8, 8, 8],
+            ]
+        ),
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
@@ -565,7 +617,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
         # The gap between the two segments is NONCODING (not INTRON), so both
         # segments have NONCODING/"none" on both outer flanks → single_exon_gene.
         # exon_opportunities counts +1 per exon → 2 single-exon genes = 2.
-        np.array([[0, 0, 0, 0, 8, 8, 0, 0, 0, 0], [8, 8, 0, 0, 8, 8, 0, 0, 0, 8]]),
+        np.array(
+            [
+                [0, 0, 0, 0, 8, 8, 0, 0, 0, 0],
+                [8, 8, 0, 0, 8, 8, 0, 0, 0, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [EvalMetrics.INDEL],
         {
@@ -582,7 +639,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
 
 STRUCTURAL_COHERENCE_TEST_CASES = [
     pytest.param(
-        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8], [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8]]),
+        np.array(
+            [
+                [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
+                [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
@@ -624,7 +686,12 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         id="sc_exact_match",
     ),
     pytest.param(
-        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8], [8, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0, 0, 8]]),
+        np.array(
+            [
+                [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
+                [8, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0, 0, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
@@ -670,7 +737,12 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         id="sc_boundary_shift",
     ),
     pytest.param(
-        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8], [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8]]),
+        np.array(
+            [
+                [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
+                [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
@@ -712,7 +784,12 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         id="sc_missing_segments",
     ),
     pytest.param(
-        np.array([[8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8], [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8]]),
+        np.array(
+            [
+                [8, 8, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 8, 8],
+                [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
@@ -754,7 +831,12 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         id="sc_extra_segments",
     ),
     pytest.param(
-        np.array([[8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8], [8, 8, 8, 8, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8]]),
+        np.array(
+            [
+                [8, 0, 0, 0, 2, 2, 0, 0, 0, 2, 2, 0, 0, 8, 8],
+                [8, 8, 8, 8, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {
@@ -796,7 +878,12 @@ STRUCTURAL_COHERENCE_TEST_CASES = [
         id="sc_structurally_different",
     ),
     pytest.param(
-        np.array([[8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8], [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]]),
+        np.array(
+            [
+                [8, 8, 0, 0, 0, 2, 2, 0, 0, 0, 8, 8],
+                [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8],
+            ]
+        ),
         BEND_LABEL_CONFIG,
         [EvalMetrics.STRUCTURAL_COHERENCE],
         {

@@ -38,6 +38,7 @@ def test_multibase_insertion_keyed_to_segment_edge_not_outer_flank():
         pred_positive_mask=pred_mask,
         label_config=cfg,
         gt_labels=gt_labels,
+        pred_labels=pred_labels,
         n_gt_segments=2,
         n_pred_segments=1,
     )
@@ -76,6 +77,7 @@ def test_boundary_anchored_events_keyed_by_segment_type_multi_exon():
         pred_positive_mask=pred_mask,
         label_config=cfg,
         gt_labels=gt_labels,
+        pred_labels=pred_labels,
         n_gt_segments=2,
         n_pred_segments=1,
     )
@@ -87,6 +89,45 @@ def test_boundary_anchored_events_keyed_by_segment_type_multi_exon():
     assert "3_prime_extensions" not in bb.get("single_exon_gene", {})
     # The missed segment [4,5] has INTRON on left, "none" on right → 3'-terminal.
     assert bb["three_prime_terminal_exon"]["whole_deletions"] == [2]
+
+
+def test_whole_insertion_typed_by_predicted_structure():
+    """A hallucinated multi-exon gene (no GT under it) is typed by the *predicted*
+    exon roles, not collapsed to three single-exon genes.
+
+    GT is empty; the prediction is one multi-exon gene (exon-intron-exon-intron-
+    exon).  The predicted introns between the false exons make the first a 5'-
+    terminal, the middle internal, the last 3'-terminal — a lone predicted exon
+    (no flanking predicted introns) would instead be ``single_exon_gene``.
+    """
+    cfg = LabelConfig(
+        annotation_mode=AnnotationMode.EXON_INTRON,
+        background_label=8,
+        exon_label=0,
+        intron_label=2,
+    )
+    gt_labels = np.array([8, 8, 8, 8, 8, 8, 8, 8, 8, 8])
+    gt_mask = gt_labels == 0  # all False
+    # exon[0,1] - intron[2] - exon[3,4] - intron[5] - exon[6,7] - background[8,9]
+    pred_labels = np.array([0, 0, 2, 0, 0, 2, 0, 0, 8, 8])
+    pred_mask = pred_labels == 0
+
+    result = eval_indel(
+        grouped_insertions=[np.array([0, 1]), np.array([3, 4]), np.array([6, 7])],
+        grouped_deletions=[],
+        gt_positive_mask=gt_mask,
+        pred_positive_mask=pred_mask,
+        label_config=cfg,
+        gt_labels=gt_labels,
+        pred_labels=pred_labels,
+        n_gt_segments=0,
+        n_pred_segments=3,
+    )
+    bb = result["by_boundary"]
+    assert bb["five_prime_terminal_exon"]["whole_insertions"] == [2]
+    assert bb["internal_exon"]["whole_insertions"] == [2]
+    assert bb["three_prime_terminal_exon"]["whole_insertions"] == [2]
+    assert "single_exon_gene" not in bb
 
 
 def test_event_denominator_intron_and_single_exon_gene():
