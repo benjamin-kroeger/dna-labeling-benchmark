@@ -7,7 +7,9 @@ it affects** — ``five_prime_terminal_exon``, ``internal_exon``,
 ``three_prime_terminal_exon`` or ``single_exon_gene`` — read from the precomputed
 per-position ``seg_type_arr``.  Deletions sit on a GT exon; anchored insertions
 extend an adjacent exon; joins bridge an intron (always ``internal_exon``); whole
-insertions are free-floating predicted exons keyed by a nearest-GT-exon scan.
+insertions have no GT exon at all, so they are keyed by the **predicted** exon's
+own structural type (read from a predicted ``seg_type_arr``) — a lone hallucinated
+exon is ``single_exon_gene``, one flanked by predicted introns is internal/terminal.
 
 Orientation assumption
 ----------------------
@@ -78,6 +80,7 @@ def eval_indel(
     pred_positive_mask: np.ndarray,
     label_config: LabelConfig,
     gt_labels: np.ndarray,
+    pred_labels: np.ndarray,
     n_gt_segments: int,
     n_pred_segments: int,
 ) -> dict:
@@ -95,6 +98,10 @@ def eval_indel(
     gt_labels : np.ndarray
         The *unpadded* full GT label row.  Used to type each GT coding segment
         by its outer flanks when building ``seg_type_arr``.
+    pred_labels : np.ndarray
+        The *unpadded* full prediction label row.  Used the same way to type each
+        *predicted* coding segment, so a whole insertion (no GT exon under it) is
+        keyed by the predicted exon's own structural role.
     n_gt_segments, n_pred_segments : int
         Number of GT / predicted coding segments in the active scope.
         ``n_gt_segments`` lets the plotter derive intron counts;
@@ -128,15 +135,18 @@ def eval_indel(
     # events by the immediate run flank (which always has the coding label on one
     # side and can never produce ``single_exon_gene`` for anchored events).
     seg_type_arr = _build_segment_type_array(gt_positive_mask, gt_labels, label_config)
+    # A whole insertion has no GT exon under it, so it is typed by the predicted
+    # exon it sits on — built the same way from the prediction's own flanks.
+    pred_seg_type_arr = _build_segment_type_array(pred_positive_mask, pred_labels, label_config)
 
     by_boundary: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     _classify_mismatches(
         padded_insertions, padded_arr, _INSERTION_BUCKETS, by_boundary, is_insertion=True,
-        seg_type_arr=seg_type_arr,
+        seg_type_arr=seg_type_arr, pred_seg_type_arr=pred_seg_type_arr,
     )
     _classify_mismatches(
         padded_deletions, padded_arr, _DELETION_BUCKETS, by_boundary, is_insertion=False,
-        seg_type_arr=seg_type_arr,
+        seg_type_arr=seg_type_arr, pred_seg_type_arr=pred_seg_type_arr,
     )
 
     return {
@@ -179,37 +189,6 @@ def _flank_name(gt_labels: np.ndarray, idx: int, label_config: LabelConfig) -> s
     return label_config.name_of(int(gt_labels[idx]))
 
 
-def _whole_insertion_key(seg_type_arr: np.ndarray, lo: int, hi: int) -> str:
-    """Classify a free-floating predicted exon (whole insertion) by GT context.
-
-    Scans outward for the nearest GT exon on each side (``seg_type_arr`` is
-    non-``None`` only at GT-coding positions).  A whole insertion that fills an
-    entire GT intron has *coding* immediate flanks, so the classification cannot
-    rely on the immediate flank label — only on the nearest exons' types.
-
-    * inside one gene's intron (left exon continues 3', right exon continues 5')
-      → ``internal_exon``
-    * a gene only to one side → that terminal exon (gene to the right → 5'
-      terminal / hallucinated upstream; to the left → 3' terminal / downstream)
-    * genes on both sides (between two genes) or no genes → ``single_exon_gene``
-    """
-    left = next((str(x) for x in seg_type_arr[:lo][::-1] if x is not None), None)
-    right = next((str(x) for x in seg_type_arr[hi + 1 :] if x is not None), None)
-    is_intron = left in {"five_prime_terminal_exon", "internal_exon"} and right in {
-        "internal_exon",
-        "three_prime_terminal_exon",
-    }
-    if left is None and right is None:
-        return "single_exon_gene"
-    if is_intron:
-        return "internal_exon"
-    if right is not None and left is None:
-        return "five_prime_terminal_exon"
-    if left is not None and right is None:
-        return "three_prime_terminal_exon"
-    return "single_exon_gene"
-
-
 def _classify_mismatches(
     grouped_indices: list[np.ndarray],
     gt_pred_arr: np.ndarray,
@@ -217,6 +196,7 @@ def _classify_mismatches(
     out: dict[str, dict[str, list[int]]],
     is_insertion: bool,
     seg_type_arr: np.ndarray,
+    pred_seg_type_arr: np.ndarray,
 ) -> None:
     """Sort contiguous mismatch groups into four buckets, keyed by the GT exon they touch.
 
@@ -234,8 +214,9 @@ def _classify_mismatches(
       exon the run sits on (``seg_type_arr`` at a run position).
     * Anchored insertions (5'/3' extensions) key to the adjacent GT exon they extend.
     * Joins bridge two exons across an intron → always ``internal_exon``.
-    * Whole insertions are free-floating predicted exons → keyed by the
-      nearest-GT-exon scan in :func:`_whole_insertion_key`.
+    * Whole insertions have no GT exon, so they key to the *predicted* exon they
+      sit on (``pred_seg_type_arr``): a lone hallucinated exon is
+      ``single_exon_gene``; predicted introns make it internal/terminal.
     """
     name_5_prime, name_3_prime, name_both, name_neither = bucket_names
 
@@ -276,7 +257,8 @@ def _classify_mismatches(
             # Join: fills the intron between two exons.
             boundary_key = "internal_exon"
         else:
-            # Whole insertion: free-floating predicted exon in GT non-coding.
-            boundary_key = _whole_insertion_key(seg_type_arr, int(adjusted[0]), int(adjusted[-1]))
+            # Whole insertion: no GT exon under it → type by the predicted exon
+            # it sits on (pred-coding throughout, so pred_seg_type_arr is set).
+            boundary_key = str(pred_seg_type_arr[int(adjusted[0])])
 
         out[boundary_key][bucket].append(int(adjusted.size))
