@@ -16,6 +16,19 @@ Orientation assumption
 All input is assumed to be presented **5'→3'**: lower array index = 5', higher
 index = 3'.  Re-orienting minus-strand input is the caller's responsibility.
 
+Scope assumption
+----------------
+Each evaluation window is assumed to be **one complete transcript** (true under
+per-transcript scoping).  The window edge is typed as a terminal flank, so a GT
+section clipped mid-chain by the edge gets its edge exon mistyped as terminal.
+Exon-keyed rates stay valid fractions — numerator and denominator share the same
+typing, so such an exon is only misattributed to the wrong position column — but
+the intron-derived ``joined`` rate skews: each clipped edge inflates the gene
+count and deflates the intron denominator.  Zero-opportunity cells are masked
+(rendered blank) downstream, so this degrades gracefully rather than erroring.
+Several *complete* transcripts packed into one window are fine — intergenic
+flanks separate them correctly.
+
 Output shape
 ------------
 ``eval_indel`` returns ``{"by_boundary": {exon_type: {bucket: [lengths]}},

@@ -65,6 +65,12 @@ _EXON_OPPORTUNITY_EVENTS = frozenset(
     }
 )
 
+#: Events excluded from the *rate* heatmap.  A whole insertion is a detached false
+#: positive with no GT exon under it, so it has no bounded GT opportunity: its
+#: "rate" is unbounded and would break the shared colour scale.  It stays in the
+#: count heatmap, where an absolute magnitude is meaningful.
+_RATE_EXCLUDED_EVENTS = frozenset({"whole_insertions"})
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -75,13 +81,23 @@ def _iter_events(all_indel_data: dict[str, dict]):
     """Yield ``(method, boundary, event_type, lengths)`` over every payload.
 
     ``all_indel_data`` maps method name → the full INDEL payload dict.
+    ``lengths`` is either the raw run-length list (per-species results, still
+    in memory before leaning) or an already-collapsed integer count (leaned /
+    cross-species-averaged results — see ``_count_indel_events`` in
+    ``thesis_code.common.runner``); use :func:`_event_count` to read either
+    uniformly.
     """
     for method, payload in all_indel_data.items():
         if not isinstance(payload, dict):
             continue
         for boundary, buckets in payload.get("by_boundary", {}).items():
             for event_type, lengths in buckets.items():
-                yield method, boundary, event_type, list(lengths)
+                yield method, boundary, event_type, lengths
+
+
+def _event_count(value: list | int | float) -> int:
+    """Event count for one ``by_boundary`` leaf, whether raw list or pre-collapsed count."""
+    return len(value) if isinstance(value, (list, tuple)) else int(value)
 
 
 def _pretty_boundary(boundary: str) -> str:
@@ -109,24 +125,17 @@ def _event_denominator(payload: dict, event_type: str, boundary: str) -> int:
 
     All exon-keyed events (5'/3' extensions & deletions, splits, whole deletions)
     divide by the count of GT exons of that position type.  ``joined`` divides by
-    the GT intron count; ``whole_insertions`` divide by gene count at a terminal
-    exon, intron count internally, and have no bounded opportunity at a single-
-    exon gene (returns 0 → masked).  ``n_genes`` / ``n_introns`` are derived from
-    ``exon_opportunities`` + ``n_gt_segments`` (each window is one transcript).
+    the GT intron count (``n_gt_segments`` − ``n_genes``, derived from
+    ``exon_opportunities``; each window is one transcript).  Any other event has
+    no bounded GT opportunity and returns 0 — notably ``whole_insertions``, which
+    the rate plot excludes entirely (:data:`_RATE_EXCLUDED_EVENTS`).
     """
     exon_opp = payload.get("exon_opportunities", {})
     if event_type in _EXON_OPPORTUNITY_EVENTS:
         return int(exon_opp.get(boundary, 0))
-    n_genes = int(exon_opp.get("five_prime_terminal_exon", 0)) + int(exon_opp.get("single_exon_gene", 0))
-    n_introns = max(0, int(payload.get("n_gt_segments", 0)) - n_genes)
     if event_type == "joined":
-        return n_introns
-    if event_type == "whole_insertions":
-        if boundary in ("five_prime_terminal_exon", "three_prime_terminal_exon"):
-            return n_genes
-        if boundary == "internal_exon":
-            return n_introns
-        return 0  # single_exon_gene: no bounded opportunity → masked in rate plot
+        n_genes = int(exon_opp.get("five_prime_terminal_exon", 0)) + int(exon_opp.get("single_exon_gene", 0))
+        return max(0, int(payload.get("n_gt_segments", 0)) - n_genes)  # n_introns
     return 0
 
 
@@ -137,7 +146,7 @@ def _count_matrix(payload: dict, boundaries: list[str], events: list[str]) -> np
     for r, boundary in enumerate(boundaries):
         buckets = by_boundary.get(boundary, {})
         for c, event in enumerate(events):
-            mat[r, c] = len(buckets.get(event, []))
+            mat[r, c] = _event_count(buckets.get(event, 0))
     return mat
 
 
@@ -173,7 +182,7 @@ def plot_stacked_indel_counts_bar(
     data = {method: dict.fromkeys(_EVENT_ORDER, 0) for method in methods}
     for method, _boundary, event_type, lengths in _iter_events(all_indel_data):
         if event_type in data[method]:
-            data[method][event_type] += len(lengths)
+            data[method][event_type] += _event_count(lengths)
 
     counts = pd.DataFrame(data).T.reindex(columns=_EVENT_ORDER)
     counts = counts.loc[:, counts.sum(axis=0) > 0]
@@ -230,6 +239,7 @@ def _per_method_boundary_heatmap(
     title: str,
     save_path: Path | None,
     metadata: PlotMetadata | None,
+    exclude_events: frozenset[str] = frozenset(),
 ) -> plt.Figure | None:
     """Shared engine for the count/rate per-method boundary heatmaps.
 
@@ -240,7 +250,7 @@ def _per_method_boundary_heatmap(
     rate-coloured cell); ``nan`` cells are masked (blank).
     """
     boundaries = _present_boundaries(all_indel_data)
-    events = _present_events(all_indel_data)
+    events = [e for e in _present_events(all_indel_data) if e not in exclude_events]
     methods = [m for m in all_indel_data if isinstance(all_indel_data[m], dict)]
     if not boundaries or not events or not methods:
         logger.info("No boundary-typed INDEL data for class %s.", class_name)
@@ -340,13 +350,14 @@ def plot_indel_rates_by_boundary(
 
     Each cell is ``events ÷ opportunities``: anchored slips, splits and whole
     deletions divide by the count of GT exons of that position type; joins by GT
-    intron count; whole insertions by gene count (terminal exons) or intron count
-    (internal), with single-exon-gene whole insertions left un-normalised.
+    intron count.  Whole insertions are excluded (see ``_RATE_EXCLUDED_EVENTS``):
+    they are detached false positives with no bounded GT opportunity, so their
+    rate is unbounded — they appear only in the count heatmap.
     Colour = rate (shared linear scale); the cell annotation is the rate value.
     Cells with no opportunity or zero events are masked grey.
     """
     boundaries = _present_boundaries(all_indel_data)
-    events = _present_events(all_indel_data)
+    events = [e for e in _present_events(all_indel_data) if e not in _RATE_EXCLUDED_EVENTS]
     methods = [m for m in all_indel_data if isinstance(all_indel_data[m], dict)]
     if not boundaries or not events or not methods:
         logger.info("No boundary-typed INDEL data for class %s.", class_name)
@@ -385,6 +396,7 @@ def plot_indel_rates_by_boundary(
         title="INDEL Error Rate by GT Boundary",
         save_path=save_path,
         metadata=metadata,
+        exclude_events=_RATE_EXCLUDED_EVENTS,
     )
 
 
@@ -454,7 +466,10 @@ def plot_individual_error_lengths_histograms(
 
     lengths: dict[tuple[str, str], dict[str, list[int]]] = {}
     for method, boundary, event_type, runs in _iter_events(all_indel_data):
-        if not runs:
+        # Leaned / macro-averaged payloads collapse each bucket to a count (see
+        # ``_count_indel_events``) and no longer carry the run lengths this
+        # histogram needs — skip those, same as any other non-averageable distribution.
+        if not isinstance(runs, list) or not runs:
             continue
         lengths.setdefault((boundary, event_type), {}).setdefault(method, []).extend(runs)
 

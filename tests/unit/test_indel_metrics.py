@@ -130,9 +130,9 @@ def test_whole_insertion_typed_by_predicted_structure():
     assert "single_exon_gene" not in bb
 
 
-def test_event_denominator_intron_and_single_exon_gene():
-    """``_event_denominator``: joins divide by intron count; single-exon-gene
-    whole insertions have no bounded opportunity (0 → masked in the rate plot).
+def test_event_denominator_intron_and_whole_insertions_unbounded():
+    """``_event_denominator``: joins divide by intron count; whole insertions have
+    no bounded GT opportunity (always 0 → excluded from the rate plot).
     """
     from dna_segmentation_benchmark.plotting.metrics.indel import _event_denominator
 
@@ -147,8 +147,9 @@ def test_event_denominator_intron_and_single_exon_gene():
         "n_gt_segments": 3,
     }
     assert _event_denominator(payload, "joined", "internal_exon") == 2
-    assert _event_denominator(payload, "whole_insertions", "internal_exon") == 2
-    assert _event_denominator(payload, "whole_insertions", "five_prime_terminal_exon") == 1
+    # Whole insertions no longer have a rate denominator at any position.
+    assert _event_denominator(payload, "whole_insertions", "internal_exon") == 0
+    assert _event_denominator(payload, "whole_insertions", "five_prime_terminal_exon") == 0
     assert _event_denominator(payload, "whole_insertions", "single_exon_gene") == 0
     # Anchored slips, splits and whole deletions → per-exon-type count.
     assert _event_denominator(payload, "3_prime_deletions", "five_prime_terminal_exon") == 1
