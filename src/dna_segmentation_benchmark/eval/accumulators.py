@@ -254,7 +254,7 @@ class BoundaryExactnessAccumulator:
                 "first_sec_correct_3_prime_boundary": list(self.first),
                 "last_sec_correct_5_prime_boundary": list(self.last),
                 "iou_scores": list(self.iou),
-                "iou_stats": _compute_distribution_stats(self.iou, is_abs=False),
+                "iou_stats": _compute_distribution_stats(self.iou),
                 "fuzzy_metrics": _compute_boundary_precision_landscape(
                     residuals=self.residuals,
                     total_gt_count=self.total_gt,
@@ -328,6 +328,7 @@ class PhaseDriftAccumulator:
     boundary_indel_in_frame: int = 0
     n_skipped_non_divisible: int = 0
     n_skipped_short: int = 0
+    n_skipped_no_overlap: int = 0
     _seen: bool = False
     _has_indel_counts: bool = False
 
@@ -347,6 +348,7 @@ class PhaseDriftAccumulator:
             self.boundary_indel_in_frame += payload["boundary_indel_in_frame"]
         self.n_skipped_non_divisible += payload.get("n_skipped_non_divisible", 0)
         self.n_skipped_short += payload.get("n_skipped_short", 0)
+        self.n_skipped_no_overlap += payload.get("n_skipped_no_overlap", 0)
 
     def merged(self) -> dict:
         if not self._seen:
@@ -355,6 +357,7 @@ class PhaseDriftAccumulator:
             "gt_frame_counts": self.frame_counts.tolist(),
             "n_skipped_non_divisible": self.n_skipped_non_divisible,
             "n_skipped_short": self.n_skipped_short,
+            "n_skipped_no_overlap": self.n_skipped_no_overlap,
         }
         if self._has_indel_counts:
             result["boundary_indel_total"] = self.boundary_indel_total
@@ -371,6 +374,7 @@ class PhaseDriftAccumulator:
         self.frame_counts = self.frame_counts + np.array(payload["gt_frame_counts"], dtype=np.int64)
         self.n_skipped_non_divisible += payload.get("n_skipped_non_divisible", 0)
         self.n_skipped_short += payload.get("n_skipped_short", 0)
+        self.n_skipped_no_overlap += payload.get("n_skipped_no_overlap", 0)
         if "boundary_indel_total" in payload:
             self._has_indel_counts = True
             self.boundary_indel_total += payload["boundary_indel_total"]
@@ -513,7 +517,6 @@ class StructuralAccumulator:
         if self.segment_count_delta:
             group["segment_count_delta"] = _compute_distribution_stats(
                 self.segment_count_delta,
-                is_abs=False,
             )
         if self.transcript_match_class:
             counts = Counter(self.transcript_match_class)
@@ -593,7 +596,7 @@ class DiagnosticDepthAccumulator:
         return {
             self.KEY: {
                 **self._common(),
-                "length_emd": _compute_distribution_stats(self.length_emd, is_abs=False),
+                "length_emd": _compute_distribution_stats(self.length_emd),
             }
         }
 

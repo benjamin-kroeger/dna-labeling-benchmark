@@ -8,7 +8,7 @@ global metrics aggregate over *all* transcripts — including unmatched ones —
 so false-positive predictions and missed reference transcripts both contribute
 to the final numbers.
 
-Six metric groups are computed, each answering a distinct question:
+Eight metric groups are computed, each answering a distinct question:
 
 * ``nucleotide``  — *"At the base level, how accurate is the exon coverage?"*
   Union-based: each genomic base is counted once regardless of isoform count.
@@ -23,6 +23,14 @@ Six metric groups are computed, each answering a distinct question:
 * ``exon_lenient``  — *"Exon recovery with TSS/TES boundary leniency."*
   Terminal-exon outer boundaries are not required to match (gffcompare
   default ``=``); only internal splice-site boundaries must be exact.
+
+* ``intron_chain``  — *"How many multi-exon intron chains match exactly?"*
+  Reproduces gffcompare's intron-chain Sn/Sp by coordinate-exact structure
+  matching over the full reference, independent of the locus-matching mode.
+
+* ``transcript_exact``  — *"How many transcripts match exactly (coordinate-exact)?"*
+  Reproduces gffcompare's transcript Sn/Sp by coordinate-exact structure
+  matching over the full reference, independent of the locus-matching mode.
 
 * ``transcript``  — *"How many transcripts are recovered?"*
   Sensitivity = matched ref transcripts / total ref transcripts.
@@ -94,8 +102,7 @@ def compute_global_metrics(
     predictor_name : str
         Name of the predictor; must match the name used in ``map_transcripts``.
     label_config : LabelConfig
-        Label configuration.  ``coding_label`` must be set for nucleotide
-        metrics; if it is ``None`` the nucleotide section is returned empty.
+        Label configuration.
     transcript_types : list[str]
         GFF feature types that define transcript boundaries
         (e.g. ``["mRNA", "transcript"]``).

@@ -192,7 +192,7 @@ def _bootstrap_ratio_stderr(numerator: list, denominator: list, n_bootstrap: int
     return float(np.std(ratios)) * scale
 
 
-def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
+def _compute_distribution_stats(values: list) -> dict:
     """Compute MAE, RMSE, Mean for a list of values."""
     if not values:
         return {"count": 0, "mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0}
@@ -202,7 +202,7 @@ def _compute_distribution_stats(values: list, is_abs: bool = True) -> dict:
     return {
         "count": len(arr),
         "mean": float(np.mean(arr)),
-        "mae": float(np.mean(np.abs(arr))) if is_abs else float(np.mean(arr)),
+        "mae": float(np.mean(np.abs(arr))),
         "rmse": float(np.sqrt(np.mean(arr**2))),
         "std": float(np.std(arr)),
         "min": float(np.min(arr)),

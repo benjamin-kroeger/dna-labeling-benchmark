@@ -93,6 +93,8 @@ def _draw_transcript_match_bar(ax: plt.Axes, df_sc: pd.DataFrame) -> pd.DataFram
     annotated per section, per-method ``n=`` above the bar) and returns the
     per-method × class raw count pivot so callers can derive denominators /
     eligibility.  Title, axis labels and legend are left to the caller.
+    Sections under 2% of the bar's total height are left unlabeled to avoid
+    clutter.
 
     Returns ``None`` (without drawing) when *df_sc* carries no
     ``transcript_match_distribution`` rows.

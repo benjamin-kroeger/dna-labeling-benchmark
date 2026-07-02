@@ -84,7 +84,7 @@ def _eval_phase_drift_metrics(expected_phase_drift, computed_phase_drift):
     if "scopes" in computed_phase_drift and "scopes" not in expected_phase_drift:
         scope_payload = _single_scope_payload(computed_phase_drift)
         computed_phase_drift = {"gt_frames": np.asarray(scope_payload["frames"])}
-    _OPTIONAL_PHASE_DRIFT_KEYS = {"boundary_indel_total", "boundary_indel_in_frame", "n_skipped_non_divisible", "n_skipped_short"}
+    _OPTIONAL_PHASE_DRIFT_KEYS = {"boundary_indel_total", "boundary_indel_in_frame", "n_skipped_non_divisible", "n_skipped_short", "n_skipped_no_overlap"}
     unexpected = set(computed_phase_drift.keys()) - set(expected_phase_drift.keys()) - _OPTIONAL_PHASE_DRIFT_KEYS
     assert not unexpected, f"Unexpected keys in computed phase drift: {unexpected}"
     assert set(expected_phase_drift.keys()) <= set(computed_phase_drift.keys()), (

@@ -145,11 +145,13 @@ def test_benchmark_accumulator_routes_and_ignores_absent_keys():
     acc = BenchmarkAccumulator()
     acc.add({"PHASE_DRIFT": {"gt_frames": [0.0, 1.0], "n_skipped_non_divisible": 0, "n_skipped_short": 1}})
     acc.add({"PHASE_DRIFT": {"gt_frames": [2.0], "n_skipped_non_divisible": 1, "n_skipped_short": 0}})
+    acc.add({"PHASE_DRIFT": {"gt_frames": [], "n_skipped_no_overlap": 1}})
     # Per-position frames are binned to a [in-phase, +1, +2] count on the way in.
     assert acc.summarise() == {
         "PHASE_DRIFT": {
             "gt_frame_counts": [1, 1, 1],
             "n_skipped_non_divisible": 1,
             "n_skipped_short": 1,
+            "n_skipped_no_overlap": 1,
         }
     }

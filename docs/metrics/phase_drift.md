@@ -39,8 +39,10 @@ sequence is skipped and counted so aggregation stays honest:
   incomplete.
 - **Fewer than 3 predicted CDS bases** → too short to form a codon-count
   window, so the sequence is skipped and `n_skipped_short` is incremented.
+- **GT or prediction has no CDS bases at all** → there is nothing to compare,
+  so the sequence is skipped and `n_skipped_no_overlap` is incremented.
 
-In both cases the per-sequence `frames` list is empty.
+In all three cases the per-sequence `frames` list is empty.
 
 The raw single-sequence output is:
 

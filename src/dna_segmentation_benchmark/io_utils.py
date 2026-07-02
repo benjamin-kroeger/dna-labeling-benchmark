@@ -13,9 +13,10 @@ with unified ``gff_id`` and ``parent`` columns that work for both formats:
 
 .. note::
 
-   Arrays are always in **genomic (left-to-right) orientation**, regardless
-   of strand.  A minus-strand gene at positions 200-400 is stored with
-   index 0 = position 200.  Consuming code must be aware of this convention.
+   Arrays are normalised to **biological 5'→3' order**, not genomic
+   orientation.  Plus-strand arrays are genomic left-to-right; minus-strand
+   arrays are reversed so index 0 is always the transcript start (the reversal
+   happens at build time — see the inline comment at ``build_paired_arrays``).
 """
 
 from __future__ import annotations

@@ -26,8 +26,10 @@ Metrics
   segment boundaries (only for equal-count pairs), plus the signed,
   position-tagged per-boundary offsets that drive the shift-distribution
   plots.  Reported only when GT and prediction have the same segment count
-  (i.e. the chain topology is correct), so the offsets describe junction
-  placement *conditioned on* getting the exon count right.
+  (i.e. the chain topology is correct) *and* every predicted segment overlaps
+  its positional GT counterpart (a relocated exon is not treated as a shifted
+  boundary), so the offsets describe junction placement *conditioned on*
+  getting the exon count right.
 * **Per-transcript exon recall / precision** — fraction of GT exons exactly
   recovered, and fraction of predicted exons that are exact GT matches.
 * **Per-transcript false exon count** — predicted exons absent from GT.

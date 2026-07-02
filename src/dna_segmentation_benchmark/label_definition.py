@@ -296,7 +296,7 @@ class EvalMetrics(Enum):
     * ``BOUNDARY_EXACTNESS`` – *"How precise are the boundaries?"*
       Scope-aware IoU stats, bias/reliability landscape, and boundary flags.
     * ``NUCLEOTIDE_CLASSIFICATION`` – *"Per-base, how accurate is it?"*
-      Binary or multiclass outputs depending on annotation mode and scope.
+      Binary per-scope outputs; scope depends on annotation mode.
     * ``PHASE_DRIFT`` – *"Is the CDS reading phase preserved?"*
       CDS-only per-position reading-phase deviation.  Measures relative
       CDS-base count drift between GT and prediction; it is a structural

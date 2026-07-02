@@ -27,8 +27,6 @@ from dna_segmentation_benchmark import (
 run = init_wandb_with_presets(
     project="dna-benchmark",
     run_name="validation",
-    label_config=BEND_LABEL_CONFIG,
-    classes=[0],
 )
 
 results = benchmark_gt_vs_pred_multiple(

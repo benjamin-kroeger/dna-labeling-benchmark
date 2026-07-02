@@ -386,8 +386,6 @@ def test_init_wandb_with_presets_uses_metric_family_grouping(wandb_stub):
     init_wandb_with_presets(
         project="demo-project",
         run_name="demo-run",
-        label_config=BEND_LABEL_CONFIG,
-        classes=[0, 2],
     )
 
     assert "region_discovery/*" in wandb_stub.defined_metrics

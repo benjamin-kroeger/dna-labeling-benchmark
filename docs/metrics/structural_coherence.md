@@ -71,12 +71,13 @@ sequence), the chain comparison contributes nothing — `{tp: 0, fp: 0,
 fn: 0}` — so transcripts without coding segments do not artificially
 inflate or deflate the corpus precision/recall.
 
-**Important:** if a structure contains multiple coding segments but no explicit
-intron-label segments, intron-chain scoring raises an error rather than
-silently assuming there are no introns. Either provide explicit intron labels or
-enable intron inference at the public entry points (e.g. pass
-`infer_introns=True` to `benchmark_gt_vs_pred_single` /
-`benchmark_gt_vs_pred_multiple`).
+**Important:** introns are always derived positionally from the gaps between
+consecutive in-scope segments (gffcompare-style) — the scoring never checks
+whether those gap positions carry an explicit intron label, so introns are
+inferred from coding-segment gaps regardless of intron labeling. The only
+error case is a config-level one: if `label_config.intron_label` is unset in
+the `LabelConfig`, intron-chain scoring raises. That is a one-time
+precondition on the config, not a per-structure content check.
 
 ![Intron/exon chain match rate (multi-exon only)](../images/transcript_match_rate.png)
 

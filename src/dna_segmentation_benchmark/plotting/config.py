@@ -286,31 +286,6 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         "A near-zero recall mass with a fat right tail of false exons "
         "indicates a model that guesses without recovering true structure.",
     ),
-    # --- Exon chain P/R tiers ---
-    "exon_chain": PlotMetadata(
-        display_name="Exon Chain Exact Match",
-        description="Precision and recall requiring identical exon segment boundary sets.",
-        show_tp_tn_fp_fn=True,
-        tp_definition="GT exon set exactly reproduced by prediction",
-        fp_definition="Prediction exists but exon set does not exactly match GT",
-        fn_definition="GT exon set not exactly matched",
-    ),
-    "exon_chain_superset": PlotMetadata(
-        display_name="Exon Chain Superset",
-        description="Recall-oriented: all GT exons are present in the prediction (pred may have extras).",
-        show_tp_tn_fp_fn=True,
-        tp_definition="All GT exons present in prediction (pred ⊇ GT)",
-        fp_definition="Prediction exists but misses at least one GT exon",
-        fn_definition="GT exon set not fully recovered",
-    ),
-    "exon_chain_subset": PlotMetadata(
-        display_name="Exon Chain Subset",
-        description="Precision-oriented: all predicted exons correspond to GT exons (some GT exons may be missing).",
-        show_tp_tn_fp_fn=True,
-        tp_definition="All predicted exons are valid GT exons (pred ⊆ GT)",
-        fp_definition="Prediction contains exons not in GT",
-        fn_definition="GT exon set not matched at this level",
-    ),
     # --- Diagnostic Depth ---
     "position_bias": PlotMetadata(
         display_name="Position Bias",

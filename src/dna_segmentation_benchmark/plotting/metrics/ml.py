@@ -27,7 +27,8 @@ def plot_ml_metrics_bar(
     save_path_prefix : Path | None
         If given, figures are saved as ``<prefix>_<level>.png``.
     metadata_map : dict[str, PlotMetadata] | None
-        Mapping from ``ml_<level>`` key to :class:`PlotMetadata`.
+        Mapping from the bare metric-level name (e.g. ``"nucleotide"``,
+        ``"neighborhood_hit"``) to :class:`PlotMetadata`.
         Looked up per-level to attach the correct pictogram panel.
 
     Returns
@@ -49,7 +50,7 @@ def plot_ml_metrics_bar(
         return {}
 
     ml_scores = (
-        df_ml_metrics.groupby(["method_name", "metric_key"])["value"]
+        df_ml_metrics.groupby(["method_name", "metric_key"], sort=False)["value"]
         .apply(lambda x: x.iloc[0] if not x.empty else 0)
         .unstack(fill_value=0)
     )
