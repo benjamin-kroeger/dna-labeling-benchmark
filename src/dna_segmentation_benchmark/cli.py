@@ -258,6 +258,8 @@ def _pred_role_map_for(
 
 def _serialise_results(results: dict) -> dict:
     """Convert numpy types in the results dict to JSON-serialisable types."""
+    import dataclasses
+
     import pandas as pd
 
     if isinstance(results, dict):
@@ -274,6 +276,8 @@ def _serialise_results(results: dict) -> dict:
         return int(results)
     if isinstance(results, (np.floating, np.float64)):
         return float(results)
+    if dataclasses.is_dataclass(results) and not isinstance(results, type):
+        return _serialise_results(dataclasses.asdict(results))
     return results
 
 
