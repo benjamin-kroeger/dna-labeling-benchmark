@@ -322,7 +322,7 @@ def _eval_phase_drift(
     pred_positive_mask: np.ndarray,
     indel_result: dict | None = None,
 ) -> dict:
-    """Per-position reading-frame deviation for one explicit CDS-like scope.
+    """Per-position coding-phase drift for one explicit CDS-like scope.
 
     When *indel_result* is supplied (the INDEL metric dict for the same chunk),
     the returned dict also carries ``boundary_indel_total`` and

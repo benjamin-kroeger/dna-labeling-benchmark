@@ -2,10 +2,11 @@
 
 The INDEL family classifies contiguous coding mismatches into a structural
 error taxonomy instead of reducing them to a single overlap score. Each
-mismatch run is additionally **typed by the GT boundary it straddles**, so a
-boundary slip at a `5'UTR → CDS` junction is kept separate from one at a
-`intron → CDS` junction even though both look identical to the binary coding
-mask.
+mismatch run is additionally **typed by the semantic position of the GT exon it
+touches** — `five_prime_terminal_exon`, `internal_exon`,
+`three_prime_terminal_exon`, or `single_exon_gene` — so a slip on a 5′-terminal
+exon is kept separate from one on an internal exon even though both look
+identical to the binary coding mask.
 
 ## Example Plots
 
@@ -82,26 +83,36 @@ That local neighborhood test drives the event type:
 - both touched sides: `joined` or `split`
 - neither side: whole insertion or whole deletion
 
-## Boundary Typing
+## Exon-Position Typing
 
-On top of the event type, each run keeps the **GT label names immediately
-flanking it**, read from the unpadded GT label array:
+On top of the event type, each run is keyed by the **semantic position of the GT
+exon it touches**, one of four categories:
 
-```
-left_name  = name(gt_labels[run_start - 1])   # 5' flank
-right_name = name(gt_labels[run_end   + 1])   # 3' flank
-```
+- `five_prime_terminal_exon`
+- `internal_exon`
+- `three_prime_terminal_exon`
+- `single_exon_gene`
 
-The two are joined into a single boundary key `"LEFT:RIGHT"` (rendered
-`LEFT → RIGHT` in plots), for example `FIVE_PRIME_UTR:CDS` or `CDS:INTRON`.
-A run that touches a sequence end uses `none` for the missing flank
-(e.g. `none:CDS`).
+Each GT coding segment is typed once from the GT labels immediately flanking it
+(`semantic_boundary_label`): a flank is *terminal* when it is outside the intron
+chain (`NONCODING`, the sequence edge `none`, or a UTR label marking the
+start/stop-codon boundary in UTR_CDS_INTRON mode); `INTRON` is the only
+*internal* flank. Two terminal flanks → `single_exon_gene`; one terminal flank →
+5′- or 3′-terminal exon; two intron flanks → `internal_exon`.
 
-Because keys are in **array (5'→3') order**, `FIVE_PRIME_UTR:CDS` (a
-5'UTR / start-codon boundary) and `CDS:THREE_PRIME_UTR` (a 3'UTR / stop-codon
-boundary) stay distinct — a distinction a class-blind metric cannot make, since
-UTR appears at both ends of a gene. This is only biologically meaningful under
-the standard 5'→3' input orientation (see {doc}`conventions`).
+The run is then keyed by the GT exon it *affects*, not just its immediate flank:
+
+- **deletions** are GT-coding throughout, so they key to the exon they sit on;
+- **5′/3′ extensions** key to the adjacent GT exon they extend;
+- **joins** bridge two exons across an intron → always `internal_exon`;
+- **whole insertions** have no GT exon under them, so they key to the
+  *predicted* exon they sit on (typed the same way from the prediction's flanks).
+
+Because typing reads the flanks in **array (5'→3') order**, the 5′- and
+3′-terminal categories stay distinct — a distinction a class-blind metric cannot
+make, since UTR/non-coding appears at both ends of a gene. This is only
+biologically meaningful under the standard 5'→3' input orientation
+(see {doc}`conventions`).
 
 ## Output Structure
 
@@ -109,19 +120,19 @@ the standard 5'→3' input orientation (see {doc}`conventions`).
 
 ```python
 {
-    "by_boundary": {"LEFT:RIGHT": {event_type: [run_length, ...]}},
-    "junction_opportunities": {"LEFT:RIGHT": int},  # GT L→R transition counts
-    "n_gt_segments": int,                           # GT coding segments
-    "n_pred_segments": int,                         # predicted coding segments
+    "by_boundary": {exon_type: {event_type: [run_length, ...]}},
+    "exon_opportunities": {exon_type: int},  # GT exon count per position type
+    "n_gt_segments": int,                    # GT coding segments
+    "n_pred_segments": int,                  # predicted coding segments
 }
 ```
 
-Only run **lengths** (in nucleotides) are stored, not index arrays: that is all
-the plots need, and it keeps the per-boundary fan-out small. The label-name
-keys are produced once, where `label_config` is available, so the same string
-keys are used by the tests, the accumulator merge, the plots, and JSON output
-(a tuple key would not be JSON-serialisable). The three denominators are summed
-across sequences by the accumulator.
+`exon_type` is one of the four `SEMANTIC_BOUNDARY_ORDER` categories above. Only
+run **lengths** (in nucleotides) are stored, not index arrays: that is all the
+plots need, and it keeps the per-exon-type fan-out small. The semantic-type keys
+are produced once, where `label_config` is available, so the same string keys
+are used by the tests, the accumulator merge, the plots, and JSON output. The
+denominators are summed across sequences by the accumulator.
 
 ## Rates and opportunities
 
@@ -131,12 +142,17 @@ because they have no denominator. Each event is therefore divided by its
 
 | event family | events | denominator (opportunity) | reads as |
 |---|---|---|---|
-| boundary-anchored | 5'/3' extensions & deletions | GT junctions of the matching `LEFT:RIGHT` type (`junction_opportunities`) | fraction of those junctions slipped |
-| GT-segment | `split`, `joined`, `whole_deletions` | number of GT coding segments | per-segment fragmentation / loss |
-| pred-segment | `whole_insertions` | number of predicted coding segments | fraction of predictions fully spurious |
+| exon-anchored | 5'/3' extensions & deletions, `split`, `whole_deletions` | count of GT exons of that position type (`exon_opportunities[type]`) | fraction of that exon type that suffered the error |
+| intron-anchored | `joined` | GT intron count (`n_gt_segments − n_genes`) | fraction of introns bridged |
+| gene / intron | `whole_insertions` | gene count at a terminal exon, intron count internally; unbounded at `single_exon_gene` (masked) | fraction of that opportunity hallucinated |
 
-This split is deliberate: boundary-anchored events measure *localization* of a
-junction the method got roughly right, whereas `whole_*` events are *detection*
+`n_genes = #five_prime_terminal_exon + #single_exon_gene`; the plotter derives
+gene and intron counts from `exon_opportunities` + `n_gt_segments`, which assumes
+each evaluation window is one complete transcript (true under per-transcript
+scoping).
+
+This split is deliberate: exon-anchored slips measure *localization* of an exon
+the method got roughly right, whereas `whole_*` events are *detection*
 (presence/absence) — closer to recall (`whole_deletions`) and precision
 (`whole_insertions`). The `indel_rates_by_boundary` plot colours by these rates;
 cells with zero opportunity are masked.
@@ -148,10 +164,11 @@ cells with zero opportunity are masked.
 - many `joined`: the model tends to merge adjacent GT coding sections
 - many `split`: the model fragments single GT coding sections
 - many `whole_insertions`: strong hallucination behavior
-- a hotspot at one boundary in `indel_counts_by_boundary` (e.g. `CDS:INTRON`
-  3'-deletions): the model consistently fails one specific junction type. Read
-  it together with the state-transition *direction* (late vs premature) for the
-  same boundary — INDEL gives the slip magnitude, transitions give the timing.
+- a hotspot at one exon position in `indel_counts_by_boundary` (e.g.
+  `internal_exon` 3'-deletions): the model consistently fails one specific exon
+  type. Read it together with the state-transition *direction* (late vs
+  premature) for the same boundary — INDEL gives the slip magnitude, transitions
+  give the timing.
 
 ## Caveats
 
@@ -160,10 +177,10 @@ cells with zero opportunity are masked.
   {doc}`../getting_started/annotation_modes`). The event type comes from the
   binary coding mask; the **boundary type** then restores the GT label context
   (intron vs UTR vs background) that the mask discards.
-- The boundary key describes the run's **edges**, not its interior. A run whose
-  interior spans several GT labels (e.g. a hallucinated coding stretch over
-  UTR–intron–UTR) collapses to the single pair of its flanks, e.g.
-  `none:none` or `NONCODING:NONCODING`.
+- The exon-position key describes which GT (or, for whole insertions, predicted)
+  exon a run touches, not its interior. A run whose interior spans several GT
+  labels (e.g. a hallucinated coding stretch over UTR–intron–UTR) is typed by the
+  single exon it anchors to, collapsing the internal structure.
 - It is local. It classifies contiguous mismatch runs, not full transcript
   structure.
 - 5'/3' and the boundary key order refer to **array orientation**, not

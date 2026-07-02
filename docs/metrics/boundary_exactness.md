@@ -6,7 +6,9 @@ boundaries once there is some overlap.
 
 ## What Is Computed
 
-For every overlapping `(GT, pred)` coding section pair, the benchmark records:
+For every greedy 1:1-matched `(GT, pred)` coding section pair (the same matched
+pairs used by Region Discovery — best-overlap-first, each GT and prediction
+claimed at most once), the benchmark records:
 
 - signed 5' residual: `pred_start - gt_start`
 - signed 3' residual: `pred_end - gt_end`
@@ -36,7 +38,7 @@ has length 1, not 0. Scores produced by external tools that use
 half-open intervals will differ slightly for very short sections; see
 `conventions.md`.
 
-The raw `iou_scores` list contains one IoU value per overlapping
+The raw `iou_scores` list contains one IoU value per greedy 1:1-matched
 `(GT, pred)` pair. After aggregation, `iou_stats["mean"]` is the scalar
 used by the W&B online logger.
 
@@ -88,8 +90,9 @@ the transcript. See `conventions.md` for the full convention.
 
 - Only overlapping section pairs contribute. Completely missed GT sections do
   not add IoU or residuals directly; they matter through Region Discovery.
-- Multiple predicted sections can contribute multiple residual pairs against
-  the same GT section.
+- Each GT section contributes at most one residual pair: the greedy 1:1 match
+  claims each GT and prediction once, so a prediction overlapping several GT
+  sections no longer inflates the bias/reliability landscape.
 - IoU mean is informative, but it hides whether errors are a few large misses
   or many small offsets. Use it together with the distribution plot.
 - The bias-landscape histogram is bounded to `±max_range` (default 10 bp).
