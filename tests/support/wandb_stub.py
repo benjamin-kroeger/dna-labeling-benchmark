@@ -39,6 +39,12 @@ class FakeWandb:
     def define_metric(self, pattern):
         self.defined_metrics.append(pattern)
 
-    def init(self, **kwargs):
-        self.inits.append(kwargs)
-        return SimpleNamespace(**kwargs)
+    def init(self, *, project=None, name=None, config=None, **kwargs):
+        # Mirror a real strict ``wandb.init`` closely enough to reject the
+        # parameters this codebase never forwards — an open ``**kwargs`` sink
+        # would silently accept typo'd/nonexistent args and hide broken callers.
+        if kwargs:
+            raise TypeError(f"unexpected keyword arguments: {sorted(kwargs)}")
+        call = {"project": project, "name": name, "config": config}
+        self.inits.append(call)
+        return SimpleNamespace(**call)

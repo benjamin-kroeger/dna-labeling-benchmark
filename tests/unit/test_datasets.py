@@ -33,7 +33,7 @@ def test_list_datasets_includes_zenodo_test():
 
 
 def test_get_dataset_info_unknown():
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError, match="unknown dataset 'does_not_exist'"):
         get_dataset_info("does_not_exist")
 
 
@@ -98,7 +98,7 @@ def test_missing_record_id_rejects_url():
         fasta=FileSpec(filename="x.fa", checksum="", local_name="x.fa"),
         annotation=FileSpec(filename="x.gtf", checksum="", local_name="x.gtf"),
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="missing record_id"):
         spec.zenodo_base_url()
 
 
@@ -113,5 +113,5 @@ def test_verify_checksum_roundtrip(tmp_path):
 def test_verify_checksum_mismatch(tmp_path):
     p = tmp_path / "f.txt"
     p.write_bytes(b"ACGT\n")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="checksum mismatch"):
         _verify_checksum(p, "sha256:" + "0" * 64)

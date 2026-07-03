@@ -338,6 +338,7 @@ def _eval_phase_drift(
         "gt_frames": np.asarray(raw["frames"]),
         "n_skipped_non_divisible": raw["n_skipped_non_divisible"],
         "n_skipped_short": raw["n_skipped_short"],
+        "n_skipped_no_overlap": raw["n_skipped_no_overlap"],
     }
 
     if indel_result is not None:

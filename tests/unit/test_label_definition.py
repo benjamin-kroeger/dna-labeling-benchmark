@@ -98,7 +98,7 @@ class TestLabelConfigConstruction:
         assert BEND_LABEL_CONFIG.name_of(99) == "99"
 
     def test_config_is_frozen(self):
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="frozen"):
             BEND_LABEL_CONFIG.background_label = 99
 
 
@@ -193,15 +193,6 @@ class TestLabelConfigValidation:
         )
         with pytest.raises(ValueError, match="duplicates"):
             LabelConfig(annotation_mode=annotation_mode, **kwargs)
-
-    def test_legacy_exon_label_is_cds_flag_is_rejected(self):
-        with pytest.raises(ValidationError, match="exon_label_is_cds"):
-            LabelConfig(
-                annotation_mode=AnnotationMode.EXON_INTRON,
-                background_label=8,
-                exon_label=0,
-                exon_label_is_cds=True,
-            )
 
 
 class TestLabelConfigHelpers:

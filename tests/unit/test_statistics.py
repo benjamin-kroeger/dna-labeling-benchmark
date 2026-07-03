@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from dna_segmentation_benchmark.eval.statistics import Counts, summarise_counts
 
 
@@ -52,5 +54,8 @@ def test_macro_has_bootstrap_stderr_with_two_or_more_sequences():
     counts = [Counts(tp=100), Counts(tp=0, fn=10)]
     out = summarise_counts(counts, include_macro=True).to_dict()
 
-    assert "recall_macro_stderr" in out
-    assert out["recall_macro_stderr"] >= 0.0
+    # The two sequences have maximally divergent per-sequence recall (1.0 and
+    # 0.0), so a correct bootstrap must show substantial spread — a hardcoded
+    # zero or broken formula cannot reproduce this. Value is deterministic under
+    # the fixed seed (default_rng(42)); pinned exactly rather than bounded.
+    assert out["recall_macro_stderr"] == pytest.approx(0.3556669790689037)

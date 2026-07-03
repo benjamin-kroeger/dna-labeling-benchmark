@@ -1,6 +1,9 @@
 """Tests for the typed accumulators (Counts / Stat) and metric accumulators."""
 
+import math
+
 import numpy as np
+import pytest
 
 from dna_segmentation_benchmark.eval.accumulators import (
     BenchmarkAccumulator,
@@ -12,7 +15,6 @@ from dna_segmentation_benchmark.eval.accumulators import (
 from dna_segmentation_benchmark.eval.statistics import (
     Counts,
     summarise_counts,
-    _compute_summary_statistics,
 )
 
 
@@ -24,17 +26,23 @@ def test_counts_add_and_sum():
     assert sum([a, b]) == Counts(tp=11, fp=22, fn=33, tn=44)
 
 
-def test_summarise_counts_matches_compute_summary_statistics():
-    rng = np.random.default_rng(0)
-    for _ in range(50):
-        n = int(rng.integers(1, 8))
-        tp = rng.integers(0, 50, n).tolist()
-        fn = rng.integers(0, 50, n).tolist()
-        fp = rng.integers(0, 50, n).tolist()
-        expected = _compute_summary_statistics(tp=tp, fn=fn, fp=fp)
-        per_sequence = [Counts(tp=tp[i], fn=fn[i], fp=fp[i]) for i in range(n)]
-        got = summarise_counts(per_sequence).to_dict()
-        assert got == expected
+def test_summarise_counts_matches_hand_computed_values():
+    counts = [Counts(tp=10, fp=5, fn=0), Counts(tp=20, fp=0, fn=10)]
+    got = summarise_counts(counts).to_dict()
+
+    # Micro: pool tp/fp/fn first, then divide.
+    #   precision = 30/(30+5) = 6/7 ; recall = 30/(30+10) = 3/4
+    #   f1 = 2pr/(p+r) = 0.8 exactly
+    assert got == pytest.approx({
+        "precision": 6 / 7,
+        "recall": 0.75,
+        "f1": 0.8,
+        # *_stderr are bootstrap outputs — not hand-derivable, but deterministic
+        # under the fixed seed (default_rng(42)); pinned so a regression shows.
+        "precision_stderr": 0.11911887391362035,
+        "recall_stderr": 0.1255542158237274,
+        "f1_stderr": 1.7490858178089023e-16,
+    })
 
 
 def test_summarise_counts_includes_f1():
@@ -108,7 +116,12 @@ def test_diagnostic_accumulator_sums_histograms_and_summarises_emd():
     assert out["position_bias_histogram_fn"] == [4, 0]
     assert out["position_bias_histogram_fp"] == [0, 4]
     assert out["gt_segment_lengths"] == [1, 1]
-    assert isinstance(out["length_emd"], dict) and out["length_emd"]["count"] == 2
+    # EMD values fed in are [0.5, 1.5]; hand-derived distribution stats (both
+    # positive so mae == mean; rmse = sqrt(mean([0.25, 2.25])) = sqrt(1.25)):
+    assert out["length_emd"] == pytest.approx({
+        "count": 2, "mean": 1.0, "mae": 1.0,
+        "rmse": math.sqrt(1.25), "std": 0.5, "min": 0.5, "max": 1.5,
+    })
 
 
 def test_boundary_accumulator_merged_keeps_raw_summarise_adds_stats():
@@ -137,8 +150,25 @@ def test_boundary_accumulator_merged_keeps_raw_summarise_adds_stats():
     # fuzzy_metrics is replaced by the computed landscape dict (no longer raw
     # residuals) — a JSON-serialisable {max_range, bias_matrix, reliability_matrix}.
     landscape = summarised["fuzzy_metrics"]
-    assert set(landscape) == {"max_range", "bias_matrix", "reliability_matrix"}
     assert "boundary_offsets" not in landscape
+
+    # Residuals merged in: (5', 3') offsets (0, 1) and (1, 0); total_gt = 2+3 = 5,
+    # max_range = 10 (accumulator default). Hand-derived from
+    # _compute_boundary_precision_landscape:
+    #   bias_matrix is (2*max_range+1)²; each residual increments
+    #   [5'_offset+10, 3'_offset+10].
+    #   reliability_matrix[t5, t3] = (residuals with |5'|<=t5 and |3'|<=t3) / total_gt.
+    assert landscape["max_range"] == 10
+    expected_bias = np.zeros((21, 21))
+    expected_bias[10, 11] = 1.0  # residual (0, 1)
+    expected_bias[11, 10] = 1.0  # residual (1, 0)
+    np.testing.assert_array_equal(np.array(landscape["bias_matrix"]), expected_bias)
+
+    expected_reliability = np.zeros((11, 11))
+    expected_reliability[0, 1:] = 1 / 5   # only (0,1) qualifies once t3>=1
+    expected_reliability[1:, 0] = 1 / 5   # only (1,0) qualifies at t3=0
+    expected_reliability[1:, 1:] = 2 / 5  # both qualify once t5>=1 and t3>=1
+    np.testing.assert_allclose(np.array(landscape["reliability_matrix"]), expected_reliability)
 
 
 def test_benchmark_accumulator_routes_and_ignores_absent_keys():

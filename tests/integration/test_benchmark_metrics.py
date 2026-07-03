@@ -25,7 +25,7 @@ from support.cases import (
 )
 from support.constants import MEDIA_METRICS
 from support.gff import UTR_ROLE_MAP, UTR_ROLE_MAP_NO_CDS
-from support.metric_compare import METRIC_EVAL_DISPATCH, assert_metric_value_equal
+from support.metric_compare import assert_metric_value_equal
 
 
 @pytest.mark.parametrize(
@@ -48,9 +48,10 @@ def test_benchmark_single(gt_pred_array, label_config, metrics, expected_errors)
     )
 
     for metric in metrics:
-        METRIC_EVAL_DISPATCH[metric](
+        assert_metric_value_equal(
             expected_errors[metric.name],
             benchmark_results[metric.name],
+            metric.name,
         )
 
 
@@ -68,9 +69,10 @@ def test_structural_coherence(gt_pred_array, label_config, metrics, expected_err
     )
 
     for metric in metrics:
-        METRIC_EVAL_DISPATCH[metric](
+        assert_metric_value_equal(
             expected_errors[metric.name],
             benchmark_results[metric.name],
+            metric.name,
         )
 
 
@@ -84,11 +86,11 @@ def test_splice_site_evaluation(gt_pred_array, expected_splice):
         metrics=[EvalMetrics.STRUCTURAL_COHERENCE],
     )
     assert "STRUCTURAL_COHERENCE" in result, "Expected 'STRUCTURAL_COHERENCE' key in benchmark results"
-    ss = result["STRUCTURAL_COHERENCE"]["splice_site_results"]
-    for key, expected_val in expected_splice.items():
-        assert ss[key] == expected_val, (
-            f"splice_site_results[{key!r}]: expected {expected_val}, got {ss[key]}"
-        )
+    assert_metric_value_equal(
+        expected_splice,
+        result["STRUCTURAL_COHERENCE"]["splice_site_results"],
+        "splice_site_results",
+    )
 
 
 @pytest.mark.parametrize(
@@ -105,9 +107,10 @@ def test_diagnostic_depth(gt_pred_array, label_config, metrics, expected_errors)
     )
 
     for metric in metrics:
-        METRIC_EVAL_DISPATCH[metric](
+        assert_metric_value_equal(
             expected_errors[metric.name],
             benchmark_results[metric.name],
+            metric.name,
         )
 
 
@@ -130,9 +133,10 @@ def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, metrics, expec
     )
 
     for metric in metrics:
-        METRIC_EVAL_DISPATCH[metric](
+        assert_metric_value_equal(
             expected_errors[metric.name],
             benchmark_results[metric.name],
+            metric.name,
         )
 
 

@@ -158,7 +158,14 @@ SINGLE_SEQUENCE_TEST_CASES = [
                     "five_prime_terminal_exon": {"whole_deletions": [5]},
                     "internal_exon": {"whole_deletions": [5]},
                     "three_prime_terminal_exon": {"whole_deletions": [2]},
-                }
+                },
+                "exon_opportunities": {
+                    "five_prime_terminal_exon": 1,
+                    "internal_exon": 1,
+                    "three_prime_terminal_exon": 1,
+                },
+                "n_gt_segments": 3,
+                "n_pred_segments": 0,
             },
             "REGION_DISCOVERY": {
                 "neighborhood_hit": {"tp": 0, "fp": 0, "fn": 3, "tn": 0},
@@ -199,7 +206,11 @@ SINGLE_SEQUENCE_TEST_CASES = [
                     "five_prime_terminal_exon": {"whole_insertions": [5]},
                     "internal_exon": {"whole_insertions": [5]},
                     "three_prime_terminal_exon": {"whole_insertions": [2]},
-                }
+                },
+                # GT is all background, so there are no GT exons to count opportunities for.
+                "exon_opportunities": {},
+                "n_gt_segments": 0,
+                "n_pred_segments": 3,
             },
             "REGION_DISCOVERY": {
                 "neighborhood_hit": {"tp": 0, "fp": 3, "fn": 0, "tn": 0},
@@ -263,7 +274,13 @@ SINGLE_SEQUENCE_TEST_CASES = [
                     "internal_exon": {"joined": [3]},
                     "five_prime_terminal_exon": {"5_prime_deletions": [3]},
                     "three_prime_terminal_exon": {"3_prime_deletions": [2]},
-                }
+                },
+                "exon_opportunities": {
+                    "five_prime_terminal_exon": 1,
+                    "three_prime_terminal_exon": 1,
+                },
+                "n_gt_segments": 2,
+                "n_pred_segments": 1,
             },
             "REGION_DISCOVERY": {
                 "neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0},
@@ -347,7 +364,13 @@ SINGLE_SEQUENCE_TEST_CASES = [
                 "by_boundary": {
                     "five_prime_terminal_exon": {"3_prime_deletions": [1]},
                     "three_prime_terminal_exon": {"whole_deletions": [2]},
-                }
+                },
+                "exon_opportunities": {
+                    "five_prime_terminal_exon": 1,
+                    "three_prime_terminal_exon": 1,
+                },
+                "n_gt_segments": 2,
+                "n_pred_segments": 1,
             },
             "REGION_DISCOVERY": {
                 "neighborhood_hit": {"tp": 1, "fp": 0, "fn": 1, "tn": 0},
@@ -400,7 +423,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
                         np.inf,
                         np.inf,
                     ]
-                )
+                ),
+                "n_skipped_non_divisible": 0,
+                "n_skipped_short": 0,
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 4,
+                "boundary_indel_in_frame": 2,
             },
         },
         id="phase_drift_test",
@@ -416,7 +444,14 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
-            "PHASE_DRIFT": {"gt_frames": np.array([0.0, 0.0, 0.0, np.inf, np.inf, np.inf, 0.0, 0.0, 0.0])},
+            "PHASE_DRIFT": {
+                "gt_frames": np.array([0.0, 0.0, 0.0, np.inf, np.inf, np.inf, 0.0, 0.0, 0.0]),
+                "n_skipped_non_divisible": 0,
+                "n_skipped_short": 0,
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 0,
+                "boundary_indel_in_frame": 0,
+            },
         },
         id="phase_drift_perfect_prediction",
     ),
@@ -434,7 +469,14 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
-            "PHASE_DRIFT": {"gt_frames": np.array([np.inf, 1.0, 1.0, 1.0, 1.0, 1.0, np.inf])},
+            "PHASE_DRIFT": {
+                "gt_frames": np.array([np.inf, 1.0, 1.0, 1.0, 1.0, 1.0, np.inf]),
+                "n_skipped_non_divisible": 0,
+                "n_skipped_short": 0,
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 2,
+                "boundary_indel_in_frame": 0,
+            },
         },
         id="phase_drift_persistent_plus1",
     ),
@@ -450,7 +492,14 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
-            "PHASE_DRIFT": {"gt_frames": np.array([np.inf, np.inf, 2.0, 2.0, 2.0, 2.0, np.inf, np.inf])},
+            "PHASE_DRIFT": {
+                "gt_frames": np.array([np.inf, np.inf, 2.0, 2.0, 2.0, 2.0, np.inf, np.inf]),
+                "n_skipped_non_divisible": 0,
+                "n_skipped_short": 0,
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 2,
+                "boundary_indel_in_frame": 0,
+            },
         },
         id="phase_drift_persistent_plus2",
     ),
@@ -466,7 +515,17 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
-            "PHASE_DRIFT": {"gt_frames": np.array([np.inf, np.inf, np.inf, np.inf, np.inf, np.inf])},
+            "PHASE_DRIFT": {
+                "gt_frames": np.array([np.inf, np.inf, np.inf, np.inf, np.inf, np.inf]),
+                "n_skipped_non_divisible": 0,
+                "n_skipped_short": 0,
+                # GT and pred CDS regions are present but disjoint, so there is a
+                # co-CDS comparison window (not a no-overlap skip) — it just never
+                # aligns, leaving every position at inf.
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 0,
+                "boundary_indel_in_frame": 0,
+            },
         },
         id="phase_drift_no_overlap",
     ),
@@ -478,7 +537,14 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
-            "PHASE_DRIFT": {"gt_frames": np.array([0.0, 0.0, np.inf, 1.0, 1.0, np.inf, 2.0, 2.0, np.inf, np.inf])},
+            "PHASE_DRIFT": {
+                "gt_frames": np.array([0.0, 0.0, np.inf, 1.0, 1.0, np.inf, 2.0, 2.0, np.inf, np.inf]),
+                "n_skipped_non_divisible": 0,
+                "n_skipped_short": 0,
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 1,
+                "boundary_indel_in_frame": 0,
+            },
         },
         id="phase_drift_escalating_within_exon",
     ),
@@ -516,7 +582,12 @@ SINGLE_SEQUENCE_TEST_CASES = [
                         np.inf,
                         2.0,
                     ]
-                )
+                ),
+                "n_skipped_non_divisible": 0,
+                "n_skipped_short": 0,
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 5,
+                "boundary_indel_in_frame": 0,
             },
         },
         id="phase_drift_cyclic_012",
@@ -533,7 +604,14 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
-            "PHASE_DRIFT": {"gt_frames": np.array([])},
+            "PHASE_DRIFT": {
+                "gt_frames": np.array([]),
+                "n_skipped_non_divisible": 1,
+                "n_skipped_short": 0,
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 1,
+                "boundary_indel_in_frame": 1,
+            },
         },
         id="phase_drift_gt_cds_not_mod3",
     ),
@@ -549,7 +627,14 @@ SINGLE_SEQUENCE_TEST_CASES = [
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
-            "PHASE_DRIFT": {"gt_frames": np.array([])},
+            "PHASE_DRIFT": {
+                "gt_frames": np.array([]),
+                "n_skipped_non_divisible": 0,
+                "n_skipped_short": 1,
+                "n_skipped_no_overlap": 0,
+                "boundary_indel_total": 2,
+                "boundary_indel_in_frame": 0,
+            },
         },
         id="phase_drift_pred_too_few_cds",
     ),
@@ -576,7 +661,10 @@ SINGLE_SEQUENCE_TEST_CASES = [
                         "whole_deletions": [2],
                         "whole_insertions": [4],
                     }
-                }
+                },
+                "exon_opportunities": {"single_exon_gene": 3},
+                "n_gt_segments": 3,
+                "n_pred_segments": 3,
             },
         },
         id="Different_label_test",
@@ -1170,6 +1258,20 @@ DIAGNOSTIC_DEPTH_TEST_CASES = [
     ),
 ]
 
+# Summarised P/R/F1 for a metric with zero positives over a single sequence:
+# every rate is 0, bootstrap stderr is None (n < 2 sequences, no resampling),
+# and precision_macro is absent because precision is 0/0 per sequence (skipped
+# from the macro mean), leaving only recall_macro / f1_macro.
+_ZERO_SUMMARY = {
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "precision_stderr": None,
+    "recall_stderr": None,
+    "recall_macro": 0.0,
+    "f1_macro": 0.0,
+}
+
 MULTI_SEQUENCE_TEST_CASES = [
     pytest.param(
         [np.array([8, 8, 8, 0, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 0, 0, 8, 8, 8, 8])],
@@ -1197,18 +1299,25 @@ MULTI_SEQUENCE_TEST_CASES = [
                 "n_pred_segments": 0,
             },
             "REGION_DISCOVERY": {
-                "neighborhood_hit": {"precision": 0.0, "recall": 0.0, "f1": 0.0},
-                "internal_hit": {"precision": 0.0, "recall": 0.0, "f1": 0.0},
-                "full_coverage_hit": {"precision": 0.0, "recall": 0.0, "f1": 0.0},
-                "perfect_boundary_hit": {"precision": 0.0, "recall": 0.0, "f1": 0.0},
+                "neighborhood_hit": _ZERO_SUMMARY,
+                "internal_hit": _ZERO_SUMMARY,
+                "full_coverage_hit": _ZERO_SUMMARY,
+                "perfect_boundary_hit": _ZERO_SUMMARY,
             },
             "BOUNDARY_EXACTNESS": {
                 "first_sec_correct_3_prime_boundary": [0],
                 "last_sec_correct_5_prime_boundary": [0],
                 "iou_scores": [],
                 "iou_stats": {"count": 0, "mean": 0.0, "mae": 0.0, "rmse": 0.0, "std": 0.0, "min": 0.0, "max": 0.0},
+                # No boundaries matched, so the precision landscape is empty:
+                # all-zero bias (2*max_range+1 square) and reliability (max_range+1 square).
+                "fuzzy_metrics": {
+                    "max_range": 10,
+                    "bias_matrix": np.zeros((21, 21)),
+                    "reliability_matrix": np.zeros((11, 11)),
+                },
             },
-            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"precision": 0.0, "recall": 0.0, "f1": 0.0}},
+            "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": _ZERO_SUMMARY},
         },
         id="no_nuc_positives",
     ),
@@ -1242,6 +1351,8 @@ SPLICE_SITE_TEST_CASES = [
             "acceptor_tp": 2,
             "acceptor_fp": 0,
             "acceptor_fn": 0,
+            "gt_malformed_junctions": 0,
+            "pred_malformed_junctions": 0,
         },
         id="ss_perfect_two_introns",
     ),
@@ -1268,6 +1379,9 @@ SPLICE_SITE_TEST_CASES = [
             "acceptor_tp": 2,
             "acceptor_fp": 0,
             "acceptor_fn": 0,
+            "gt_malformed_junctions": 0,
+            # Both donors were overwritten with intron, so both pred junctions are malformed.
+            "pred_malformed_junctions": 2,
         },
         id="ss_all_donors_wrong",
     ),
@@ -1295,6 +1409,9 @@ SPLICE_SITE_TEST_CASES = [
             "acceptor_tp": 1,
             "acceptor_fp": 0,
             "acceptor_fn": 1,
+            "gt_malformed_junctions": 0,
+            # Pair 2's donor+acceptor both became intron → one malformed pred junction.
+            "pred_malformed_junctions": 1,
         },
         id="ss_mixed_with_spurious_donor",
     ),
@@ -1323,6 +1440,8 @@ SPLICE_SITE_TEST_CASES = [
             "acceptor_tp": 1,
             "acceptor_fp": 1,
             "acceptor_fn": 2,
+            "gt_malformed_junctions": 0,
+            "pred_malformed_junctions": 2,
         },
         id="ss_three_introns_mixed_spurious_acceptor",
     ),

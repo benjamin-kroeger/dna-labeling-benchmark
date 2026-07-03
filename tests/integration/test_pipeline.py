@@ -80,6 +80,15 @@ def test_default_exon_intron_factory_runs_end_to_end(gencode_gtf, augustus_gff):
     assert set(results["augustus"]) == {"aggregated", "global"}
     assert results["augustus"]["aggregated"]["metadata"]["annotation_mode"] == "EXON_INTRON"
 
+    # default_exon_intron() is behaviourally identical to exon_intron_config
+    # (see test_default_exon_intron_matches_bend), so the sibling end-to-end
+    # test's known-answer metrics must hold here too — a swapped label token in
+    # the factory would break these even though the run doesn't raise.
+    nuc = _nucleotide(results, "augustus")
+    assert nuc["precision"] < 1.0
+    assert 0.0 < nuc["recall"] < 1.0
+    assert results["augustus"]["aggregated"]["REGION_DISCOVERY"]["neighborhood_hit"]["recall"] == pytest.approx(1.0)
+
 
 def test_full_discovery_penalises_hallucinated_prediction(gencode_gtf, augustus_gff, exon_intron_config):
     """The unmatched Augustus gene (g4) becomes a false positive under FULL_DISCOVERY."""

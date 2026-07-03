@@ -176,18 +176,38 @@ def test_intron_chain_derives_introns_from_exon_gaps_without_explicit_labels():
     assert result["STRUCTURAL_COHERENCE"]["intron_chain"] == Counts(tp=1, fp=0, fn=0)
 
 
-def test_infer_introns_fills_gaps_before_structural_metrics():
+def test_infer_introns_reclassifies_single_exon_genes_as_multi_exon_transcript():
+    """``infer_introns`` must actually change a flag-dependent metric.
+
+    ``intron_chain`` derives introns positionally (see the preceding test), so
+    it is flag-invariant by design and can't verify the flag flows through.
+    ``INDEL.exon_opportunities`` *does* depend on it: three exons separated by
+    background gaps are three standalone single-exon genes, but once the gaps
+    are relabelled introns they form one three-exon transcript (5'-terminal /
+    internal / 3'-terminal). Inverting the flag flips this assertion.
+    """
     labels = np.array([8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8])
 
-    result = benchmark_gt_vs_pred_single(
+    without = benchmark_gt_vs_pred_single(
         gt_labels=labels,
         pred_labels=labels,
         label_config=BEND_LABEL_CONFIG,
-        metrics=[EvalMetrics.STRUCTURAL_COHERENCE],
+        metrics=[EvalMetrics.INDEL],
+    )
+    with_introns = benchmark_gt_vs_pred_single(
+        gt_labels=labels,
+        pred_labels=labels,
+        label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.INDEL],
         infer_introns=True,
     )
 
-    assert result["STRUCTURAL_COHERENCE"]["intron_chain"] == Counts(tp=1, fp=0, fn=0)
+    assert without["INDEL"]["exon_opportunities"] == {"single_exon_gene": 3}
+    assert with_introns["INDEL"]["exon_opportunities"] == {
+        "five_prime_terminal_exon": 1,
+        "internal_exon": 1,
+        "three_prime_terminal_exon": 1,
+    }
 
 
 def test_infer_introns_warns_on_large_arrays(monkeypatch):
@@ -234,7 +254,10 @@ def test_large_array_gap_cutoff_uses_bimodal_jump_before_second_mode():
         [8, 10, 12, 14, 2_000, 2_300, 2_700],
     )
 
-    assert 14 < cutoff < 2_000
+    # The ×142.9 jump from 14 to 2,000 (far above the bimodal split ratio) puts
+    # the cutoff between the two modes. Exact value pinned so the unimodal
+    # fallback (which would return median([8,10,12,14])*20 = 200) can't satisfy it.
+    assert cutoff == 167
 
 
 def test_large_array_gap_cutoff_falls_back_without_clear_mode_split():
@@ -271,17 +294,20 @@ def test_multi_exon_routes_to_multi_buckets_only():
 
 
 @pytest.mark.parametrize(
-    "gt, pred",
+    "gt, pred, expected_single, expected_multi",
     [
-        ([(10, 49)], [(10, 49)]),                              # single, match
-        ([(10, 49)], [(10, 51)]),                              # single, mismatch
-        ([(10, 19), (40, 59), (90, 109)], [(10, 19), (40, 59), (90, 109)]),  # multi, match
-        ([(10, 19), (40, 59), (90, 109)], [(10, 19), (40, 61), (90, 109)]),  # multi, mismatch
+        ([(10, 49)], [(10, 49)], Counts(tp=1), Counts()),                    # single, match
+        ([(10, 49)], [(10, 51)], Counts(fp=1, fn=1), Counts()),              # single, mismatch
+        ([(10, 19), (40, 59), (90, 109)], [(10, 19), (40, 59), (90, 109)], Counts(), Counts(tp=1)),        # multi, match
+        ([(10, 19), (40, 59), (90, 109)], [(10, 19), (40, 61), (90, 109)], Counts(), Counts(fp=1, fn=1)),  # multi, mismatch
     ],
 )
-def test_single_plus_multi_reconstructs_exon_chain(gt, pred):
-    """exon_chain_single + exon_chain_multi == exon_chain (exact tier) per pair."""
+def test_single_plus_multi_reconstructs_exon_chain(gt, pred, expected_single, expected_multi):
+    """Single/multi routing lands the pair in exactly one bucket, and the two
+    buckets sum to the all-transcript exon_chain (exact tier)."""
     res = _chain(gt, pred)
+    assert res["exon_chain_single"] == expected_single
+    assert res["exon_chain_multi"] == expected_multi
     assert res["exon_chain_single"] + res["exon_chain_multi"] == res["exon_chain"]
 
 
