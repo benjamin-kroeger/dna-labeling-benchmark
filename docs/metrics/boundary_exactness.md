@@ -56,6 +56,10 @@ nucleotides of error in both 5' and 3' direction.
 
 ![Boundary residuals](../images/Method_A_boundary_landscape.png)
 
+The bias-landscape heatmap uses a log-scaled color norm, since the `(0, 0)`
+exact-match cell otherwise dominates the count and hides the (much rarer)
+off-center error structure. Cells with zero observations are left blank
+rather than colored as the low end of the scale.
 
 Interpretation:
 

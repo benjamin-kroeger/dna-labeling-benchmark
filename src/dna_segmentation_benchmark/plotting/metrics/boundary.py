@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.colors import LogNorm
 
 from ..config import PlotMetadata
 from ..utils import _add_pictogram_panel
@@ -63,7 +64,8 @@ def plot_boundary_precision_landscapes(
             bias_matrix,
             ax=axes[0],
             cmap="YlGnBu",
-            cbar_kws={"label": f"Frequency (Number of {class_name} Sections)"},
+            norm=LogNorm(vmin=1, vmax=max(bias_matrix.values.max(), 1)),
+            cbar_kws={"label": f"Frequency (Number of {class_name} Sections, log scale)"},
         )
         axes[0].set_title(
             f"Boundary Bias Landscape (±{max_range}bp)",
