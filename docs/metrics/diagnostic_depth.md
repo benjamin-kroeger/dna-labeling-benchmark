@@ -8,7 +8,13 @@ the position-bias histograms show where mismatches concentrate — rather than
 scoring pass/fail. All outputs operate on the coding sections of the configured
 `evaluation_scope`.
 
-## Example Plot
+## Example Plots
+
+![Exon-length EMD](../images/length_emd.png)
+
+Per-method mean exon-length EMD (bar = mean, error bar = SEM across transcripts).
+Lower means the predicted exon-length profile is closer to the reference; the
+SEM whiskers show whether a gap between methods is a real separation.
 
 ![Position bias](../images/position_bias.png)
 
@@ -20,7 +26,9 @@ For each (GT, prediction) pair the benchmark records:
   of every GT and predicted coding segment.
 - `length_emd` — the 1-D Wasserstein (Earth Mover's) distance between the GT and
   predicted segment-length distributions. It quantifies whether the model
-  produces segments of the right length, independent of where they sit.
+  produces segments of the right length, independent of where they sit. It is
+  computed per transcript and rendered as a per-method mean ± SEM bar (see the
+  plot above).
 - `position_bias_histogram_fn` / `position_bias_histogram_fp` — two 100-bin
   histograms of per-nucleotide mismatches, normalised to the GT coding span so
   that bin 0 is the start of the first GT coding segment and bin 99 the end of
@@ -60,3 +68,7 @@ are summed bin-wise before any summary statistic is taken (see
   different histograms.
 - The histograms describe positional mismatch density, not transcript chain
   correctness — pair them with {doc}`structural_coherence`.
+- `length_emd` is a distribution distance, not a per-exon boundary metric: it is
+  unordered and unmatched, so a single exon extension shows only as a faint
+  shift. Use the INDEL run-length / boundary-offset diagnostics for directional
+  per-boundary edits.

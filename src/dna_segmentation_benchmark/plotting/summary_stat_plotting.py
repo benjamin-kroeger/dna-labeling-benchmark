@@ -35,7 +35,7 @@ from .metrics.phase_drift import plot_phase_drift_percentage_bar
 from .metrics.ml import plot_ml_metrics_bar
 from .metrics.iou import plot_iou_metrics
 from .metrics.boundary import plot_boundary_precision_landscapes
-from .metrics.diagnostic import plot_position_bias
+from .metrics.diagnostic import plot_position_bias, plot_length_emd_bar
 from .metrics.structural import (
     plot_transcript_match_distribution,
     plot_segment_count_delta,
@@ -519,5 +519,14 @@ def compare_multiple_predictions(
                 )
                 if fig is not None:
                     figures[_figure_key("position_bias", scope, default_scope)] = fig
+
+                fig = plot_length_emd_bar(
+                    df_scope,
+                    class_name,
+                    save_path=(output_dir / f"length_emd{suffix}.png") if output_dir else None,
+                    metadata=PLOT_METADATA.get("length_emd"),
+                )
+                if fig is not None:
+                    figures[_figure_key("length_emd", scope, default_scope)] = fig
 
     return figures

@@ -171,6 +171,25 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         icon_path=ICON_PATH / "iou.png",
         description="Distribution of per-section IoU scores across the matched pairs.",
     ),
+    # Exon-length distribution distance
+    "length_emd": PlotMetadata(
+        display_name="Exon-Length Distribution Distance (EMD)",
+        description="Per transcript, the 1-D Wasserstein (Earth Mover's) distance "
+        "between the GT and predicted exon-length multisets, averaged across "
+        "transcripts (bar = mean, error bar = SEM). Lower means the predicted "
+        "exon-length profile is closer to the ground truth.",
+        bullet_points=(
+            "Unordered & unmatched: compares the distribution of exon lengths, "
+            "blind to exon identity and genomic position.",
+            "Catches length redistribution, fragmentation, and systematic size "
+            "bias even when exon count and intron chain tie.",
+            "Error bar = SEM over the per-transcript EMDs; separation between "
+            "methods indicates a real length-profile difference.",
+        ),
+        caveat="Not a per-exon boundary metric — a single exon extension appears "
+        "only as a faint shift here. Use the INDEL run-length / boundary-offset "
+        "plots for directional per-boundary edits.",
+    ),
     "boundary_landscape": PlotMetadata(
         display_name="Boundary Bias and cumulative Recall",
         description="Joint view of systematic boundary offsets and how recall recovers as 5' and 3' tolerance increases.",
