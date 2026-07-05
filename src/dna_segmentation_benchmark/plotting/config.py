@@ -90,8 +90,8 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         description="Per-method exon-position × event-type heatmap of error rate "
         "(events ÷ opportunities): the cross-method comparable INDEL view. "
         "Anchored slips, splits and whole_deletions divide by the count of GT "
-        "exons of that position type; joined by GT intron count; whole_insertions "
-        "by gene count (terminal exons) or intron count (internal).",
+        "exons of that position type; joined by GT intron count. whole_insertions "
+        "are excluded — a detached false positive has no bounded GT opportunity.",
         caveat="Cells with no opportunity or zero events are masked grey. "
         "Rates normalise out corpus size, so methods on different inputs stay comparable.",
     ),

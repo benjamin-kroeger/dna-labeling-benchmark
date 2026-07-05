@@ -70,7 +70,12 @@ def plot_iou_metrics(
     for container, (_, row) in zip(bar_containers, agg.iterrows()):
         _annotate_bar_with_errorbar(ax1, container.patches[0], row["IoU"], row["sem"])
 
-    ax1.set_title(f"Average IoU Score per Method — {class_name}", fontsize=16)
+    title_avg = (
+        metadata_average.display_name
+        if (metadata_average and metadata_average.display_name)
+        else "Average IoU Score per Method"
+    )
+    ax1.set_title(f"{title_avg} — {class_name}", fontsize=16)
     ax1.set_ylabel("Average Intersection over Union", fontsize=12)
     ax1.set_xlabel("Method Name", fontsize=12)
     ax1.set_ylim(0, 1.05)
@@ -95,8 +100,13 @@ def plot_iou_metrics(
         data=exploded, x="IoU", hue="method_name", ax=ax2, palette="viridis", complementary=True, linewidth=2.5
     )
 
+    title_dist = (
+        metadata_distribution.display_name
+        if (metadata_distribution and metadata_distribution.display_name)
+        else "IoU Score Distribution (Survival Curve)"
+    )
     ax2.set_title(
-        f"IoU Score Distribution (Survival Curve) — {class_name}",
+        f"{title_dist} — {class_name}",
         fontsize=16,
     )
     ax2.set_ylabel("Proportion of Predictions with IoU $\\geq$ X", fontsize=12)

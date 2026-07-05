@@ -208,7 +208,8 @@ def plot_stacked_indel_counts_bar(
         )
 
     ax.set_xlim(0, max(max_val * 1.15, 1))
-    ax.set_title(f"INDEL Counts by Method — {class_name}", fontsize=16)
+    title = metadata.display_name if (metadata and metadata.display_name) else "INDEL Counts by Method"
+    ax.set_title(f"{title} — {class_name}", fontsize=16)
     ax.set_xlabel("Total Number of INDELs", fontsize=12)
     ax.set_ylabel("Method Name", fontsize=12)
     ax.legend(title="INDEL Type", loc="lower right", fontsize=9)
@@ -393,7 +394,7 @@ def plot_indel_rates_by_boundary(
         norm=None,
         vmax=vmax,
         cbar_label="Error rate (events ÷ opportunities)",
-        title="INDEL Error Rate by GT Boundary",
+        title=metadata.display_name if (metadata and metadata.display_name) else "INDEL Error Rate by GT Boundary",
         save_path=save_path,
         metadata=metadata,
         exclude_events=_RATE_EXCLUDED_EVENTS,
@@ -436,7 +437,7 @@ def plot_indel_counts_by_boundary(
         annot_fmt=".0f",
         norm=norm,
         cbar_label="Event count (log scale)",
-        title="INDEL Events by GT Boundary",
+        title=metadata.display_name if (metadata and metadata.display_name) else "INDEL Events by GT Boundary",
         save_path=save_path,
         metadata=metadata,
     )
@@ -540,7 +541,11 @@ def plot_individual_error_lengths_histograms(
                 if ax_.get_legend() is not None:
                     ax_.get_legend().remove()
 
-        fig.suptitle(f"{_pretty_boundary(boundary)} — {class_name}", fontsize=14, y=0.98)
+        fig.suptitle(
+            f"INDEL Run-Length Distribution — {_pretty_boundary(boundary)} — {class_name}",
+            fontsize=14,
+            y=0.98,
+        )
         fig.subplots_adjust(
             left=0.055,
             right=0.985,

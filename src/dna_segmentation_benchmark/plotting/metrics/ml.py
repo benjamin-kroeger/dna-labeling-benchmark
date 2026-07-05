@@ -102,14 +102,16 @@ def plot_ml_metrics_bar(
                 se = stderr_lookup.get((method, metric_name))
                 _annotate_bar_with_errorbar(ax, patch, patch.get_height(), se)
 
-        ax.set_title(f"{level} — {class_name}", fontsize=16)
+        md = metadata_map.get(level)
+        title = md.display_name if (md and md.display_name) else str(level)
+        ax.set_title(f"{title} — {class_name}", fontsize=16)
         ax.set_xlabel("Metric", fontsize=12)
         ax.set_ylabel("Score", fontsize=12)
         ax.set_ylim(0, 1.05)
         ax.legend(title="Method Name", loc="upper right", fontsize=9)
         fig.tight_layout()
 
-        _add_pictogram_panel(fig, metadata_map.get(level), logger=logger)
+        _add_pictogram_panel(fig, md, logger=logger)
 
         if save_path_prefix is not None:
             _save_figure(fig, save_path_prefix.with_name(f"{save_path_prefix.stem}_{level}.png"), logger=logger)

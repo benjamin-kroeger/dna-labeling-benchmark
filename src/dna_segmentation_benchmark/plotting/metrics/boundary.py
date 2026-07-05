@@ -106,7 +106,8 @@ def plot_boundary_precision_landscapes(
         # Invert y-axis so tolerance 0 is at the bottom
         axes[1].invert_yaxis()
 
-        fig.suptitle(f"{method}", fontsize=14)
+        suptitle = f"{metadata.display_name} — {class_name} ({method})" if (metadata and metadata.display_name) else f"{method}"
+        fig.suptitle(suptitle, fontsize=14)
         plt.tight_layout()
         _add_pictogram_panel(fig, metadata, logger=logger)
         figures.append(fig)

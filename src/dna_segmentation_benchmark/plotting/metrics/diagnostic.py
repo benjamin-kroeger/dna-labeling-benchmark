@@ -86,7 +86,8 @@ def plot_position_bias(
         ax.set_ylim(bottom=0)
     axes[0].set_ylabel("Mismatch nucleotides (cumulative across sequences)")
     axes[1].legend(title="Method", loc="upper right", fontsize=9)
-    fig.suptitle(f"{class_name} — Nucleotide Mismatch Location (coding span)")
+    title = metadata.display_name if (metadata and metadata.display_name) else "Nucleotide Mismatch Location (coding span)"
+    fig.suptitle(f"{title} — {class_name}")
 
     fig.tight_layout()
     _add_pictogram_panel(fig, metadata, logger)

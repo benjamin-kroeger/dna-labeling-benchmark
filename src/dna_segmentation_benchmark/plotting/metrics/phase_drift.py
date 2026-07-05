@@ -58,8 +58,9 @@ def plot_phase_drift_percentage_bar(
         ax.bar_label(container, label_type="edge", padding=2, fmt="%.1f%%", fontsize=6, rotation=90)
 
     ax.set_ylim(0, 115)  # 15% headroom for rotated bar labels (fontsize=6, rotation=90, padding=2)
+    title = metadata.display_name if (metadata and metadata.display_name) else "Coding-Phase Drift Distribution"
     ax.set_title(
-        f"Coding-Phase Drift Distribution — {class_name}",
+        f"{title} — {class_name}",
         fontsize=16,
     )
     ax.set_xlabel("Phase Offset (relative coding-base drift mod 3)", fontsize=12)

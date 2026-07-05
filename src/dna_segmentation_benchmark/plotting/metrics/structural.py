@@ -214,7 +214,8 @@ def plot_transcript_match_distribution(
         plt.close(fig)
         return None
 
-    ax.set_title(f"{class_name} — Transcript Match Classification")
+    title = metadata.display_name if (metadata and metadata.display_name) else "Transcript Match Classification"
+    ax.set_title(f"{title} — {class_name}")
     ax.set_xlabel("Method")
     ax.set_ylabel("Fraction")
     ax.legend(title="Match Class", loc="center left", fontsize=8)
@@ -287,7 +288,8 @@ def plot_segment_count_delta(
         linewidth=0.5,
     )
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
-    ax.set_title(f"{class_name} — Segment Count Delta (pred \u2212 GT)")
+    title = metadata.display_name if (metadata and metadata.display_name) else "Segment Count Delta (pred \u2212 GT)"
+    ax.set_title(f"{title} — {class_name}")
     ax.set_xlabel("Method")
     ax.set_ylabel("Mean segment count delta")
     fig.tight_layout()
@@ -541,8 +543,9 @@ def plot_boundary_shift_distribution(
             fontweight="bold" if low else "normal",
         )
 
+    title = metadata.display_name if (metadata and metadata.display_name) else "Boundary Shift Distribution"
     fig.suptitle(
-        f"{class_name} — Boundary Shift Distribution "
+        f"{title} — {class_name} "
         f"(topology-correct transcripts · n={len(df)} shifted boundaries)",
         fontsize=13,
     )
@@ -679,8 +682,9 @@ def plot_per_transcript_exon_recovery(
     axes[2].set_ylabel("Transcripts")
     axes[2].set_title("Per-transcript False Exon Count", pad=10)
 
+    title = metadata.display_name if (metadata and metadata.display_name) else "Per-transcript Exon Recovery"
     fig.suptitle(
-        f"{class_name} — Per-transcript Exon Recovery",
+        f"{title} — {class_name}",
         fontsize=13,
     )
 
