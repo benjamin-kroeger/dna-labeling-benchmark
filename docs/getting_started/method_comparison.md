@@ -63,13 +63,14 @@ For the second case, the plotting code automatically unwraps the
 
 ## Example Output
 
-The comparison bundle includes per-method plots for boundary landscape, position bias, and transition matrices.
+The comparison bundle includes boundary landscape plots (one subplot per method,
+grouped by metric for side-by-side comparison), plus per-method position bias and
+transition matrices.
 
-**Boundary landscape:**
+**Boundary bias and cumulative recall:**
 
-![Method A boundary landscape](../images/Method_A_boundary_landscape.png)
-![Method B boundary landscape](../images/Method_B_boundary_landscape.png)
-![Method C boundary landscape](../images/Method_C_boundary_landscape.png)
+![Boundary bias landscape](../images/boundary_bias_landscape.png)
+![Cumulative recall landscape](../images/boundary_recall_landscape.png)
 
 **Transition matrices:**
 

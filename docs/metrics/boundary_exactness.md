@@ -46,20 +46,29 @@ used by the W&B online logger.
 
 ![IoU cumulative distribution](../images/iou_distribution.png)
 
-## Boundary Residual Landscape
+## Boundary Bias and Cumulative Recall
 
 The raw `fuzzy_metrics["boundary_offsets"]` list contains all signed
-residual pairs from overlapping sections. Aggregation turns that into the
-boundary bias landscape which can show if certain numbers or nucleotides are consistently over or under predicted.
-The cumulative reliability highlights how recall improves if each boundary is counted as an exact match given x 
-nucleotides of error in both 5' and 3' direction.
+residual pairs from overlapping sections. Aggregation turns that into two
+diagnostics, each rendered as a **grid of small multiples — one subplot per
+method — so predictions can be compared side by side against the same ground
+truth**:
 
-![Boundary residuals](../images/Method_A_boundary_landscape.png)
+- **Boundary bias** — a signed 5'/3' residual heatmap showing whether certain
+  boundaries are consistently over- or under-predicted. All methods share one
+  raw-count, log-scaled color norm, since the `(0, 0)` exact-match cell
+  otherwise dominates the count and hides the (much rarer) off-center error
+  structure. Cells with zero observations are left blank rather than colored as
+  the low end of the scale.
+- **Cumulative recall with relaxed boundaries** — how recall improves when each
+  boundary is counted as a match given a tolerance budget on the 5' and 3' end.
+  The tolerance is two-sided (±): a boundary matches when its residual falls
+  within ±*x* bp on that end, so over- and under-shifts both count. All methods
+  share a common `0–1` scale.
 
-The bias-landscape heatmap uses a log-scaled color norm, since the `(0, 0)`
-exact-match cell otherwise dominates the count and hides the (much rarer)
-off-center error structure. Cells with zero observations are left blank
-rather than colored as the low end of the scale.
+![Boundary bias landscape](../images/boundary_bias_landscape.png)
+
+![Cumulative recall landscape](../images/boundary_recall_landscape.png)
 
 Interpretation:
 

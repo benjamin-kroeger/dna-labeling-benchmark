@@ -237,7 +237,8 @@ def test_log_benchmark_media_logs_boundary_position_and_transition_plots(wandb_s
     assert wandb_stub.logged[0]["step"] == 3
     assert wandb_stub.logged[0]["data"] == logged
     assert set(logged.keys()) == {
-        "val/plots/boundary_landscape",
+        "val/plots/boundary_bias_landscape",
+        "val/plots/boundary_recall_landscape",
         "val/plots/position_bias",
         "val/plots/transition_matrices",
         "val/plots/false_transitions",
@@ -309,7 +310,8 @@ def test_log_benchmark_media_buffers_frames_for_video_generation(wandb_stub):
     logged = log_benchmark_media_videos()
 
     assert set(logged.keys()) == {
-        "plots/boundary_landscape_video",
+        "plots/boundary_bias_landscape_video",
+        "plots/boundary_recall_landscape_video",
         "plots/position_bias_video",
         "plots/transition_matrices_video",
         "plots/false_transitions_video",
@@ -448,5 +450,7 @@ def test_compare_multiple_predictions_saves_boundary_landscape_for_single_method
         output_dir=tmp_path,
     )
 
-    assert "boundary_landscape" in figures
-    assert (tmp_path / "boundary_landscape.png").exists()
+    assert "boundary_bias_landscape" in figures
+    assert "boundary_recall_landscape" in figures
+    assert (tmp_path / "boundary_bias_landscape.png").exists()
+    assert (tmp_path / "boundary_recall_landscape.png").exists()

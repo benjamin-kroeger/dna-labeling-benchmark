@@ -273,10 +273,10 @@ def compare_multiple_predictions(
             fuzzy_metrics_figs = plot_boundary_precision_landscapes(
                 df_scope,
                 class_name=class_name,
-                metadata=PLOT_METADATA.get("boundary_landscape"),
+                bias_metadata=PLOT_METADATA.get("boundary_bias_landscape"),
+                recall_metadata=PLOT_METADATA.get("boundary_recall_landscape"),
             )
-            for method_name, fig in zip(df_scope["method_name"].unique().tolist(), fuzzy_metrics_figs):
-                base_key = "boundary_landscape" if single_method_mode else f"{method_name}_boundary_landscape"
+            for base_key, fig in zip(["boundary_bias_landscape", "boundary_recall_landscape"], fuzzy_metrics_figs):
                 key = _figure_key(base_key, scope, default_scope)
                 if output_dir is not None:
                     filename = (

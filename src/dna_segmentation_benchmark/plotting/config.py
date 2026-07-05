@@ -190,12 +190,26 @@ PLOT_METADATA: dict[str, PlotMetadata] = {
         "only as a faint shift here. Use the INDEL run-length / boundary-offset "
         "plots for directional per-boundary edits.",
     ),
-    "boundary_landscape": PlotMetadata(
-        display_name="Boundary Bias and cumulative Recall",
-        description="Joint view of systematic boundary offsets and how recall recovers as 5' and 3' tolerance increases.",
+    "boundary_bias_landscape": PlotMetadata(
+        display_name="Boundary Bias",
+        description="Signed 5'/3' boundary residual heatmap (Pred − GT), one subplot per method. "
+        "Mass off the (0,0) crosshair reveals systematic over- and under-shifts at each exon edge.",
         bullet_points=(
-            "Left: signed 5'/3' residual heatmap showing systematic over- and under-shifts",
-            "Right: cumulative recall surface across increasing total tolerance budgets on both boundaries",
+            "Rows = 5' edge residual, columns = 3' edge residual (bp)",
+            "Direction tells extension vs deletion per edge; the crosshair marks perfect matches",
+            "Shared raw-count log color scale across methods — intensities are directly comparable",
+        ),
+    ),
+    "boundary_recall_landscape": PlotMetadata(
+        display_name="Cumulative Recall",
+        description="Fraction of ground-truth boundaries recovered as the allowed 5' and 3' tolerance "
+        "grows, one subplot per method. Tolerance is two-sided (±): a boundary counts as matched when "
+        "its residual falls within ±k bp on that end — over- and under-shifts both count. Higher and "
+        "faster-saturating is better.",
+        bullet_points=(
+            "Axes = 5'/3' tolerance budget in ±bp (total, both directions); each cell = recall within that budget",
+            "Diagonal = symmetric tolerance relaxed equally on both ends",
+            "Shared 0–1 color scale across methods for direct comparison",
         ),
     ),
     # Coding-phase drift

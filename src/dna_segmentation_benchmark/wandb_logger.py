@@ -115,7 +115,8 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
 # are included — heavy multi-panel plots (indel histograms, splice-site CMs)
 # grow too large to animate usefully.
 _VIDEO_BUFFER_FIGURE_KEYS = frozenset({
-    "boundary_landscape",
+    "boundary_bias_landscape",
+    "boundary_recall_landscape",
     "position_bias",
     "transition_matrices",
     "false_transitions",
