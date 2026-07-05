@@ -106,7 +106,7 @@ def benchmark_gt_vs_pred_single(
         Maps integer tokens to names and declares semantic roles.
     metrics : list[EvalMetrics] | None
         Which metric groups to compute.  Defaults to
-    ``[REGION_DISCOVERY, BOUNDARY_EXACTNESS, NUCLEOTIDE_CLASSIFICATION,
+        ``[REGION_DISCOVERY, BOUNDARY_EXACTNESS, NUCLEOTIDE_CLASSIFICATION,
         STATE_TRANSITIONS]``.
     mask_labels : np.ndarray | None
         Optional boolean mask (True = exclude). Must match length of GT.
