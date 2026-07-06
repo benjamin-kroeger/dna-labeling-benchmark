@@ -51,6 +51,7 @@ Eight metric groups are computed, each answering a distinct question:
 
 from __future__ import annotations
 
+import bisect
 from collections import defaultdict
 
 import numpy as np
@@ -88,6 +89,8 @@ def compute_global_metrics(
     gt_feature_role_map: FeatureRoleMap | None = None,
     pred_feature_role_map: FeatureRoleMap | None = None,
     locus_matching_mode: LocusMatchingMode = LocusMatchingMode.FULL_DISCOVERY,
+    ignore_novel_predictions: bool = False,
+    ignore_missed_reference: bool = False,
 ) -> dict:
     """Compute global annotation-level metrics for one predictor.
 
@@ -106,6 +109,12 @@ def compute_global_metrics(
     transcript_types : list[str]
         GFF feature types that define transcript boundaries
         (e.g. ``["mRNA", "transcript"]``).
+    ignore_novel_predictions : bool
+        gffcompare ``-Q``: drop prediction transcripts that overlap no GT
+        transcript from the precision side (incomplete-ground-truth correction).
+    ignore_missed_reference : bool
+        gffcompare ``-R``: drop GT transcripts that overlap no prediction from
+        the sensitivity side (incomplete-prediction correction).
 
     Returns
     -------
@@ -132,6 +141,34 @@ def compute_global_metrics(
     pred_feature_role_map = normalize_feature_role_map(
         pred_feature_role_map, label_config, arg_name="pred_feature_role_map"
     )
+
+    # gffcompare -R/-Q: compute overlap keep-sets on the *original* frames, then
+    # prune whole non-overlapping transcripts (and their exon/CDS children) before
+    # any counting.  Pruning the DataFrames auto-corrects every DataFrame-derived
+    # metric (nucleotide, exon, exon_lenient, intron_chain, transcript_exact, and
+    # the gene loci-count denominators); the same keep-sets drive the mapping-based
+    # metrics through _include_mapping_for_predictor below.
+    ref_keep = pred_keep = None
+    mappings_view = mappings
+    if ignore_novel_predictions or ignore_missed_reference:
+        ref_keep, pred_keep = compute_overlap_keepsets(gt_df, pred_df, transcript_types)
+        if ignore_missed_reference:
+            gt_df = _prune_to_keep(gt_df, ref_keep)
+        if ignore_novel_predictions:
+            pred_df = _prune_to_keep(pred_df, pred_keep)
+        mappings_view = [
+            m
+            for m in mappings
+            if _include_mapping_for_predictor(
+                m,
+                predictor_name,
+                locus_matching_mode,
+                ref_keep=ref_keep,
+                pred_keep=pred_keep,
+                ignore_novel=ignore_novel_predictions,
+                ignore_missed=ignore_missed_reference,
+            )
+        ]
 
     # Pre-group once for O(1) (seqid, strand) slices, reused across every scope,
     # region and locus below.  ``observed=True`` is required because seqid/strand
@@ -163,18 +200,18 @@ def compute_global_metrics(
         "intron_chain": intron_chain_metrics,
         "transcript_exact": transcript_exact_metrics,
         "transcript": _compute_transcript_level_metrics(
-            mappings,
+            mappings_view,
             predictor_name,
         ),
         "gene": _compute_gene_level_metrics(
             gt_by_ss,
             pred_by_ss,
-            mappings,
+            mappings_view,
             predictor_name,
             transcript_types,
         ),
         "locus_isoform": _compute_locus_isoform_metrics(
-            mappings,
+            mappings_view,
             predictor_name,
             locus_matching_mode,
         ),
@@ -676,6 +713,61 @@ def _get_transcript_spans_with_ids(
             rows["gff_id"].astype(str),
         )
     )
+
+
+def compute_overlap_keepsets(
+    gt_df: pd.DataFrame,
+    pred_df: pd.DataFrame,
+    transcript_types: list[str],
+) -> tuple[set[str], set[str]]:
+    """Coordinate-overlap keep-sets for gffcompare-style ``-R`` / ``-Q``.
+
+    Returns ``(ref_keep, pred_keep)`` where
+
+    * ``ref_keep`` — GT transcript ``gff_id``\\ s whose span overlaps ≥1
+      prediction transcript span on the same ``(seqid, strand)`` (drives ``-R``).
+    * ``pred_keep`` — prediction transcript ``gff_id``\\ s whose span overlaps
+      ≥1 GT transcript span on the same ``(seqid, strand)`` (drives ``-Q``).
+
+    Overlap is transcript-span based (any shared base) and strand-aware — the
+    same notion :func:`map_transcripts` uses to assign predictions to loci — and
+    is computed on the *original*, unfiltered frames so applying one correction
+    never changes the other's keep-set.
+    """
+    gt_by_ss = {k: v for k, v in gt_df.groupby(["seqid", "strand"], sort=False, observed=True)}
+    pred_by_ss = {k: v for k, v in pred_df.groupby(["seqid", "strand"], sort=False, observed=True)}
+
+    ref_keep: set[str] = set()
+    pred_keep: set[str] = set()
+    for key in gt_by_ss.keys() & pred_by_ss.keys():
+        gt_spans = _get_transcript_spans_with_ids(gt_by_ss[key], transcript_types)
+        pred_spans = _get_transcript_spans_with_ids(pred_by_ss[key], transcript_types)
+        if not gt_spans or not pred_spans:
+            continue
+        gt_regions = _merge_intervals([(s, e) for s, e, _ in gt_spans])
+        pred_regions = _merge_intervals([(s, e) for s, e, _ in pred_spans])
+        ref_keep.update(tid for s, e, tid in gt_spans if _span_hits_regions(s, e, pred_regions))
+        pred_keep.update(tid for s, e, tid in pred_spans if _span_hits_regions(s, e, gt_regions))
+
+    return ref_keep, pred_keep
+
+
+def _prune_to_keep(df: pd.DataFrame, keep: set[str]) -> pd.DataFrame:
+    """Keep only transcripts in *keep* and their child features.
+
+    A row survives if its ``gff_id`` is a kept transcript or its ``parent`` is a
+    kept transcript.  ponytail: parent-less orphan features are dropped under the
+    correction — they carry no transcript id to overlap-test, and are rare enough
+    not to warrant a separate path.
+    """
+    return df[df["gff_id"].isin(keep) | df["parent"].isin(keep)]
+
+
+def _span_hits_regions(start: int, end: int, regions: list[tuple[int, int]]) -> bool:
+    """True if ``[start, end]`` overlaps any interval in sorted non-overlapping *regions*."""
+    starts = [r[0] for r in regions]
+    idx = bisect.bisect_right(starts, end) - 1
+    return idx >= 0 and regions[idx][1] >= start
 
 
 def _merge_intervals(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:

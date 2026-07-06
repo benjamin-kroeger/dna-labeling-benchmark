@@ -1031,6 +1031,11 @@ def _include_mapping_for_predictor(
     mapping: TranscriptMapping,
     pred_name: str,
     mode: LocusMatchingMode,
+    *,
+    ref_keep: set[str] | None = None,
+    pred_keep: set[str] | None = None,
+    ignore_novel: bool = False,
+    ignore_missed: bool = False,
 ) -> bool:
     """Return True if this mapping entry should contribute arrays for *pred_name*.
 
@@ -1041,7 +1046,35 @@ def _include_mapping_for_predictor(
       for predictors listed there (locus FN).
     - Otherwise: a normal matched entry — skip if the predictor didn't match
       (its FN is recorded by its own Case B/C entry; don't double-count).
+
+    The ``ignore_novel`` / ``ignore_missed`` flags reproduce gffcompare's
+    ``-Q`` / ``-R`` incomplete-annotation corrections and are driven by
+    coordinate-overlap keep-sets (``pred_keep`` / ``ref_keep``) computed
+    independently of the match result:
+
+    - ``ignore_novel`` (``-Q``): drop an unmatched-prediction entry whose
+      prediction overlaps *no* GT transcript (``transcript_id`` ∉ ``pred_keep``).
+      An overlapping-but-unmatched prediction stays in ``pred_keep``, so it is
+      still counted as a false positive.
+    - ``ignore_missed`` (``-R``): drop a real-GT entry whose GT transcript
+      overlaps *no* prediction (``gt_id`` ∉ ``ref_keep``).  An
+      overlapping-but-unmatched GT stays in ``ref_keep``, so it is still a miss.
     """
+    if ignore_novel and mapping.is_unmatched_prediction and pred_keep is not None:
+        pred_id = next(
+            (m.transcript_id for m in mapping.matched_predictions if m.predictor_name == pred_name),
+            None,
+        )
+        if pred_id is not None and pred_id not in pred_keep:
+            return False
+    if (
+        ignore_missed
+        and not mapping.is_unmatched_prediction
+        and ref_keep is not None
+        and mapping.gt_id not in ref_keep
+    ):
+        return False
+
     has_match = any(m.predictor_name == pred_name for m in mapping.matched_predictions)
     if mapping.is_unmatched_prediction:
         return has_match

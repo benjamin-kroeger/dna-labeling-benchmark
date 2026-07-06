@@ -37,7 +37,7 @@ import click
 import numpy as np
 
 from .eval.evaluate_predictors import EvalMetrics
-from .eval.global_metrics import compute_global_metrics
+from .eval.global_metrics import compute_global_metrics, compute_overlap_keepsets
 from .feature_roles import normalize_feature_role_map, normalize_pred_feature_role_maps
 from .label_definition import LabelConfig
 from .pipeline import _stream_benchmark_over_mappings
@@ -443,6 +443,28 @@ def cli():
         "Fill background gaps between adjacent coding segments with the configured intron label before benchmarking."
     ),
 )
+@click.option(
+    "--ignore-missed-reference",
+    "-R",
+    "ignore_missed_reference",
+    is_flag=True,
+    default=False,
+    help=(
+        "gffcompare -R: drop GT transcripts that overlap no prediction from the "
+        "sensitivity side (incomplete-prediction correction). Off by default."
+    ),
+)
+@click.option(
+    "--ignore-novel-predictions",
+    "-Q",
+    "ignore_novel_predictions",
+    is_flag=True,
+    default=False,
+    help=(
+        "gffcompare -Q: drop prediction transcripts that overlap no GT transcript "
+        "from the precision side (incomplete-ground-truth correction). Off by default."
+    ),
+)
 def run(
     gt_path: Path | None,
     dataset: str | None,
@@ -460,6 +482,8 @@ def run(
     mapping_output_path: Path | None,
     locus_matching: str,
     infer_introns: bool,
+    ignore_missed_reference: bool,
+    ignore_novel_predictions: bool,
 ):
     """Run the benchmark on ground-truth vs. prediction GFF/GTF files."""
     from .io_utils import collect_gff
@@ -587,6 +611,12 @@ def run(
         default=resolved_gt_map,
         label_config=label_config,
     )
+    ref_keeps = pred_keeps = None
+    if ignore_novel_predictions or ignore_missed_reference:
+        ref_keeps, pred_keeps = {}, {}
+        for name, pdf in pred_dfs.items():
+            ref_keeps[name], pred_keeps[name] = compute_overlap_keepsets(gt_df, pdf, tt_list)
+
     results_by_pred = _stream_benchmark_over_mappings(
         mappings,
         gt_df,
@@ -599,6 +629,10 @@ def run(
         metrics,
         infer_introns=infer_introns,
         return_individual_results=individual,
+        ref_keeps=ref_keeps,
+        pred_keeps=pred_keeps,
+        ignore_novel=ignore_novel_predictions,
+        ignore_missed=ignore_missed_reference,
     )
 
     all_results: dict[str, dict] = {}
@@ -641,6 +675,8 @@ def run(
             gt_feature_role_map=gt_role_map,
             pred_feature_role_map=_pred_role_map if _pred_role_map is not None else gt_role_map,
             locus_matching_mode=mode,
+            ignore_novel_predictions=ignore_novel_predictions,
+            ignore_missed_reference=ignore_missed_reference,
         )
 
         all_results[pred_name] = {

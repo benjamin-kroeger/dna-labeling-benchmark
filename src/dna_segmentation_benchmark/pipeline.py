@@ -20,7 +20,7 @@ from .eval.evaluate_predictors import (
     _warn_phase_drift,
     benchmark_gt_vs_pred_single,
 )
-from .eval.global_metrics import compute_global_metrics
+from .eval.global_metrics import compute_global_metrics, compute_overlap_keepsets
 from .feature_roles import (
     FeatureRoleMap,
     PredFeatureRoleMapInput,
@@ -64,7 +64,15 @@ def _bench_worker_chunk(mappings_chunk: list) -> dict:
             _pred_role_maps=s["resolved_pred_maps"],
         )
         for pred_name in s["pred_names"]:
-            if not _include_mapping_for_predictor(mapping, pred_name, s["mode"]):
+            if not _include_mapping_for_predictor(
+                mapping,
+                pred_name,
+                s["mode"],
+                ref_keep=s["ref_keeps"].get(pred_name) if s["ref_keeps"] else None,
+                pred_keep=s["pred_keeps"].get(pred_name) if s["pred_keeps"] else None,
+                ignore_novel=s["ignore_novel"],
+                ignore_missed=s["ignore_missed"],
+            ):
                 continue
             benches[pred_name].add(gt_arr, pred_arrays[pred_name])
     return {name: (benches[name]._accumulator.merged(), benches[name].count) for name in s["pred_names"]}
@@ -83,6 +91,10 @@ def _stream_benchmark_over_mappings(
     *,
     infer_introns: bool = False,
     return_individual_results: bool = False,
+    ref_keeps: dict[str, set[str]] | None = None,
+    pred_keeps: dict[str, set[str]] | None = None,
+    ignore_novel: bool = False,
+    ignore_missed: bool = False,
 ) -> dict[str, dict | list]:
     """Benchmark every predictor in a single streaming pass over the mappings.
 
@@ -128,6 +140,8 @@ def _stream_benchmark_over_mappings(
             "resolved_gt_map": resolved_gt_map, "resolved_pred_maps": resolved_pred_maps,
             "mode": mode, "metrics": list(metrics), "infer_introns": infer_introns,
             "pred_names": pred_names,
+            "ref_keeps": ref_keeps, "pred_keeps": pred_keeps,
+            "ignore_novel": ignore_novel, "ignore_missed": ignore_missed,
         }
         chunk_size = max(1, len(mappings) // (n_workers * 50))
         chunks = [mappings[i:i + chunk_size] for i in range(0, len(mappings), chunk_size)]
@@ -160,7 +174,15 @@ def _stream_benchmark_over_mappings(
                 _pred_role_maps=resolved_pred_maps,
             )
             for pred_name in pred_names:
-                if not _include_mapping_for_predictor(mapping, pred_name, mode):
+                if not _include_mapping_for_predictor(
+                    mapping,
+                    pred_name,
+                    mode,
+                    ref_keep=ref_keeps.get(pred_name) if ref_keeps else None,
+                    pred_keep=pred_keeps.get(pred_name) if pred_keeps else None,
+                    ignore_novel=ignore_novel,
+                    ignore_missed=ignore_missed,
+                ):
                     continue
                 if return_individual_results:
                     collected[pred_name].append(
@@ -198,6 +220,8 @@ def benchmark_from_gff(
     mapping_output_path: str | Path | None = None,
     locus_matching_mode: LocusMatchingMode = LocusMatchingMode.FULL_DISCOVERY,
     infer_introns: bool = False,
+    ignore_novel_predictions: bool = False,
+    ignore_missed_reference: bool = False,
 ) -> dict[str, dict]:
     """Run the full benchmark pipeline from GFF/GTF files.
 
@@ -254,6 +278,14 @@ def benchmark_from_gff(
     infer_introns : bool
         If ``True``, fill background gaps between adjacent coding segments
         with ``label_config.intron_label`` before benchmarking.
+    ignore_novel_predictions : bool
+        gffcompare ``-Q``: exclude prediction transcripts that overlap no GT
+        transcript from both the global precision metrics and the aggregated
+        micro-metrics (incomplete-ground-truth correction).  Default ``False``.
+    ignore_missed_reference : bool
+        gffcompare ``-R``: exclude GT transcripts that overlap no prediction from
+        both the global sensitivity metrics and the aggregated micro-metrics
+        (incomplete-prediction correction).  Default ``False``.
 
     Returns
     -------
@@ -337,6 +369,16 @@ def benchmark_from_gff(
         default=resolved_gt_map,
         label_config=label_config,
     )
+
+    # gffcompare -R/-Q keep-sets, one per predictor, computed once on the original
+    # frames and reused by both the aggregated streaming pass and (recomputed
+    # internally) by compute_global_metrics.
+    ref_keeps = pred_keeps = None
+    if ignore_novel_predictions or ignore_missed_reference:
+        ref_keeps, pred_keeps = {}, {}
+        for name, pdf in pred_dfs.items():
+            ref_keeps[name], pred_keeps[name] = compute_overlap_keepsets(gt_df, pdf, transcript_types)
+
     aggregated_by_pred = _stream_benchmark_over_mappings(
         mappings,
         gt_df,
@@ -348,6 +390,10 @@ def benchmark_from_gff(
         locus_matching_mode,
         metrics,
         infer_introns=infer_introns,
+        ref_keeps=ref_keeps,
+        pred_keeps=pred_keeps,
+        ignore_novel=ignore_novel_predictions,
+        ignore_missed=ignore_missed_reference,
     )
 
     # 4. Attach global metrics for each predictor that had mapped transcripts.
@@ -369,6 +415,8 @@ def benchmark_from_gff(
             gt_feature_role_map=resolved_gt_map,
             pred_feature_role_map=resolved_pred_maps[pred_name],
             locus_matching_mode=locus_matching_mode,
+            ignore_novel_predictions=ignore_novel_predictions,
+            ignore_missed_reference=ignore_missed_reference,
         )
 
         all_results[pred_name] = {
