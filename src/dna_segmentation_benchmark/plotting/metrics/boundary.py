@@ -113,13 +113,16 @@ def plot_boundary_precision_landscapes(
         )
     _add_pictogram_panel(fig_bias, bias_metadata, logger=logger)
 
-    # --- Figure 2: Cumulative recall, one subplot per method (shared 0–1 scale) ---
+    # --- Figure 2: Cumulative recall, one subplot per method ---
+    # Shared scale floored at the min tile across all methods (not 0) so the
+    # colour range spreads over the values actually present.
+    rel_min = min(rel.values.min() for _, _, _, rel in landscapes)
     fig_rel, axes_rel = plt.subplots(nrows, ncols, figsize=(6.5 * ncols, 6 * nrows), squeeze=False)
     flat_rel = axes_rel.flatten()
     rel_mappable = None
     for i, (ax, (method, _, _, reliability_matrix)) in enumerate(zip(flat_rel, landscapes)):
         sns.heatmap(
-            reliability_matrix, ax=ax, cmap="magma", vmin=0, vmax=1,
+            reliability_matrix, ax=ax, cmap="magma", vmin=rel_min, vmax=1,
             annot=True, fmt=".2f", cbar=False,
         )
         rel_mappable = ax.collections[0]
