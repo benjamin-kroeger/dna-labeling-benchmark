@@ -60,6 +60,14 @@ log_benchmark_media_videos()
 run.finish()
 ```
 
+```{note}
+`benchmark_gt_vs_pred_multiple(...)` tops out at roughly 1000 transcript pairs
+per second, so on a large validation set it can take a while. Run it on a
+separate thread (or process) off the critical GPU training path so the
+benchmark doesn't stall training — hand it the arrays and let it log
+asynchronously.
+```
+
 ## What Gets Logged
 
 `log_benchmark_scalars(...)` logs a curated, high-signal online subset. Keys
