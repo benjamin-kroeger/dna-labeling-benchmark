@@ -39,20 +39,33 @@ def plot_transition_matrices(
         Returns ``None`` when all matrices are empty.
     """
 
-    if not transition_matrices or not any(np.any(m) for m in transition_matrices.values()):
+    if not transition_matrices:
         return None
 
-    label_ids = sorted(label_config.labels.keys())
-    ordered_labels = [label_config.labels[lid] for lid in label_ids]
-    num_labels = len(label_ids)
+    # Drop labels demoted out of scope (e.g. UTR under `cds` scope): no source
+    # panel and no row/col for them.  The (L, L) matrices are indexed over the
+    # full sorted vocabulary, so slice by the active positions.
+    all_ids = sorted(label_config.labels.keys())
+    active_ids = [lid for lid in all_ids if lid not in label_config.out_of_scope_labels()]
+    active_pos = [all_ids.index(lid) for lid in active_ids]
+    ordered_labels = [label_config.labels[lid] for lid in active_ids]
+    num_labels = len(active_ids)
+
+    active_matrices = {
+        lid: transition_matrices[lid][np.ix_(active_pos, active_pos)]
+        for lid in active_ids
+        if lid in transition_matrices
+    }
+    if not any(np.any(m) for m in active_matrices.values()):
+        return None
 
     fig, axes = plt.subplots(1, num_labels, figsize=(5 * num_labels, 4))
     if num_labels == 1:
         axes = [axes]
 
-    for ax_idx, src_id in enumerate(label_ids):
+    for ax_idx, src_id in enumerate(active_ids):
         src_name = label_config.labels[src_id]
-        matrix = transition_matrices.get(src_id, np.zeros((num_labels, num_labels), dtype=np.int64))
+        matrix = active_matrices.get(src_id, np.zeros((num_labels, num_labels), dtype=np.int64))
         ax = axes[ax_idx]
         matrix_df = pd.DataFrame(matrix, columns=ordered_labels, index=ordered_labels)
         sns.heatmap(matrix_df, annot=True, cmap="Blues", fmt="d", ax=ax, cbar=True)
@@ -101,7 +114,12 @@ def plot_false_transitions(
     first_method = next(iter(per_method_data.values()))
     if "late_catchup" not in first_method:
         return None
-    label_ids = sorted(first_method["late_catchup"].keys())
+    # Drop labels demoted out of scope (e.g. UTR under `cds` scope) from both the
+    # GT panels and the "→ target" categories.  Matrices are indexed over the full
+    # sorted vocabulary, so keep each active label's true column index.
+    all_ids = sorted(first_method["late_catchup"].keys())
+    col_pos = {lid: pos for pos, lid in enumerate(all_ids)}
+    label_ids = [lid for lid in all_ids if lid not in label_config.out_of_scope_labels()]
     ordered_labels = [label_config.labels[lid] for lid in label_ids]
     method_names = list(per_method_data.keys())
 
@@ -122,8 +140,9 @@ def plot_false_transitions(
                 any_false = True
             rows.append({"GT label": gt_label, "Type": "Late catch-up", "Count": lc_count, "Method": method_name})
 
-            for col_idx, col_lid in enumerate(label_ids):
+            for col_lid in label_ids:
                 target_name = label_config.labels[col_lid]
+                col_idx = col_pos[col_lid]
 
                 pm_count = int(premature[label_id][:, col_idx].sum())
                 if pm_count > 0:

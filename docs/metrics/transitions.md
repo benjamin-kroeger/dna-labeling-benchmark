@@ -11,6 +11,12 @@ appear in aggregated benchmark results as:
 - `transition_failures`
 - `false_transitions`
 
+Transition analysis honours `evaluation_scope`: out-of-scope exonic content is
+demoted to background before the arrays are compared, so under the `cds` scope
+5'/3' UTR read as `NONCODING` and a UTR-aware prediction is not penalised against
+a CDS-only ground truth. `INTRON` and splice labels are always kept, and the
+default `transcript_exon` scope demotes nothing.
+
 ## GT Transition Confusion Matrices
 
 At every position where the GT label changes, the benchmark records:

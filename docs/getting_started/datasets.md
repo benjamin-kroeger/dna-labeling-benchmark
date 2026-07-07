@@ -59,33 +59,3 @@ dna-benchmark run \
 Downloads land in `$DNASB_DATA_HOME` if set, otherwise the platform user cache
 (e.g. `~/.cache/dna-segmentation-benchmark` on Linux). Delete that directory to
 force a re-download.
-
-## Adding a dataset
-
-1. Upload the files to a Zenodo record and **publish** it (gzip large FASTAs).
-   Published records are immutable, so only publish the final files; use the
-   *reserve DOI* feature if you need the DOI before publishing.
-2. Note the record id from the published URL `https://zenodo.org/records/<id>`.
-3. Record the digest of each file's **decompressed content** as `<alg>:<hex>`
-   (e.g. sha256). gzip is non-deterministic, so hash the uncompressed data —
-   `gzip -dc sequence.fa.gz | sha256sum`. For an uncompressed upload this equals
-   the MD5 Zenodo shows for the file.
-4. Add an entry to `src/dna_segmentation_benchmark/datasets/registry.yaml`:
-
-   ```yaml
-   example_regions:
-     description: Curated reference regions for benchmarking.
-     record_id: "<zenodo-record-id>"
-     assembly: <genome-build>
-     license: <license>
-     fasta:
-       filename: sequence.fa.gz
-       checksum: sha256:<hex-of-decompressed-content>
-     annotation:                # the GFF3 annotation
-       filename: annotation.gff3.gz
-       checksum: sha256:<hex-of-decompressed-content>
-   ```
-
-To test an upload before publishing for real, push it to
-[sandbox.zenodo.org](https://sandbox.zenodo.org) and add `sandbox: true` to the
-entry — the loader then resolves the record from the sandbox host.

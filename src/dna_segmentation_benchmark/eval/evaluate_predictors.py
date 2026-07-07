@@ -44,6 +44,7 @@ from .indel_metrics import BOUNDARY_ANCHORED_BUCKETS, eval_indel
 from .preprocessing import (
     _infer_introns_from_coding_gaps,
     _iter_unmasked_spans,
+    collapse_out_of_scope_content,
     resolve_scope_mask,
 
 )
@@ -236,7 +237,12 @@ def _benchmark_chunk(
     # Transition diagnostics are opt-in via EvalMetrics.STATE_TRANSITIONS (kept in
     # the default metric set so plots still render unless explicitly excluded).
     if EvalMetrics.STATE_TRANSITIONS in metrics:
-        arr = np.stack((gt_labels, pred_labels), axis=0)
+        # Scope-collapse the arrays so transitions honour evaluation_scope like every
+        # other metric: under `cds` scope UTR reads as NONCODING (fair vs a CDS-only
+        # GT); INTRON/splice are preserved. No-op under the default transcript_exon scope.
+        gt_scoped = collapse_out_of_scope_content(gt_labels, label_config)
+        pred_scoped = collapse_out_of_scope_content(pred_labels, label_config)
+        arr = np.stack((gt_scoped, pred_scoped), axis=0)
         transition_analysis = compute_state_change_errors(gt_pred_arr=arr, label_config=label_config)
         metric_results.update({
             "transition_failures": transition_analysis.gt_transition_matrices,

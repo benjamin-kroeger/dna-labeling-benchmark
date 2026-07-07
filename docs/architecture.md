@@ -33,8 +33,3 @@ groups run.
   (`compute_global_metrics`, GFF path only), and optional Weights & Biases
   logging (see {doc}`getting_started/wandb_logging`).
 
-```{note}
-The source diagram lives at `docs/architecture.drawio` and the exported
-`docs/images/architecture.drawio.svg` embeds a copy of it, so the SVG itself can
-be re-opened and edited in [draw.io](https://app.diagrams.net).
-```

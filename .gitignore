@@ -38,3 +38,5 @@ misc/
 *.nbi
 .pytest_cache/
 .ruff_cache/
+# local-only nested repo (thesis code for tests, not shipped)
+thesis_code/

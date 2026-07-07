@@ -163,6 +163,53 @@ per-transcript precision can read slightly optimistically relative to the global
 numbers, so read the two views together. If you want every overlapping isoform
 scored on its own, use `FULL_DISCOVERY` instead.
 
+## Incomplete Annotations (`-R` / `-Q`)
+
+By default every non-overlapping reference and prediction is counted, so the
+benchmark behaves like gffcompare with **neither** `-R` nor `-Q`. Two flags
+reproduce gffcompare's incomplete-annotation corrections:
+
+- `ignore_novel_predictions` (CLI `-Q` / `--ignore-novel-predictions`) — drop
+  predictions that overlap **no** GT transcript. Use when the ground truth is
+  incomplete, so predictions in un-annotated regions stop counting as false
+  positives (raises **precision**).
+- `ignore_missed_reference` (CLI `-R` / `--ignore-missed-reference`) — drop GT
+  transcripts that overlap **no** prediction. Use when the prediction set is
+  incomplete, so reference genes the predictor never looked at stop counting as
+  misses (raises **recall**).
+
+```python
+results = benchmark_from_gff(
+    gt_path="ground_truth.gff3",
+    pred_paths={"helixer": "helixer.gff3"},
+    label_config=cfg,
+    ignore_novel_predictions=True,   # -Q
+    ignore_missed_reference=True,    # -R
+)
+```
+
+Both default to `False`, so leaving them out reproduces today's numbers exactly.
+The correction is orthogonal to the locus-matching mode — it changes which
+transcripts enter the denominators, not how overlapping ones are paired — and
+applies to **both** the global (annotation-level) metrics and the per-transcript
+aggregated micro-metrics.
+
+**What "overlap" means here.** Membership is decided by **transcript-span**
+overlap on the same `(seqid, strand)` — any shared base, computed once on the
+original files before any pruning. This is deliberately overlap-based, not
+match-based: a prediction that overlaps a reference locus but reconstructs it
+wrongly is **kept** (it is a real false positive), and only a truly intergenic
+prediction is dropped under `-Q`; the reference side is symmetric under `-R`.
+
+:::{note}
+gffcompare's overlap test is closer to exon/locus level, whereas this uses the
+whole transcript span. The two agree on clearly-novel and clearly-missed
+transcripts; span overlap is slightly more lenient about what counts as
+"overlapping" in crowded regions. It is a consistent approximation — the same
+span notion the mapper already uses to assign predictions to loci — not a
+bit-for-bit reproduction of gffcompare's filter.
+:::
+
 ## Why Results Can Differ From gffcompare
 
 Some metric names are intentionally familiar, especially `intron_chain`, but
@@ -272,6 +319,8 @@ dna-benchmark run \
   --exclude-features gene \
   --locus-matching best_per_locus \
   --infer-introns \
+  --ignore-novel-predictions \
+  --ignore-missed-reference \
   --metrics REGION_DISCOVERY \
   --metrics BOUNDARY_EXACTNESS \
   --metrics STRUCTURAL_COHERENCE \
@@ -301,5 +350,8 @@ dna-benchmark run \
   error instead of returning empty results.
 - `infer_introns=True` affects both GT and prediction arrays before any metric
   family is computed.
+- `-R` / `-Q` use transcript-span overlap, not gffcompare's exon-level overlap;
+  see [Incomplete Annotations](#incomplete-annotations-r-q). Both default off, so
+  results are unchanged unless you pass them.
 - `PHASE_DRIFT` remains a transcript-level metric. It is a bad fit for partial
   or unmatched loci.

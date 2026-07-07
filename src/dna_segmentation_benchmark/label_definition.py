@@ -216,6 +216,17 @@ class LabelConfig(BaseModel):
             return (BenchmarkScope.TRANSCRIPT_EXON, BenchmarkScope.CDS)
         return (BenchmarkScope.TRANSCRIPT_EXON,)
 
+    def out_of_scope_labels(self) -> frozenset[int]:
+        """Exonic-content tokens demoted to background under ``evaluation_scope``.
+
+        These are the labels ``STATE_TRANSITIONS`` collapses before analysis (via
+        ``eval.preprocessing.collapse_out_of_scope_content``), so transition plots
+        omit them too.  ``5'/3' UTR`` under ``cds`` scope; empty under the default
+        ``transcript_exon`` scope and in ``EXON_INTRON`` mode.  INTRON and splice
+        labels are never in ``scope_tokens`` and so are always kept.
+        """
+        return self.scope_tokens(BenchmarkScope.TRANSCRIPT_EXON) - self.scope_tokens(self.evaluation_scope)
+
     @property
     def labels(self) -> dict[int, str]:
         """Full ``{token: name}`` mapping for all defined labels."""
@@ -308,8 +319,11 @@ class EvalMetrics(Enum):
       Scope-aware segment-length EMD and position-bias summaries.
     * ``STATE_TRANSITIONS`` – *"Where do label transitions go wrong?"*
       GT transition confusion matrices plus classified false transitions
-      (late-catchup / premature / spurious).  Operates on the full label
-      vocabulary, so it is config-agnostic.
+      (late-catchup / premature / spurious).  Honours ``evaluation_scope``:
+      out-of-scope exonic content is demoted to background before analysis, so
+      under ``cds`` scope 5'/3' UTR read as NONCODING (a UTR-aware prediction is
+      not penalised against a CDS-only GT).  INTRON and splice labels are kept;
+      the default ``transcript_exon`` scope demotes nothing.
     """
 
     INDEL = 0

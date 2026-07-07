@@ -163,6 +163,23 @@ def resolve_scope_sections(
     return get_contiguous_groups(np.where(resolve_scope_mask(labels, scope, label_config))[0])
 
 
+def collapse_out_of_scope_content(labels: np.ndarray, label_config: LabelConfig) -> np.ndarray:
+    """Demote out-of-scope exonic content labels to background.
+
+    Returns *labels* unchanged (no copy) when nothing is out of scope, e.g. the
+    default ``transcript_exon`` scope or ``EXON_INTRON`` mode.  Under ``cds``
+    scope, 5'/3' UTR positions become ``background_label`` so state-transition
+    analysis treats a UTR-aware prediction as NONCODING against a CDS-only GT.
+    INTRON and splice labels are never in ``scope_tokens`` and stay intact.
+    """
+    demote = label_config.out_of_scope_labels()
+    if not demote:
+        return labels
+    out = labels.copy()
+    out[np.isin(out, list(demote))] = label_config.background_label
+    return out
+
+
 def _large_array_inferable_gap_cutoff(gap_lengths: list[int]) -> int | None:
     """Estimate the largest gap length that should be inferred as intronic.
 

@@ -1,11 +1,17 @@
 import numpy as np
 import pytest
 
+from dna_segmentation_benchmark.eval.preprocessing import collapse_out_of_scope_content
 from dna_segmentation_benchmark.eval.state_transitions import (
     TransitionAnalysis,
     compute_state_change_errors,
 )
-from dna_segmentation_benchmark.label_definition import AnnotationMode, BEND_LABEL_CONFIG, LabelConfig
+from dna_segmentation_benchmark.label_definition import (
+    AnnotationMode,
+    BEND_LABEL_CONFIG,
+    BenchmarkScope,
+    LabelConfig,
+)
 
 from support.constants import ACCEPTOR, DONOR, EXON, INTRON, NONCODING
 
@@ -337,3 +343,95 @@ def test_state_transitions_in_default_metric_set():
     )
     assert "transition_failures" in default
     assert "false_transitions" in default
+
+
+# ------------------------------------------------------------------
+# Scope-aware collapse: STATE_TRANSITIONS honours evaluation_scope so a
+# UTR-aware prediction is not penalised against a CDS-only GT under `cds` scope.
+# ------------------------------------------------------------------
+
+# UTR_CDS_INTRON tokens (match LabelConfig.default_utr_cds_intron):
+# background=8, cds=0, 5'UTR=4, 3'UTR=5, intron=2, donor=1, acceptor=3.
+_BG, _CDS, _5UTR, _3UTR, _INTRON = 8, 0, 4, 5, 2
+
+
+def _utr_config(scope: BenchmarkScope) -> LabelConfig:
+    return LabelConfig(
+        annotation_mode=AnnotationMode.UTR_CDS_INTRON,
+        evaluation_scope=scope,
+        background_label=_BG,
+        cds_label=_CDS,
+        five_prime_utr_label=_5UTR,
+        three_prime_utr_label=_3UTR,
+        intron_label=_INTRON,
+        splice_donor_label=1,
+        splice_acceptor_label=3,
+    )
+
+
+def _transitions_equal(a: dict, b: dict) -> bool:
+    """True when two benchmark results carry identical transition matrices."""
+    fa, fb = a["transition_failures"], b["transition_failures"]
+    if fa.keys() != fb.keys() or not all(np.array_equal(fa[k], fb[k]) for k in fa):
+        return False
+    for cat in ("late_catchup", "premature", "spurious"):
+        da, db = a["false_transitions"][cat], b["false_transitions"][cat]
+        if da.keys() != db.keys() or not all(np.array_equal(da[k], db[k]) for k in da):
+            return False
+    return a["false_transitions"]["stable_position_counts"] == b["false_transitions"]["stable_position_counts"]
+
+
+def test_collapse_out_of_scope_content_demotes_utr_only_under_cds_scope():
+    labels = np.array([_BG, _5UTR, _CDS, _INTRON, _CDS, _3UTR, 1, 3, _BG])
+
+    # cds scope: 5'/3' UTR -> background; CDS / intron / splice untouched.
+    out = collapse_out_of_scope_content(labels, _utr_config(BenchmarkScope.CDS))
+    expected = np.array([_BG, _BG, _CDS, _INTRON, _CDS, _BG, 1, 3, _BG])
+    np.testing.assert_array_equal(out, expected)
+    np.testing.assert_array_equal(labels, np.array([_BG, _5UTR, _CDS, _INTRON, _CDS, _3UTR, 1, 3, _BG]))  # not mutated
+
+    # transcript_exon scope: UTR is in scope -> no-op (same object, no copy).
+    assert collapse_out_of_scope_content(labels, _utr_config(BenchmarkScope.TRANSCRIPT_EXON)) is labels
+    # EXON_INTRON mode: only transcript_exon scope exists -> no-op.
+    exon_labels = np.array([NONCODING, EXON, INTRON, EXON, NONCODING])
+    assert collapse_out_of_scope_content(exon_labels, BEND_LABEL_CONFIG) is exon_labels
+
+
+def test_state_transitions_ignore_utr_under_cds_scope():
+    """Under `cds` scope, a UTR-aware pred is indistinguishable from a NONCODING pred."""
+    from dna_segmentation_benchmark.eval.evaluate_predictors import (
+        EvalMetrics,
+        benchmark_gt_vs_pred_single,
+    )
+
+    gt = np.array([_BG, _BG, _BG, _CDS, _CDS, _CDS, _BG, _BG, _BG])  # CDS-only GT
+    pred_with_utr = np.array([_BG, _5UTR, _5UTR, _CDS, _CDS, _CDS, _3UTR, _3UTR, _BG])
+    pred_with_nc = np.array([_BG, _BG, _BG, _CDS, _CDS, _CDS, _BG, _BG, _BG])
+
+    kwargs = dict(
+        label_config=_utr_config(BenchmarkScope.CDS),
+        metrics=[EvalMetrics.STATE_TRANSITIONS],
+    )
+    res_utr = benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_utr, **kwargs)
+    res_nc = benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_nc, **kwargs)
+    assert _transitions_equal(res_utr, res_nc)
+
+
+def test_state_transitions_keep_utr_under_transcript_exon_scope():
+    """Regression guard: default scope keeps UTR distinct (does not over-collapse)."""
+    from dna_segmentation_benchmark.eval.evaluate_predictors import (
+        EvalMetrics,
+        benchmark_gt_vs_pred_single,
+    )
+
+    gt = np.array([_BG, _BG, _BG, _CDS, _CDS, _CDS, _BG, _BG, _BG])
+    pred_with_utr = np.array([_BG, _5UTR, _5UTR, _CDS, _CDS, _CDS, _3UTR, _3UTR, _BG])
+    pred_with_nc = np.array([_BG, _BG, _BG, _CDS, _CDS, _CDS, _BG, _BG, _BG])
+
+    kwargs = dict(
+        label_config=_utr_config(BenchmarkScope.TRANSCRIPT_EXON),
+        metrics=[EvalMetrics.STATE_TRANSITIONS],
+    )
+    res_utr = benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_utr, **kwargs)
+    res_nc = benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_nc, **kwargs)
+    assert not _transitions_equal(res_utr, res_nc)
