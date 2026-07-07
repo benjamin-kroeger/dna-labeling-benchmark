@@ -171,6 +171,42 @@ def test_boundary_accumulator_merged_keeps_raw_summarise_adds_stats():
     np.testing.assert_allclose(np.array(landscape["reliability_matrix"]), expected_reliability)
 
 
+def test_boundary_landscape_clips_out_of_range_and_reports_sidedness():
+    """Residuals beyond ±max_range saturate into the edge bins (B) instead of being
+    silently dropped by histogram2d, and the one-sidedness scalar (C) is computed from
+    the raw residuals, clip-free."""
+    acc = BoundaryExactnessAccumulator()
+    acc.add(
+        {
+            "BOUNDARY_EXACTNESS": {
+                "first_sec_correct_3_prime_boundary": 0,
+                "last_sec_correct_5_prime_boundary": 0,
+                "iou_scores": [0.1, 0.2],
+                # (0, 500): only the 3' edge moves, far out of window.
+                # (300, 200): both edges move, far out of window.
+                "fuzzy_metrics": {"boundary_offsets": [(0, 500), (300, 200)], "total_gt": 2},
+            }
+        }
+    )
+    landscape = acc.summarise()["BOUNDARY_EXACTNESS"]["fuzzy_metrics"]
+
+    # B: both out-of-range pairs are clipped into the edge bins, none dropped.
+    bias = np.array(landscape["bias_matrix"])
+    assert bias.sum() == 2  # every matched pair retained, not silently discarded
+    assert bias[10, 20] == 1.0  # (0, 500) -> (0, +10): row 5'=0, col 3'=+10 edge
+    assert bias[20, 20] == 1.0  # (300, 200) -> (+10, +10) corner
+
+    # C: sidedness counted from RAW residuals, independent of the ±10 clip.
+    assert landscape["sidedness"] == {
+        "total": 2,
+        "exact": 0,
+        "one_sided": 1,      # (0, 500) — only one edge off
+        "two_sided": 1,      # (300, 200) — both edges off
+        "one_sided_fraction": 0.5,
+        "clipped_from_bias_matrix": 2,
+    }
+
+
 def test_benchmark_accumulator_routes_and_ignores_absent_keys():
     acc = BenchmarkAccumulator()
     acc.add({"PHASE_DRIFT": {"gt_frames": [0.0, 1.0], "n_skipped_non_divisible": 0, "n_skipped_short": 1}})

@@ -1315,6 +1315,11 @@ MULTI_SEQUENCE_TEST_CASES = [
                     "max_range": 10,
                     "bias_matrix": np.zeros((21, 21)),
                     "reliability_matrix": np.zeros((11, 11)),
+                    "sidedness": {
+                        "total": 0, "exact": 0, "one_sided": 0, "two_sided": 0,
+                        "one_sided_fraction": 0.0,
+                        "clipped_from_bias_matrix": 0,
+                    },
                 },
             },
             "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": _ZERO_SUMMARY},

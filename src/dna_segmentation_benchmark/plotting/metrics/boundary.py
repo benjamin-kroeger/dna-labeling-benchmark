@@ -15,12 +15,18 @@ logger = logging.getLogger(__name__)
 def _landscape_frames(landscape: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Rebuild the bias/reliability DataFrames from the serialisable dict."""
     max_range = landscape["max_range"]
-    bias_ticks = np.arange(-max_range, max_range + 1)
+    # Out-of-window residuals are clipped into the edge bins (see boundary_precision.py),
+    # so the two extreme ticks are saturation buckets, not exact ±max_range values.
+    bias_labels = (
+        [f"≤-{max_range}"]
+        + [str(t) for t in range(-max_range + 1, max_range)]
+        + [f"≥+{max_range}"]
+    )
     tolerance_ticks = np.arange(max_range + 1)
     bias_matrix = pd.DataFrame(
         np.asarray(landscape["bias_matrix"], dtype=float),
-        index=pd.Index(bias_ticks, name="5' Residual (Pred − GT)"),
-        columns=pd.Index(bias_ticks, name="3' Residual (Pred − GT)"),
+        index=pd.Index(bias_labels, name="5' Residual (Pred − GT)"),
+        columns=pd.Index(bias_labels, name="3' Residual (Pred − GT)"),
     )
     reliability_matrix = pd.DataFrame(
         np.asarray(landscape["reliability_matrix"], dtype=float),

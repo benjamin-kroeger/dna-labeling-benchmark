@@ -59,7 +59,11 @@ truth**:
   raw-count, log-scaled color norm, since the `(0, 0)` exact-match cell
   otherwise dominates the count and hides the (much rarer) off-center error
   structure. Cells with zero observations are left blank rather than colored as
-  the low end of the scale.
+  the low end of the scale. Residuals beyond `±max_range` are **clipped into the
+  two extreme rows/columns** (labeled `≤-max_range` / `≥+max_range`), so those
+  edge cells are saturation buckets, not exact `±max_range` values — every
+  matched pair is retained rather than silently dropped, keeping the one-sidedness
+  read comparable across callers with different tail weights.
 - **Cumulative recall with relaxed boundaries** — how recall improves when each
   boundary is counted as a match given a tolerance budget on the 5' and 3' end.
   The tolerance is two-sided (±): a boundary matches when its residual falls
@@ -75,6 +79,24 @@ Interpretation:
 - values centered near `(0, 0)`: boundaries are usually exact
 - mass shifted to negative 5' residuals: predictions start too early
 - mass shifted to positive 3' residuals: predictions end too late
+
+## One-Sidedness Decomposition
+
+Aggregation also emits a clip-free scalar summary under
+`fuzzy_metrics["sidedness"]`, computed from the **raw** residuals (not the
+clipped bias matrix). Of all matched pairs it splits the boundary errors into
+those that miss exactly one edge versus both:
+
+- `total`, `exact` — matched-pair count and how many hit both boundaries dead-on
+- `one_sided` / `two_sided` — pairs where only one / both of the 5' and 3' edges
+  are off, with `one_sided_fraction` taken over the errored pairs
+  (`one_sided + two_sided`; the two-sided fraction is its complement)
+- `clipped_from_bias_matrix` — audit count of pairs whose `|residual|` exceeded
+  `max_range` on either edge (the mass the bias heatmap saturated into its edge
+  buckets)
+
+Because it is read off the raw residuals, this fraction is comparable across
+callers regardless of how heavy their offset tails are.
 
 ## Terminal Boundary Flags
 
@@ -109,7 +131,10 @@ the transcript. See `conventions.md` for the full convention.
 - IoU mean is informative, but it hides whether errors are a few large misses
   or many small offsets. Use it together with the distribution plot.
 - The bias-landscape histogram is bounded to `±max_range` (default 10 bp).
-  Residuals beyond that range silently fall outside the bias matrix while
-  still contributing to the cumulative-recall surface.
+  Residuals beyond that range are clipped into the edge buckets (not dropped),
+  so the matrix still counts every matched pair; the exact out-of-window offset
+  is recoverable only from the raw `boundary_offsets` and the
+  `sidedness["clipped_from_bias_matrix"]` audit count. They also contribute to
+  the cumulative-recall surface, which is computed clip-free.
 - See {doc}`conventions` for the inclusive-endpoint rule that governs IoU
   and the array-orientation rule that governs the 5'/3' field names.
