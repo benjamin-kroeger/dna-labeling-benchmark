@@ -163,6 +163,57 @@ def test_pipeline_is_deterministic(gencode_gtf, augustus_gff, exon_intron_config
     )
 
 
+def test_parallel_path_matches_serial(gencode_gtf, augustus_gff, exon_intron_config, monkeypatch):
+    """The ProcessPoolExecutor path (>=500 mappings on a real run) yields the
+    same aggregated metrics as the serial path.
+
+    The threshold and worker-count gate are lowered/forced so the fork+merge
+    branch runs on the small fixture instead of needing a whole-genome file; a
+    spy on ``ProcessPoolExecutor`` proves the parallel branch actually executed
+    (so this can't silently degrade into re-testing the serial path).
+    """
+    from dna_segmentation_benchmark import pipeline
+
+    kwargs = dict(
+        gt_path=gencode_gtf,
+        pred_paths={"augustus": augustus_gff},
+        label_config=exon_intron_config,
+        metrics=CORE_METRICS,
+        locus_matching_mode=LocusMatchingMode.FULL_DISCOVERY,
+        infer_introns=True,
+    )
+    serial = benchmark_from_gff(**kwargs)  # <500 mappings, default threshold → serial
+
+    used_parallel = {"yes": False}
+    real_executor = pipeline.ProcessPoolExecutor
+
+    def _spy_executor(*args, **kwargs_):
+        used_parallel["yes"] = True
+        return real_executor(*args, **kwargs_)
+
+    monkeypatch.setattr(pipeline, "_PARALLEL_MIN_MAPPINGS", 1)
+    monkeypatch.setattr(pipeline.os, "cpu_count", lambda: 4)  # → n_workers = 3 > 1
+    monkeypatch.setattr(pipeline, "ProcessPoolExecutor", _spy_executor)
+    parallel = benchmark_from_gff(**kwargs)
+
+    assert used_parallel["yes"], "parallel branch never ran — test would be vacuous"
+
+    # Point estimates are order-invariant, so serial and parallel must match
+    # exactly. The bootstrap `*_stderr` fields use a seeded RNG that resamples in
+    # accumulation order, which the parallel merge reorders — so those differ by
+    # Monte-Carlo noise across worker counts and are excluded from the compare.
+    def _point_estimates(d):
+        return {k: v for k, v in d.items() if not k.endswith("_stderr")}
+
+    assert _point_estimates(_nucleotide(parallel, "augustus")) == _point_estimates(
+        _nucleotide(serial, "augustus")
+    )
+    assert (
+        parallel["augustus"]["aggregated"]["STRUCTURAL_COHERENCE"]["exact_match_rate"]
+        == pytest.approx(serial["augustus"]["aggregated"]["STRUCTURAL_COHERENCE"]["exact_match_rate"])
+    )
+
+
 # ---------------------------------------------------------------------------
 # Coordinate convention & GTF/GFF3 equivalence
 # ---------------------------------------------------------------------------

@@ -53,7 +53,9 @@ intron, donor, or acceptor labels around those boundaries.
 ## False Transitions
 
 False transitions are counted at positions where GT stays on the same label but
-the prediction changes label.
+the prediction changes label, **plus** off-track predictions caught at a GT
+boundary (the prediction had already left the GT source state when GT itself
+changes — see Caveats).
 
 The plot separates three behaviors:
 
@@ -99,7 +101,10 @@ These plots are especially useful when:
   label that simply occurs more often, will look worse even if its
   per-position error rate is identical. Compare counts only across runs that
   share the same input set, or normalise by `stable_position_counts` yourself
-  when comparing methods on different inputs.
+  when comparing methods on different inputs. Note `stable_position_counts`
+  counts only GT-stable positions, so it slightly **under**counts the true
+  denominator for `spurious` (which also absorbs off-track events landing at
+  transitioning GT positions) — treat the resulting rate as an upper bound.
 - The per-source-label confusion matrices count only on-site transitions
   where the prediction was already in the GT source state. Off-track
   predictions (model already left the GT source state when GT changes) are

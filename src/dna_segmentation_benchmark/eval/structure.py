@@ -102,6 +102,12 @@ def extract_structure(
     -------
     ExtractedStructure
         Immutable structure containing the ordered segment chain.
+
+    Raises
+    ------
+    ValueError
+        If ``labels`` is not 1-D, or if ``exclude_background`` is ``True`` but
+        no ``label_config`` was given (the background token is then unknown).
     """
     if labels.ndim != 1:
         raise ValueError(f"Expected 1-D array, got shape {labels.shape}")

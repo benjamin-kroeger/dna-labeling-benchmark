@@ -18,6 +18,8 @@ import pandas as pd
 
 from dna_segmentation_benchmark.plotting.metrics.structural import (
     plot_boundary_shift_distribution,
+    plot_per_transcript_exon_recovery,
+    plot_segment_count_delta,
     plot_transcript_match_distribution,
 )
 
@@ -112,4 +114,42 @@ def test_transcript_match_distribution_still_renders_after_refactor():
     assert len(fig.axes) >= 1
     # Per-method total annotated above the single bar.
     assert any("n=10" in t for t in _axis_texts(fig))
+    plt.close(fig)
+
+
+def _row(method: str, metric_key: str, value) -> list:
+    return [method, "STRUCTURAL_COHERENCE", "cds", metric_key, value]
+
+
+def test_segment_count_delta_renders_and_returns_none_when_empty():
+    df = pd.DataFrame(
+        [
+            _row("over", "segment_count_delta", {"mean": 1.5, "std": 0.3}),
+            _row("under", "segment_count_delta", {"mean": -2.0, "std": 0.4}),
+        ],
+        columns=_COLUMNS,
+    )
+    fig = plot_segment_count_delta(df, class_name="CDS")
+    assert fig is not None
+    assert len(fig.axes) >= 1
+    plt.close(fig)
+
+    # No matching metric_key rows → nothing to plot.
+    empty = pd.DataFrame([_row("m", "other_key", {"mean": 0.0})], columns=_COLUMNS)
+    assert plot_segment_count_delta(empty, class_name="CDS") is None
+
+
+def test_per_transcript_exon_recovery_renders_three_panels():
+    df = pd.DataFrame(
+        [
+            _row("m", "exon_recall_per_transcript", [1.0, 0.5, 0.9]),
+            _row("m", "exon_precision_per_transcript", [1.0, 0.8, 0.7]),
+            _row("m", "false_exon_count_per_transcript", [0, 1, 2]),
+        ],
+        columns=_COLUMNS,
+    )
+    fig = plot_per_transcript_exon_recovery(df, class_name="CDS")
+    assert fig is not None
+    # recall · precision · false-exon panels.
+    assert len(fig.axes) >= 3
     plt.close(fig)

@@ -163,29 +163,15 @@ coding gap can be an intergenic distance rather than a true intron.
 
 ### How the cutoff is chosen
 
-For arrays shorter than `_INFER_INTRONS_LARGE_ARRAY_WARNING_LENGTH`
-(`1_000_000` bp), every background gap between coding segments is
-relabelled as intron — the assumption is that the array represents a
-single transcript locus.
+For arrays shorter than ~1 Mbp, every background gap between coding segments is
+relabelled as intron — the assumption is that the array represents a single
+transcript locus.
 
-For arrays at or above that length the benchmark is more conservative
-and chooses a gap-length cutoff before relabelling. The cutoff is
-selected as follows:
-
-1. Sorted distinct gap lengths are scanned for the **largest
-   consecutive jump ratio** (each gap divided by the previous one).
-2. If the largest ratio exceeds
-   `_INFER_INTRONS_BIMODAL_MIN_JUMP_RATIO` (`5.0`), the gaps look
-   bimodal — one cluster of intron-scale gaps and one cluster of
-   intergenic-scale gaps. The cutoff is set to the geometric midpoint
-   between the two cluster boundaries.
-3. Otherwise the distribution is treated as unimodal and the cutoff
-   defaults to `_INFER_INTRONS_LARGE_GAP_RATIO` × the median of the
-   lower half of gap lengths (`20×` by default).
-
-These constants live at the top of `eval/preprocessing.py` and
-are not currently part of the public API. If you need different
-behaviour, edit them in source or filter intron labels in advance.
+For arrays at or above that length the benchmark is more conservative: it looks
+for a bimodal split in the gap-length distribution (a cluster of intron-scale
+gaps versus a cluster of intergenic-scale gaps) and only relabels gaps below the
+resulting cutoff, so a chromosome-scale coding gap is not mistaken for an intron.
+If your arrays already carry explicit intron labels, leave `infer_introns` off.
 
 ## Choosing Metric Families
 

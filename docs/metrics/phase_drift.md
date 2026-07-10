@@ -48,11 +48,15 @@ The raw single-sequence output is:
 
 ```python
 {
-    "gt_frames": [...],            # per-position drift, inf at non-co-CDS positions
+    "frames": [...],              # per-position drift, inf at non-co-CDS positions
     "n_skipped_non_divisible": int,
     "n_skipped_short": int,
+    "n_skipped_no_overlap": int,
 }
 ```
+
+(One layer up, `evaluate_predictors` renames `frames` → `gt_frames` in the
+assembled per-sequence result.)
 
 When INDEL is requested alongside Phase Drift, two extra counts are added —
 `boundary_indel_total` and `boundary_indel_in_frame` — the number of

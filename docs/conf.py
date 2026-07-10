@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT / "src"))
 project = "DNA Segmentation Benchmark"
 author = "Benjamin Kroeger"
 copyright = "2026, Benjamin Kroeger"
-release = "0.1.1"
+release = "0.1.2"
 
 extensions = [
     "myst_parser",

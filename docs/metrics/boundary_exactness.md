@@ -48,11 +48,20 @@ used by the W&B online logger.
 
 ## Boundary Bias and Cumulative Recall
 
-The raw `fuzzy_metrics["boundary_offsets"]` list contains all signed
-residual pairs from overlapping sections. Aggregation turns that into two
-diagnostics, each rendered as a **grid of small multiples — one subplot per
-method — so predictions can be compared side by side against the same ground
-truth**:
+> **Two shapes of `fuzzy_metrics`.** In the raw, un-aggregated per-sequence
+> fragment, `fuzzy_metrics` is `{"boundary_offsets": [...signed (5', 3') residual
+> pairs...], "total_gt": int}`. The **aggregated** report (the standard result this
+> page describes) *replaces* `fuzzy_metrics` with the four computed keys
+> `{"max_range", "bias_matrix", "reliability_matrix", "sidedness"}` — it does **not**
+> carry `boundary_offsets`. Both `bias_matrix` and `reliability_matrix` are nested
+> lists with **rows = 5' dimension, columns = 3' dimension**; the tick labels are
+> derived from `max_range` (bias axis `-max_range..max_range`, tolerance axis
+> `0..max_range`).
+
+The raw per-sequence `boundary_offsets` list contains all signed residual pairs
+from overlapping sections. Aggregation turns that into two diagnostics, each
+rendered as a **grid of small multiples — one subplot per method — so predictions
+can be compared side by side against the same ground truth**:
 
 - **Boundary bias** — a signed 5'/3' residual heatmap showing whether certain
   boundaries are consistently over- or under-predicted. All methods share one

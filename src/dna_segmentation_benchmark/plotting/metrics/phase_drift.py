@@ -20,6 +20,17 @@ def plot_phase_drift_percentage_bar(
 ) -> plt.Figure | None:
     """Bar chart of coding-phase drift distribution per method.
 
+    Parameters
+    ----------
+    df_phase_drift_metrics : pd.DataFrame
+        Long-form phase-drift table; rows keyed ``gt_frame_counts`` are used.
+    class_name : str
+        Class label used in log messages and the figure title.
+    save_path : Path | None
+        If given, the figure is saved there.
+    metadata : PlotMetadata | None
+        Optional pictogram-panel metadata.
+
     Returns
     -------
     Figure | None

@@ -14,6 +14,7 @@ from dna_segmentation_benchmark.eval.chain_comparison import (
 )
 from dna_segmentation_benchmark.eval.evaluate_predictors import (
     EvalMetrics,
+    _warn_phase_drift,
     benchmark_gt_vs_pred_single,
 )
 from dna_segmentation_benchmark.eval import preprocessing
@@ -208,6 +209,16 @@ def test_infer_introns_reclassifies_single_exon_genes_as_multi_exon_transcript()
         "internal_exon": 1,
         "three_prime_terminal_exon": 1,
     }
+
+
+def test_phase_drift_emits_incomplete_annotation_warning():
+    with pytest.warns(UserWarning, match="PHASE_DRIFT"):
+        _warn_phase_drift([EvalMetrics.PHASE_DRIFT])
+
+
+def test_phase_drift_warning_silent_without_the_metric(recwarn):
+    _warn_phase_drift([EvalMetrics.NUCLEOTIDE_CLASSIFICATION])
+    assert not any(issubclass(w.category, UserWarning) for w in recwarn.list)
 
 
 def test_infer_introns_warns_on_large_arrays(monkeypatch):

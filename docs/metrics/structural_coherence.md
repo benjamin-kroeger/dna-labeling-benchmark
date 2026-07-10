@@ -22,10 +22,13 @@ benchmark reports three sibling metrics:
   GT boundary is recovered). This is recall-oriented: it penalises missed
   boundaries.
 
-**Population scope:** the exon-chain tiers (`exon_chain_multi`,
-`exon_chain_multi_subset`, `exon_chain_multi_superset`) cover **multi-exon
+**Population scope:** the exon-chain tiers come in two populations. The **bare**
+`exon_chain` / `exon_chain_subset` / `exon_chain_superset` keys cover **all** GT
+transcripts (single- and multi-exon alike) and are the directly
+gffcompare-comparable headline ("fraction of transcripts fully recovered"). The
+`exon_chain_multi*` variants restrict the same comparison to **multi-exon
 transcripts only**, keeping them apples-to-apples with the intron-chain tiers
-(which are inherently multi-exon). Single-exon genes are reported separately
+(which are inherently multi-exon). Single-exon genes are also reported separately
 — see [Single-Exon Match Rate](#single-exon-gene-match-rate) below.
 
 For a single (GT, prediction) pair the strict metric is all-or-nothing:
@@ -167,7 +170,7 @@ errors.
 ## Boundary Shift Distribution
 
 For transcripts where GT and prediction have the same number of segments (i.e.
-transcripts classified as `boundary_shift_internal` or
+transcripts classified as `exact`, `boundary_shift_internal` or
 `boundary_shift_terminal`), the benchmark records both a per-transcript summary
 and the individual per-boundary offsets:
 
@@ -181,7 +184,8 @@ and the individual per-boundary offsets:
   splice junction) or `terminal` (the transcript's outer start/end, i.e.
   TSS/TES in array orientation).
 
-These are only meaningful when segment counts match; if they differ all three
+These are only meaningful when segment counts match **and** every predicted
+segment overlaps its positional GT counterpart; if either fails all three
 are empty/zero and the transcript is excluded from the distribution plots. Note
 the conditioning: this view only describes transcripts whose **chain topology is
 already correct**, so it isolates junction-placement precision from the separate
@@ -224,8 +228,9 @@ The four panels show:
   any directional bias: a histogram skewed right of zero indicates predicted
   edges systematically shifted toward array-3'.
 - **Internal vs Terminal** (log y) — `|offset|` split by boundary type.
-  Internal splice junctions are precisely defined (GT–AG dinucleotides) and
-  should be tight; terminal TSS/TES boundaries are inherently fuzzy. Separating
+  Internal splice junctions are, by biological convention, GT–AG-bounded and
+  should be tight; terminal TSS/TES boundaries are inherently fuzzy. (The
+  benchmark compares annotated junction *positions*, not nucleotide identity.) Separating
   them prevents transcript-end uncertainty from masking (or being mistaken for)
   genuine splice-site imprecision. This panel is overlaid with the per-method
   **eligibility** caption (topology-correct share, ⚠ below 25 %) so the boxes

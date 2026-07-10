@@ -55,7 +55,8 @@ the following online scalar set per metric family:
 - Precision / recall / F1
 
 **Structural Coherence**
-- Intron / exon chain match rates
+- Intron / exon chain match rates (including the `exon_chain_multi` and
+  `exon_chain_single` tiers)
 - Segment count delta (mean, MAE)
 - Exon recall per transcript (mean)
 - Exon precision per transcript (mean)

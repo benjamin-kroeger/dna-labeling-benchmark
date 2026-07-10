@@ -16,4 +16,5 @@ diagnostic_depth
 transitions
 indel
 phase_drift
+global
 ```

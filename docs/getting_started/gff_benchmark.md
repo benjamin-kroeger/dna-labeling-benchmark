@@ -65,9 +65,11 @@ The pipeline returns one result block per predictor:
 {py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple`.
 
 `global` covers file-level counts such as how much GT or prediction content was
-unmatched. Global metric families (`nucleotide`, `exon`, `exon_lenient`) nest
-their scopes under a `scopes` key, so a `UTR_CDS_INTRON` run reports both
-`transcript_exon` and `cds` views in one pass:
+unmatched. Global metric families that nest their scopes under a `scopes` key
+(`nucleotide`, `exon`, `exon_lenient`, `intron_chain`, `transcript_exact`)
+report per-scope views, so a `UTR_CDS_INTRON` run reports both
+`transcript_exon` and `cds` views in one pass (the `transcript`, `gene`, and
+`locus_isoform` families are unscoped):
 
 ```python
 results["helixer"]["global"]["nucleotide"]["scopes"]
@@ -163,6 +165,7 @@ per-transcript precision can read slightly optimistically relative to the global
 numbers, so read the two views together. If you want every overlapping isoform
 scored on its own, use `FULL_DISCOVERY` instead.
 
+(incomplete-annotations-r-q)=
 ## Incomplete Annotations (`-R` / `-Q`)
 
 By default every non-overlapping reference and prediction is counted, so the

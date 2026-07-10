@@ -198,7 +198,7 @@ Rendered as three overlayed histograms; a fat left tail of recall combined with 
 #### Transcript Match Classification
 
 Holistic structural classification of each (GT, prediction) pair into one of nine categories
-(see :class:`~dna_segmentation_benchmark.eval.transcript_classification.TranscriptMatchClass`):
+(see `TranscriptMatchClass`):
 
 | Class | Condition |
 |-------|-----------|
@@ -345,7 +345,7 @@ from dna_segmentation_benchmark import (
     log_benchmark_media_videos,
 )
 
-run = init_wandb_with_presets("my-project", "run-name", label_config, classes=[0])
+run = init_wandb_with_presets("my-project", "run-name")
 
 # During training -- lightweight scalar logging per epoch
 log_benchmark_scalars(val_results, label_config, step=epoch, method_prefix="val")

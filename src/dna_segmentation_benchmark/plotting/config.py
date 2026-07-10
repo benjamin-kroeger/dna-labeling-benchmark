@@ -50,6 +50,9 @@ class PlotMetadata:
     show_tp_tn_fp_fn : bool
         If ``True`` a compact TP / TN / FP / FN definitions block is
         rendered at the bottom of the panel.
+    tp_definition, tn_definition, fp_definition, fn_definition : str | None
+        Per-metric text for the TP / TN / FP / FN block (used when
+        ``show_tp_tn_fp_fn`` is set).
     """
 
     icon_path: Path | Traversable | None = None

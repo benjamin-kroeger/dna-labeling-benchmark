@@ -51,12 +51,11 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]  # >=77 understands the SPDX `license = "MIT"` string (PEP 639)
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["dna_segmentation_benchmark.wandb*"]
 
 [tool.setuptools]
 include-package-data = true
@@ -71,6 +70,7 @@ line-length = 120
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]  # makes the `support` package importable from unit/ and integration/
+addopts = ["-m", "not network"]  # run network tests explicitly with `-m network`
 markers = [
     "network: test requires network access (Zenodo sandbox); skips if unreachable.",
 ]

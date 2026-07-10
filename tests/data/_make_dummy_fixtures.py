@@ -19,7 +19,7 @@ strand.
 
 Run from the repo root::
 
-    python tests/fixtures/_make_dummy_fixtures.py
+    python tests/data/_make_dummy_fixtures.py
 """
 
 from __future__ import annotations

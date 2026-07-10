@@ -94,11 +94,18 @@ metric was in the result:
 To log *every* numeric scalar instead of this subset, use
 {py:func}`dna_segmentation_benchmark.log_benchmark_all_scalars`.
 
-`log_benchmark_media(...)` renders and logs:
+`log_benchmark_media(...)` renders and logs **every figure the benchmark
+plotting layer produces for the metric groups present in the result** — not a
+fixed shortlist. Requesting `STRUCTURAL_COHERENCE` also emits `transcript_match`,
+`segment_count_delta`, `boundary_shift_dist`, `per_transcript_exon_recovery`,
+`splice_site_confusion`, `splice_site_pr`; `INDEL` adds `indel_counts`,
+`indel_rates_by_boundary`, `indel_lengths_*`; `BOUNDARY_EXACTNESS` adds `iou_*`
+and the boundary landscapes; and so on.
 
-- `position_bias`
-- `transition_matrices`
-- `false_transitions`
+The subset that is *also* buffered for GIF videos (see below) is:
+`position_bias`, `transition_matrices`, `false_transitions`,
+`boundary_bias_landscape`, `boundary_recall_landscape`, `transcript_match`,
+`segment_count_delta`, `phase_drift`.
 
 ## Media History vs GIF Videos
 

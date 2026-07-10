@@ -192,6 +192,11 @@ def compute_scoped_chain_metrics(
         and :func:`_compute_exon_recovery_from_segments`, a
         ``transcript_match_class`` label (when classifiable) and the signed
         ``segment_count_delta`` (``len(pred) - len(gt)``).
+
+        When the GT has zero in-scope segments there is nothing to score, so
+        only the three bare ``exon_chain`` / ``_subset`` / ``_superset`` keys
+        (empty :class:`Counts`) are returned — the multi/single tiers and the
+        per-transcript diagnostics are omitted on this path.
     """
     gt_segs = _segments_for_scope(gt_structure, scope, label_config)
     pred_segs = _segments_for_scope(pred_structure, scope, label_config)

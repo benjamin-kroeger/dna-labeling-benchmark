@@ -109,6 +109,16 @@ def compute_global_metrics(
     transcript_types : list[str]
         GFF feature types that define transcript boundaries
         (e.g. ``["mRNA", "transcript"]``).
+    gt_feature_role_map : FeatureRoleMap | None
+        Optional mapping of GT GFF feature types to label roles; normalized
+        against ``label_config`` when omitted.
+    pred_feature_role_map : FeatureRoleMap | None
+        Optional mapping of prediction GFF feature types to label roles;
+        normalized against ``label_config`` when omitted.
+    locus_matching_mode : LocusMatchingMode
+        How predictions are assigned to GT loci (``FULL_DISCOVERY`` or
+        ``BEST_PER_LOCUS``); affects the assignment-based ``"transcript"`` and
+        ``"locus_isoform"`` families.
     ignore_novel_predictions : bool
         gffcompare ``-Q``: drop prediction transcripts that overlap no GT
         transcript from the precision side (incomplete-ground-truth correction).

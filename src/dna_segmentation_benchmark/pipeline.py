@@ -43,6 +43,11 @@ logger = logging.getLogger(__name__)
 # ponytail: module-level state inherited by forked workers; not thread-safe, fine for single-call use
 _BENCH_STATE: dict = {}
 
+# Below this many mappings the fork/merge overhead outweighs the parallelism, so
+# the benchmark runs serially. Module-level so tests can lower it to exercise the
+# parallel path without building a whole-genome fixture.
+_PARALLEL_MIN_MAPPINGS = 500
+
 
 def _bench_worker_chunk(mappings_chunk: list) -> dict:
     """Worker: process a chunk of mappings and return {pred_name: (merged_data, count)}."""
@@ -130,7 +135,7 @@ def _stream_benchmark_over_mappings(
         }
 
     n_workers = max(1, (os.cpu_count() or 1) - 1)
-    use_parallel = not return_individual_results and n_workers > 1 and len(mappings) >= 500
+    use_parallel = not return_individual_results and n_workers > 1 and len(mappings) >= _PARALLEL_MIN_MAPPINGS
 
     if use_parallel:
         global _BENCH_STATE

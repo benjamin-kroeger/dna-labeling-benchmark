@@ -54,7 +54,9 @@ computed:
   lengths, position-bias histograms) are **concatenated** or summed
   bin-wise. Summary statistics (`mean`, `mae`, `rmse`, `std`) are
   computed once on the corpus-level pool, not averaged-of-averages.
-* Boundary-residual landscapes are summed bin-wise across sequences.
+* Boundary-residual landscapes pool (concatenate) the raw residual values
+  across sequences; binning into the bias/reliability matrices happens once,
+  on the pooled values.
 * Transition matrices are summed cell-wise.
 
 * `NUCLEOTIDE_CLASSIFICATION` and `REGION_DISCOVERY` outputs include

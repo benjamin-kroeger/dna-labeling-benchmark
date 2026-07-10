@@ -24,6 +24,10 @@ def plot_ml_metrics_bar(
 
     Parameters
     ----------
+    df_ml_metrics : pd.DataFrame
+        Long-form ML-metrics table (one row per method / level / metric).
+    class_name : str
+        Class label used in log messages and figure titles.
     save_path_prefix : Path | None
         If given, figures are saved as ``<prefix>_<level>.png``.
     metadata_map : dict[str, PlotMetadata] | None
