@@ -96,8 +96,8 @@ def _stream_benchmark_over_mappings(
     *,
     infer_introns: bool = False,
     return_individual_results: bool = False,
-    ref_keeps: dict[str, set[str]] | None = None,
-    pred_keeps: dict[str, set[str]] | None = None,
+    ref_keeps: dict[str, set[tuple[str, str]]] | None = None,
+    pred_keeps: dict[str, set[tuple[str, str]]] | None = None,
     ignore_novel: bool = False,
     ignore_missed: bool = False,
 ) -> dict[str, dict | list]:

@@ -1032,8 +1032,8 @@ def _include_mapping_for_predictor(
     pred_name: str,
     mode: LocusMatchingMode,
     *,
-    ref_keep: set[str] | None = None,
-    pred_keep: set[str] | None = None,
+    ref_keep: set[tuple[str, str]] | None = None,
+    pred_keep: set[tuple[str, str]] | None = None,
     ignore_novel: bool = False,
     ignore_missed: bool = False,
 ) -> bool:
@@ -1050,14 +1050,17 @@ def _include_mapping_for_predictor(
     The ``ignore_novel`` / ``ignore_missed`` flags reproduce gffcompare's
     ``-Q`` / ``-R`` incomplete-annotation corrections and are driven by
     coordinate-overlap keep-sets (``pred_keep`` / ``ref_keep``) computed
-    independently of the match result:
+    independently of the match result.  Both sets are keyed by
+    ``(seqid, transcript id)`` — a bare id would let one overlapping copy of a
+    recycled id (Tiberius restarts ``g1.t1`` per sequence) keep its namesakes on
+    every other seqid, under-pruning the correction:
 
     - ``ignore_novel`` (``-Q``): drop an unmatched-prediction entry whose
-      prediction overlaps *no* GT transcript (``transcript_id`` ∉ ``pred_keep``).
-      An overlapping-but-unmatched prediction stays in ``pred_keep``, so it is
-      still counted as a false positive.
+      prediction overlaps *no* GT transcript (``(seqid, transcript_id)`` ∉
+      ``pred_keep``).  An overlapping-but-unmatched prediction stays in
+      ``pred_keep``, so it is still counted as a false positive.
     - ``ignore_missed`` (``-R``): drop a real-GT entry whose GT transcript
-      overlaps *no* prediction (``gt_id`` ∉ ``ref_keep``).  An
+      overlaps *no* prediction (``(seqid, gt_id)`` ∉ ``ref_keep``).  An
       overlapping-but-unmatched GT stays in ``ref_keep``, so it is still a miss.
     """
     if ignore_novel and mapping.is_unmatched_prediction and pred_keep is not None:
@@ -1065,13 +1068,13 @@ def _include_mapping_for_predictor(
             (m.transcript_id for m in mapping.matched_predictions if m.predictor_name == pred_name),
             None,
         )
-        if pred_id is not None and pred_id not in pred_keep:
+        if pred_id is not None and (mapping.seqid, pred_id) not in pred_keep:
             return False
     if (
         ignore_missed
         and not mapping.is_unmatched_prediction
         and ref_keep is not None
-        and mapping.gt_id not in ref_keep
+        and (mapping.seqid, mapping.gt_id) not in ref_keep
     ):
         return False
 

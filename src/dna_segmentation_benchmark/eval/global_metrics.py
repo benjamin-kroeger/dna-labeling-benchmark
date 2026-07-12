@@ -408,7 +408,7 @@ def _compute_exon_and_structure_metrics(
 
 
 def _lenient_keys_from_intervals(
-    intervals_by_parent: dict[str, list[tuple[str, str, int, int]]],
+    intervals_by_parent: dict[tuple[str, str, str], list[tuple[str, str, int, int]]],
     orphan_intervals: set[tuple[str, str, int, int]],
 ) -> set[tuple]:
     """Lenient exon key set from already-computed intervals."""
@@ -422,7 +422,7 @@ def _lenient_keys_from_intervals(
 
 
 def _structure_keys_from_intervals(
-    intervals_by_parent: dict[str, list[tuple[str, str, int, int]]],
+    intervals_by_parent: dict[tuple[str, str, str], list[tuple[str, str, int, int]]],
 ) -> list[tuple[frozenset, frozenset]]:
     """(structure_key, intron_chain_key) pairs from already-computed intervals."""
     keys: list[tuple[frozenset, frozenset]] = []
@@ -551,15 +551,19 @@ def _compute_gene_level_metrics(
     overlap (same O(n log n) sweep used in ``map_transcripts``).  A locus
     is "matched" when at least one of its transcripts was assigned a
     counterpart on the opposite side.
+
+    Matched transcripts are recorded as ``(seqid, id)``: a bare id would mark a
+    locus matched on *every* seqid carrying that id once one copy matched, which
+    over-credits callers that recycle transcript ids per sequence (Tiberius).
     """
     matched_gt_ids = {
-        mapping.gt_id
+        (mapping.seqid, mapping.gt_id)
         for mapping in mappings
         if not mapping.is_unmatched_prediction
         and any(m.predictor_name == predictor_name for m in mapping.matched_predictions)
     }
     matched_pred_ids = {
-        m.transcript_id
+        (mapping.seqid, m.transcript_id)
         for mapping in mappings
         if not mapping.is_unmatched_prediction
         for m in mapping.matched_predictions
@@ -625,8 +629,10 @@ def _compute_locus_isoform_metrics(
             "missed_per_locus": [],
         }
 
+    # Keyed by (seqid, gt_id): a bare id would credit a recycled id matched on one
+    # sequence to its namesakes on every other one (Tiberius restarts ids per seq).
     matched_gt_ids = {
-        m.gt_id
+        (m.seqid, m.gt_id)
         for m in relevant
         if any(
             pm.predictor_name == predictor_name and pm.junction_f1 > 0
@@ -643,11 +649,11 @@ def _compute_locus_isoform_metrics(
     total_matched = 0
     missed_per_locus: list[int] = []
 
-    for spans in groups.values():
+    for (seqid, _strand), spans in groups.items():
         for locus_ids in ([tid for _, _, tid in g] for g in _sweep_cluster(spans, key=lambda x: (x[0], x[1]))):
             unique_ids = set(locus_ids)
             n_total = len(unique_ids)
-            n_matched = sum(1 for gid in unique_ids if gid in matched_gt_ids)
+            n_matched = sum(1 for gid in unique_ids if (seqid, gid) in matched_gt_ids)
             locus_count += 1
             total_gt += n_total
             total_matched += n_matched
@@ -666,9 +672,12 @@ def _compute_locus_isoform_metrics(
 def _count_matched_loci(
     by_ss: _SSIndex,
     transcript_types: list[str],
-    matched_ids: set[str],
+    matched_ids: set[tuple[str, str]],
 ) -> tuple[int, int]:
     """Count total loci and matched loci in a pre-grouped GFF DataFrame.
+
+    *matched_ids* holds ``(seqid, transcript id)`` pairs, so a recycled id
+    matched on one sequence cannot mark its namesakes' loci matched elsewhere.
 
     Returns
     -------
@@ -677,7 +686,7 @@ def _count_matched_loci(
     """
     locus_count = locus_matched = 0
 
-    for (_seqid, strand), sub_df in by_ss.items():
+    for (seqid, strand), sub_df in by_ss.items():
         if strand not in ("+", "-"):
             continue
         spans_with_ids = _get_transcript_spans_with_ids(sub_df, transcript_types)
@@ -685,7 +694,7 @@ def _count_matched_loci(
             continue
         for locus_ids in ([tid for _, _, tid in g] for g in _sweep_cluster(spans_with_ids, key=lambda x: (x[0], x[1]))):
             locus_count += 1
-            if any(tid in matched_ids for tid in locus_ids):
+            if any((str(seqid), tid) in matched_ids for tid in locus_ids):
                 locus_matched += 1
 
     return locus_count, locus_matched
@@ -729,15 +738,20 @@ def compute_overlap_keepsets(
     gt_df: pd.DataFrame,
     pred_df: pd.DataFrame,
     transcript_types: list[str],
-) -> tuple[set[str], set[str]]:
+) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
     """Coordinate-overlap keep-sets for gffcompare-style ``-R`` / ``-Q``.
 
     Returns ``(ref_keep, pred_keep)`` where
 
-    * ``ref_keep`` — GT transcript ``gff_id``\\ s whose span overlaps ≥1
-      prediction transcript span on the same ``(seqid, strand)`` (drives ``-R``).
-    * ``pred_keep`` — prediction transcript ``gff_id``\\ s whose span overlaps
-      ≥1 GT transcript span on the same ``(seqid, strand)`` (drives ``-Q``).
+    * ``ref_keep`` — GT transcripts whose span overlaps ≥1 prediction transcript
+      span on the same ``(seqid, strand)`` (drives ``-R``).
+    * ``pred_keep`` — prediction transcripts whose span overlaps ≥1 GT
+      transcript span on the same ``(seqid, strand)`` (drives ``-Q``).
+
+    Transcripts are identified by ``(seqid, gff_id)``, not by ``gff_id`` alone:
+    some callers (e.g. Tiberius) restart transcript ids per sequence, so a bare
+    id keeps every same-named transcript on *every* other seqid alive once one
+    copy overlaps — silently under-pruning the correction.
 
     Overlap is transcript-span based (any shared base) and strand-aware — the
     same notion :func:`map_transcripts` uses to assign predictions to loci — and
@@ -747,30 +761,41 @@ def compute_overlap_keepsets(
     gt_by_ss = {k: v for k, v in gt_df.groupby(["seqid", "strand"], sort=False, observed=True)}
     pred_by_ss = {k: v for k, v in pred_df.groupby(["seqid", "strand"], sort=False, observed=True)}
 
-    ref_keep: set[str] = set()
-    pred_keep: set[str] = set()
+    ref_keep: set[tuple[str, str]] = set()
+    pred_keep: set[tuple[str, str]] = set()
     for key in gt_by_ss.keys() & pred_by_ss.keys():
+        seqid = str(key[0])
         gt_spans = _get_transcript_spans_with_ids(gt_by_ss[key], transcript_types)
         pred_spans = _get_transcript_spans_with_ids(pred_by_ss[key], transcript_types)
         if not gt_spans or not pred_spans:
             continue
         gt_regions = _merge_intervals([(s, e) for s, e, _ in gt_spans])
         pred_regions = _merge_intervals([(s, e) for s, e, _ in pred_spans])
-        ref_keep.update(tid for s, e, tid in gt_spans if _span_hits_regions(s, e, pred_regions))
-        pred_keep.update(tid for s, e, tid in pred_spans if _span_hits_regions(s, e, gt_regions))
+        ref_keep.update(
+            (seqid, tid) for s, e, tid in gt_spans if _span_hits_regions(s, e, pred_regions)
+        )
+        pred_keep.update(
+            (seqid, tid) for s, e, tid in pred_spans if _span_hits_regions(s, e, gt_regions)
+        )
 
     return ref_keep, pred_keep
 
 
-def _prune_to_keep(df: pd.DataFrame, keep: set[str]) -> pd.DataFrame:
+def _prune_to_keep(df: pd.DataFrame, keep: set[tuple[str, str]]) -> pd.DataFrame:
     """Keep only transcripts in *keep* and their child features.
 
-    A row survives if its ``gff_id`` is a kept transcript or its ``parent`` is a
-    kept transcript.  ponytail: parent-less orphan features are dropped under the
-    correction — they carry no transcript id to overlap-test, and are rare enough
-    not to warrant a separate path.
+    A row survives if its ``(seqid, gff_id)`` is a kept transcript or its
+    ``(seqid, parent)`` is.  Matching on the seqid-qualified id — not the bare
+    one — is what stops a recycled transcript id (Tiberius restarts ``g1.t1``
+    per sequence) from resurrecting its namesakes on every other seqid.
+    ponytail: parent-less orphan features are dropped under the correction —
+    they carry no transcript id to overlap-test, and are rare enough not to
+    warrant a separate path.
     """
-    return df[df["gff_id"].isin(keep) | df["parent"].isin(keep)]
+    seqid = df["seqid"].astype(str)
+    own = pd.Series(list(zip(seqid, df["gff_id"].astype(str))), index=df.index).isin(keep)
+    child = pd.Series(list(zip(seqid, df["parent"].astype(str))), index=df.index).isin(keep)
+    return df[own | child]
 
 
 def _span_hits_regions(start: int, end: int, regions: list[tuple[int, int]]) -> bool:
@@ -811,8 +836,11 @@ def _collect_scoped_transcript_intervals(
     feature_role_map: FeatureRoleMap,
     label_config: LabelConfig,
     scope: BenchmarkScope | str,
-) -> tuple[dict[str, list[tuple[str, str, int, int]]], set[tuple[str, str, int, int]]]:
-    """Return merged scope intervals grouped by transcript parent."""
+) -> tuple[
+    dict[tuple[str, str, str], list[tuple[str, str, int, int]]],
+    set[tuple[str, str, int, int]],
+]:
+    """Return merged scope intervals grouped by ``(seqid, strand, transcript parent)``."""
     scope_feature_types = feature_types_for_scope(feature_role_map, label_config, scope)
     if not scope_feature_types:
         return {}, set()
@@ -836,8 +864,18 @@ def _collect_scoped_transcript_intervals(
     # Group parented rows by parent in one pass over plain arrays, then merge —
     # avoids paying pandas groupby + a per-group ``sort_values`` for every one of
     # tens of thousands of transcripts (the dominant global-metrics cost).
+    #
+    # The bucket key is ``(seqid, strand, parent)``, not ``parent`` alone: some
+    # callers (e.g. Tiberius) restart transcript ids per sequence, and for GTF
+    # input ``parent`` *is* ``transcript_id``.  Keying on the bare id pools the
+    # exons of every same-named transcript across every seqid into one bucket,
+    # where the start-sort interleaves them and ``_merge_sorted_intervals`` —
+    # which compares coordinates only — fuses exons from unrelated scaffolds into
+    # single chimeric intervals.  Qualifying the key keeps each bucket on one
+    # sequence and one strand, which is also what makes that coordinate-only
+    # merge sound.
     with_parent = scoped_rows[scoped_rows["parent"].notna()]
-    rows_by_parent: dict[str, list[tuple[str, str, int, int]]] = defaultdict(list)
+    rows_by_parent: dict[tuple[str, str, str], list[tuple[str, str, int, int]]] = defaultdict(list)
     for seqid, strand, start, end, parent in zip(
         with_parent["seqid"].to_numpy(),
         with_parent["strand"].to_numpy(),
@@ -845,12 +883,14 @@ def _collect_scoped_transcript_intervals(
         with_parent["end"].to_numpy(),
         with_parent["parent"].to_numpy(),
     ):
-        rows_by_parent[str(parent)].append((str(seqid), str(strand), int(start), int(end)))
+        rows_by_parent[(str(seqid), str(strand), str(parent))].append(
+            (str(seqid), str(strand), int(start), int(end))
+        )
 
-    intervals_by_parent: dict[str, list[tuple[str, str, int, int]]] = {}
-    for parent_id, recs in rows_by_parent.items():
+    intervals_by_parent: dict[tuple[str, str, str], list[tuple[str, str, int, int]]] = {}
+    for parent_key, recs in rows_by_parent.items():
         recs.sort(key=lambda r: r[2])
-        intervals_by_parent[parent_id] = _merge_sorted_intervals(recs)
+        intervals_by_parent[parent_key] = _merge_sorted_intervals(recs)
 
     return intervals_by_parent, orphan_intervals
 
