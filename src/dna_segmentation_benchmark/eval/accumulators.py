@@ -53,10 +53,12 @@ class TransitionsAccumulator:
     premature: dict = field(default_factory=dict)
     spurious: dict = field(default_factory=dict)
     stable: dict = field(default_factory=dict)
+    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         if "transition_failures" not in fragment:
             return
+        self._seen = True
         _add_matrix_dict(self.failures, fragment["transition_failures"])
         false_transitions = fragment["false_transitions"]
         _add_matrix_dict(self.late, false_transitions["late_catchup"])
@@ -66,7 +68,11 @@ class TransitionsAccumulator:
             self.stable[label] = self.stable.get(label, 0) + count
 
     def merged(self) -> dict:
-        if not self.failures:
+        # Guard on "did a fragment arrive", not on a payload field: in the parallel
+        # path merged() runs per chunk, and a chunk with no transition failures still
+        # carries real stable_position_counts.  Keying the guard off `failures` dropped
+        # them.  Same trap in IndelAccumulator / DiagnosticDepthAccumulator.
+        if not self._seen:
             return {}
         return {
             "transition_failures": self.failures,
@@ -83,6 +89,7 @@ class TransitionsAccumulator:
     def merge_from_merged(self, data: dict) -> None:
         if "transition_failures" not in data:
             return
+        self._seen = True
         _add_matrix_dict(self.failures, data["transition_failures"])
         ft = data.get("false_transitions", {})
         _add_matrix_dict(self.late, ft.get("late_catchup", {}))
@@ -111,11 +118,13 @@ class IndelAccumulator:
     exon_opportunities: dict = field(default_factory=lambda: defaultdict(int))
     n_gt_segments: int = 0
     n_pred_segments: int = 0
+    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
         if not isinstance(payload, dict):
             return
+        self._seen = True
         for boundary, bucket_map in payload.get("by_boundary", {}).items():
             for bucket, lengths in bucket_map.items():
                 self.by_boundary[boundary][bucket].extend(lengths)
@@ -125,7 +134,10 @@ class IndelAccumulator:
         self.n_pred_segments += int(payload.get("n_pred_segments", 0))
 
     def merged(self) -> dict:
-        if not self.by_boundary:
+        # A chunk with no indels still contributes opportunity denominators
+        # (n_gt_segments / n_pred_segments / exon_opportunities), so the guard must
+        # be "did a fragment arrive", not "were there indels".
+        if not self._seen:
             return {}
         return {
             self.KEY: {
@@ -145,6 +157,7 @@ class IndelAccumulator:
         payload = data.get(self.KEY)
         if not payload:
             return
+        self._seen = True
         for boundary, bucket_map in payload.get("by_boundary", {}).items():
             for bucket, lengths in bucket_map.items():
                 self.by_boundary[boundary][bucket].extend(lengths)
@@ -564,11 +577,13 @@ class DiagnosticDepthAccumulator:
     length_emd: list = field(default_factory=list)
     hist_fn: np.ndarray | None = None
     hist_fp: np.ndarray | None = None
+    _seen: bool = False
 
     def add(self, fragment: dict) -> None:
         payload = fragment.get(self.KEY)
         if not isinstance(payload, dict):
             return
+        self._seen = True
         self.gt_lengths.extend(payload["gt_segment_lengths"])
         self.pred_lengths.extend(payload["pred_segment_lengths"])
         self.length_emd.append(payload["length_emd"])
@@ -586,12 +601,14 @@ class DiagnosticDepthAccumulator:
         }
 
     def merged(self) -> dict:
-        if not self.gt_lengths:
+        # A chunk of GT-less mappings (unmatched predictions) has no gt_lengths but
+        # real pred_lengths / length_emd / position-bias counts — guard on arrival.
+        if not self._seen:
             return {}
         return {self.KEY: {**self._common(), "length_emd": list(self.length_emd)}}
 
     def summarise(self) -> dict:
-        if not self.gt_lengths:
+        if not self._seen:
             return {}
         return {
             self.KEY: {
@@ -604,6 +621,7 @@ class DiagnosticDepthAccumulator:
         payload = data.get(self.KEY)
         if not payload:
             return
+        self._seen = True
         self.gt_lengths.extend(payload.get("gt_segment_lengths", []))
         self.pred_lengths.extend(payload.get("pred_segment_lengths", []))
         self.length_emd.extend(payload.get("length_emd", []))

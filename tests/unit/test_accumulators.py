@@ -9,6 +9,7 @@ from dna_segmentation_benchmark.eval.accumulators import (
     BenchmarkAccumulator,
     BoundaryExactnessAccumulator,
     DiagnosticDepthAccumulator,
+    IndelAccumulator,
     StructuralAccumulator,
     TransitionsAccumulator,
 )
@@ -205,6 +206,49 @@ def test_boundary_landscape_clips_out_of_range_and_reports_sidedness():
         "one_sided_fraction": 0.5,
         "clipped_from_bias_matrix": 2,
     }
+
+
+def test_event_free_chunk_still_contributes_its_denominators():
+    """A chunk whose payload fired no *event* must still hand over its counters.
+
+    The parallel path calls ``merged()`` once per chunk and feeds the result to
+    ``merge_from_merged()``.  Guarding ``merged()`` on an event field (indel runs,
+    GT segments, transition failures) made an event-free chunk return ``{}``, so its
+    denominators were silently dropped and the totals depended on how the mappings
+    happened to be chunked.  Each accumulator below gets one event-free fragment and
+    must still report its counts.
+    """
+    # INDEL: no by_boundary runs, but real opportunity denominators.
+    indel = IndelAccumulator()
+    indel.add({"INDEL": {"by_boundary": {}, "exon_opportunities": {"internal_exon": 7},
+                         "n_gt_segments": 5, "n_pred_segments": 4}})
+    sink = IndelAccumulator()
+    sink.merge_from_merged(indel.merged())
+    assert sink.merged()["INDEL"]["n_gt_segments"] == 5
+    assert sink.merged()["INDEL"]["n_pred_segments"] == 4
+    assert sink.merged()["INDEL"]["exon_opportunities"] == {"internal_exon": 7}
+
+    # DIAGNOSTIC_DEPTH: an unmatched prediction has no GT segments, but its predicted
+    # lengths and position-bias counts are real.
+    diag = DiagnosticDepthAccumulator()
+    diag.add({"DIAGNOSTIC_DEPTH": {"gt_segment_lengths": [], "pred_segment_lengths": [9],
+                                   "length_emd": 2.0, "position_bias_histogram_fn": [1, 0],
+                                   "position_bias_histogram_fp": [0, 1]}})
+    dsink = DiagnosticDepthAccumulator()
+    dsink.merge_from_merged(diag.merged())
+    out = dsink.merged()["DIAGNOSTIC_DEPTH"]
+    assert out["pred_segment_lengths"] == [9]
+    assert out["length_emd"] == [2.0]
+    assert out["position_bias_histogram_fp"] == [0, 1]
+
+    # STATE_TRANSITIONS: a chunk with no failures still has stable positions.
+    trans = TransitionsAccumulator()
+    trans.add({"transition_failures": {},
+               "false_transitions": {"late_catchup": {}, "premature": {}, "spurious": {},
+                                     "stable_position_counts": {"exon": 3}}})
+    tsink = TransitionsAccumulator()
+    tsink.merge_from_merged(trans.merged())
+    assert tsink.merged()["false_transitions"]["stable_position_counts"] == {"exon": 3}
 
 
 def test_benchmark_accumulator_routes_and_ignores_absent_keys():
