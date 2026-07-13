@@ -70,11 +70,15 @@ STATE_TRANSITION_TEST_CASES = [
         #   i=2:  src=NC, GT→EX, pred_tgt=NC → FAILED  (gt_trans[NC][EX, NC]=1)
         #   i=6:  src=EX, GT→IN, pred_tgt=IN → CORRECT (gt_trans[EX][IN, IN]=1)
         #   i=15: src=EX, GT→NC, pred_tgt=NC → CORRECT (gt_trans[EX][NC, NC]=1)
-        # False transitions with context:
-        #   i=3:  NC→EX in stable EX,  prev=NC, next=IN → LATE_CATCHUP  (lc[EX][NC,EX]=1)
-        #   i=8:  IN→EX in stable IN,  prev=EX, next=EX → PREMATURE     (pm[IN][IN,EX]=1)
-        #   i=11: EX→IN in stable EX,  prev=IN, next=NC → SPURIOUS      (sp[EX][EX,IN]=1)
-        #   i=13: IN→EX in stable EX,  prev=IN, next=NC → LATE_CATCHUP  (lc[EX][IN,EX]=1)
+        # False transitions, classified against the GT-stable run they fall in:
+        #   i=3:  NC→EX in EX run [3,6]:  pred entered the run in NC (prev), and this
+        #         is the run's first transition, into EX → LATE_CATCHUP (lc[EX][NC,EX]=1)
+        #   i=8:  IN→EX in IN run [7,10]: pred leaves the run in EX (next), and this
+        #         is the run's last transition, out of IN → PREMATURE   (pm[IN][IN,EX]=1)
+        #   i=11 + i=13: EX→IN→EX inside EX run [11,15] — a ROUND TRIP. Pred entered
+        #         the run in EX (not prev=IN) and leaves it in EX (not next=NC), so
+        #         neither anchor holds: an invented intron inside a real exon.
+        #         → BOTH SPURIOUS (sp[EX][EX,IN]=1, sp[EX][IN,EX]=1)
         np.array(
             [
                 [8, 8, 8, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 8, 8],
@@ -89,13 +93,13 @@ STATE_TRANSITION_TEST_CASES = [
                 NONCODING: _sparse({(EXON, NONCODING): 1}),
             },
             lc={
-                EXON: _sparse({(NONCODING, EXON): 1, (INTRON, EXON): 1}),
+                EXON: _sparse({(NONCODING, EXON): 1}),
             },
             pm={
                 INTRON: _sparse({(INTRON, EXON): 1}),
             },
             sp={
-                EXON: _sparse({(EXON, INTRON): 1}),
+                EXON: _sparse({(EXON, INTRON): 1, (INTRON, EXON): 1}),
             },
             stable={EXON: 7, INTRON: 3, NONCODING: 3},
         ),
@@ -192,13 +196,16 @@ def _compute_state_change_errors_reference(
 ) -> TransitionAnalysis:
     """Reference: simple Python loop, easy to audit against the spec.
 
-    False transitions classified with lookbehind / lookahead:
-    - Late catch-up: pred_src == prev_GT AND pred_tgt == curr_GT
-    - Premature:     pred_src == curr_GT AND pred_tgt == next_GT
-    - Spurious:      everything else (incl. off-track at GT boundaries)
+    False transitions are classified against the GT-stable run [a, b] they fall
+    in (current label L, preceding label P, following label N):
+    - Late catch-up: pred[a] == P and the run's FIRST transition is P → L
+    - Premature:     pred[b] == N and the run's LAST transition is L → N
+    - Spurious:      every other in-run transition (incl. both halves of a
+                     round-trip excursion), plus off-track events at GT
+                     boundaries.
 
-    prev_GT / next_GT: GT label of the run before / after the current stable
-    window.  Sentinel = curr_GT when no such run exists (prevents false match).
+    Sentinel P = N = L at the array edges (no such run exists), which can never
+    match: pred[a] == L forces the first transition's target away from L.
     """
     label_ids = sorted(label_config.labels.keys())
     num_labels = len(label_ids)
@@ -214,33 +221,46 @@ def _compute_state_change_errors_reference(
 
     gt_trans_pos = [i for i in range(N - 1) if gt_vals[i] != gt_vals[i + 1]]
 
-    def prev_gt(i: int) -> int:
-        cands = [p for p in gt_trans_pos if p < i]
-        return int(gt_vals[cands[-1]]) if cands else int(gt_vals[i])
+    # GT-stable runs [a, b]
+    run_starts = [0] + [p + 1 for p in gt_trans_pos]
+    run_ends = gt_trans_pos + [N - 1]
 
-    def next_gt(i: int) -> int:
-        cands = [p for p in gt_trans_pos if p >= i]
-        return int(gt_vals[cands[0] + 1]) if cands else int(gt_vals[i])
-
-    for i in range(N - 1):
+    # ---- GT boundaries -----------------------------------------------------
+    for i in gt_trans_pos:
         gs, gt_, ps, pt = int(gt_vals[i]), int(gt_vals[i + 1]), int(pred_vals[i]), int(pred_vals[i + 1])
         gs_i, gt_i, ps_i, pt_i = (label_ids.index(x) for x in (gs, gt_, ps, pt))
+        if ps == gs:
+            gt_mats[gs][gt_i, pt_i] += 1
+        elif ps != pt:
+            sp_mats[gs][ps_i, pt_i] += 1  # off-track at a boundary → always spurious
 
-        if gs == gt_:
-            stable[gs] += 1
-            if ps != pt:
-                prv, nxt = prev_gt(i), next_gt(i)
-                if ps == prv and pt == gs:
-                    lc_mats[gs][ps_i, pt_i] += 1
-                elif ps == gs and pt == nxt:
-                    pm_mats[gs][ps_i, pt_i] += 1
-                else:
-                    sp_mats[gs][ps_i, pt_i] += 1
-        else:
-            if ps == gs:
-                gt_mats[gs][gt_i, pt_i] += 1
-            elif ps != pt:
-                sp_mats[gs][ps_i, pt_i] += 1
+    # ---- inside each GT-stable run -----------------------------------------
+    for k, (a, b) in enumerate(zip(run_starts, run_ends)):
+        L = int(gt_vals[a])
+        P = int(gt_vals[a - 1]) if k > 0 else L                 # sentinel at edge
+        Nx = int(gt_vals[b + 1]) if k < len(gt_trans_pos) else L  # sentinel at edge
+
+        stable[L] += b - a  # windows a..b-1 are the GT-stable windows of this run
+
+        in_run = [i for i in range(a, b) if pred_vals[i] != pred_vals[i + 1]]
+        if not in_run:
+            continue
+
+        first, last = in_run[0], in_run[-1]
+        late = first if (int(pred_vals[a]) == P and int(pred_vals[first + 1]) == L) else None
+        prem = last if (int(pred_vals[b]) == Nx and int(pred_vals[last]) == L) else None
+        if prem is not None and prem == late:
+            prem = None  # impossible at a real boundary; guard against double counting
+
+        for i in in_run:
+            ps, pt = int(pred_vals[i]), int(pred_vals[i + 1])
+            ps_i, pt_i = label_ids.index(ps), label_ids.index(pt)
+            if i == late:
+                lc_mats[L][ps_i, pt_i] += 1
+            elif i == prem:
+                pm_mats[L][ps_i, pt_i] += 1
+            else:
+                sp_mats[L][ps_i, pt_i] += 1
 
     return TransitionAnalysis(
         gt_transition_matrices=gt_mats,

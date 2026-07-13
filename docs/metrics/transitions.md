@@ -57,13 +57,25 @@ the prediction changes label, **plus** off-track predictions caught at a GT
 boundary (the prediction had already left the GT source state when GT itself
 changes — see Caveats).
 
-The plot separates three behaviors:
+Each false transition is classified against the **GT-stable run** it falls in
+(current label `L`, preceding label `P`, following label `N`) — the predictor's
+whole trajectory across that run decides, not the labels of the single transition:
 
-- `Late catch-up`: the model stayed in the GT label too long before changing
-- `Premature -> X`: the model left the GT label too early and transitioned into
-  label `X`
-- `Spurious -> X`: the model introduced a transition into label `X` where GT
-  should have remained stable
+- `Late catch-up`: the model *entered* the run still in `P` and its **first**
+  transition inside the run is `P -> L`. It stayed in the previous GT label too
+  long and only now catches up.
+- `Premature -> X`: the model *leaves* the run in `N` and its **last** transition
+  inside the run is `L -> N`. It left the GT label early and stayed out.
+- `Spurious -> X`: **every other** transition inside the run — a fabrication the
+  local GT trajectory cannot explain (an invented intron carved out of a real
+  exon, an exon invented inside a real intron, a gene hallucinated in intergenic
+  space).
+
+The anchors are what make a slip a slip: a genuine early exit *stays* exited. A
+round-trip excursion (leave the state and come back within the same GT-stable
+run) is a fabrication and counts as **spurious on both** of its transitions — so
+`late_catchup` / `premature` measure displaced boundaries, and `spurious`
+measures invented ones.
 
 There can be spurious transitions to the same label, e.g. NONCODING -> NONCODING since another spurious
 transition before transitioned out of NONCODING. Late catch-up and premature transitions exclusively happen at the
