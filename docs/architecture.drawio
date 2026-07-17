@@ -1,10 +1,10 @@
 <mxfile host="app.diagrams.net">
-  <diagram name="dna-segmentation-benchmark" id="0">
+  <diagram name="gene-calling-benchmark" id="0">
     <mxGraphModel dx="2512" dy="1263" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1840" pageHeight="1300" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#333333;" value="DNA Segmentation Benchmark — Architecture" vertex="1">
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#333333;" value="Gene Calling Benchmark — Architecture" vertex="1">
           <mxGeometry height="40" width="1720" x="60" y="24" as="geometry" />
         </mxCell>
         <mxCell id="config" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;verticalAlign=middle;" value="&lt;b&gt;LabelConfig · AnnotationMode · BenchmarkScope · EvalMetrics&lt;/b&gt;&lt;br&gt;&lt;span style=&#39;font-size:12px&#39;&gt;&lt;i&gt;label_definition.py — sets the label vocabulary &amp; scope and selects which metric groups run; referenced by every layer below&lt;/i&gt;&lt;/span&gt;" vertex="1">
