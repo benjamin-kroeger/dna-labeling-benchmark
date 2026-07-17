@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from dna_segmentation_benchmark.eval.structure import Segment
-from dna_segmentation_benchmark.eval.transcript_classification import (
+from gene_calling_benchmark.eval.structure import Segment
+from gene_calling_benchmark.eval.transcript_classification import (
     TranscriptMatchClass as C,
     _classify_segment_match,
 )

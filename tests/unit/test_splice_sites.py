@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from dna_segmentation_benchmark.eval.splice_sites import eval_splice_site_junctions
-from dna_segmentation_benchmark.eval.structure import ExtractedStructure, Segment
-from dna_segmentation_benchmark.label_definition import LabelConfig, AnnotationMode
+from gene_calling_benchmark.eval.splice_sites import eval_splice_site_junctions
+from gene_calling_benchmark.eval.structure import ExtractedStructure, Segment
+from gene_calling_benchmark.label_definition import LabelConfig, AnnotationMode
 
 from support.constants import ACCEPTOR, DONOR, EXON, INTRON, NONCODING
 

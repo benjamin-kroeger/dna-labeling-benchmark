@@ -9,15 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from dna_segmentation_benchmark.datasets import (
+from gene_calling_benchmark.datasets import (
     DatasetSpec,
     LoadedDataset,
     get_dataset_info,
     list_datasets,
     load_dataset,
 )
-from dna_segmentation_benchmark.datasets._fetch import _hash_file, _verify_checksum
-from dna_segmentation_benchmark.datasets._registry import FileSpec, load_registry
+from gene_calling_benchmark.datasets._fetch import _hash_file, _verify_checksum
+from gene_calling_benchmark.datasets._registry import FileSpec, load_registry
 
 requests = pytest.importorskip("requests")  # transitive dep via pooch
 

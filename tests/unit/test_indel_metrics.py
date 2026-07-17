@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from dna_segmentation_benchmark.eval.indel_metrics import eval_indel
-from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
+from gene_calling_benchmark.eval.indel_metrics import eval_indel
+from gene_calling_benchmark.label_definition import AnnotationMode, LabelConfig
 
 
 def test_multibase_insertion_keyed_to_segment_edge_not_outer_flank():
@@ -134,7 +134,7 @@ def test_event_denominator_intron_and_whole_insertions_unbounded():
     """``_event_denominator``: joins divide by intron count; whole insertions have
     no bounded GT opportunity (always 0 → excluded from the rate plot).
     """
-    from dna_segmentation_benchmark.plotting.metrics.indel import _event_denominator
+    from gene_calling_benchmark.plotting.metrics.indel import _event_denominator
 
     # 3-exon transcript: one exon of each multi-exon type.
     # n_genes = 1 (one 5'-terminal, no single-exon); n_introns = 3 - 1 = 2.

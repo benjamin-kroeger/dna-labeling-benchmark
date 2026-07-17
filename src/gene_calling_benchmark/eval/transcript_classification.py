@@ -32,7 +32,7 @@ Note
 TSS-TES boundaries. This is intentionally **stricter** than gffcompare's ``=``
 class code, which ignores terminal-exon outer boundaries. For the
 junction-tolerant, containment-aware view (the gffcompare analog) see
-:class:`dna_segmentation_benchmark.transcript_mapping.MatchClass`. The
+:class:`gene_calling_benchmark.transcript_mapping.MatchClass`. The
 ``BOUNDARY_SHIFT_INTERNAL`` / ``BOUNDARY_SHIFT_TERMINAL`` distinction concerns
 the gene-locus outer boundaries (``segments[0].start`` / ``segments[-1].end``)
 and is only evaluated once every predicted segment overlaps its positional GT

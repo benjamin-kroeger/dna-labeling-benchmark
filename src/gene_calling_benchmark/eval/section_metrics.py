@@ -217,7 +217,7 @@ def _greedy_match(candidates: list[tuple[int, int, int]]) -> list[tuple[int, int
 
     Note on matching guarantees: this section-level matching is **greedy**,
     whereas the transcript-level assignment in
-    :func:`~dna_segmentation_benchmark.transcript_mapping._assign_optimal_locus`
+    :func:`~gene_calling_benchmark.transcript_mapping._assign_optimal_locus`
     is **optimal** (Hungarian).  The two layers therefore use different
     guarantees by design.  Within a single transcript window the candidate
     sections are few enough that greedy and optimal almost always coincide, so

@@ -20,12 +20,12 @@ import math
 
 import pandas as pd
 
-from dna_segmentation_benchmark.eval.global_metrics import (
+from gene_calling_benchmark.eval.global_metrics import (
     _compute_locus_isoform_metrics,
     compute_global_metrics,
 )
-from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
-from dna_segmentation_benchmark.transcript_mapping import (
+from gene_calling_benchmark.label_definition import AnnotationMode, LabelConfig
+from gene_calling_benchmark.transcript_mapping import (
     LocusMatchingMode,
     MatchClass,
     PredictionMatch,

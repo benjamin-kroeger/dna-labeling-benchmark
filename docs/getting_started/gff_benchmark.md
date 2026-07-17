@@ -1,12 +1,12 @@
 # GFF/GTF Benchmark
 
-Use {py:func}`dna_segmentation_benchmark.benchmark_from_gff` when your inputs
+Use {py:func}`gene_calling_benchmark.benchmark_from_gff` when your inputs
 are annotation files rather than prebuilt arrays.
 
 ## Python API
 
 ```python
-from dna_segmentation_benchmark import (
+from gene_calling_benchmark import (
     BEND_LABEL_CONFIG,
     EvalMetrics,
     benchmark_from_gff,
@@ -62,7 +62,7 @@ The pipeline returns one result block per predictor:
 ```
 
 `aggregated` is the same micro-averaged array benchmark result produced by
-{py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple`.
+{py:func}`gene_calling_benchmark.benchmark_from_arrays`.
 
 `global` covers file-level counts such as how much GT or prediction content was
 unmatched. Global metric families that nest their scopes under a `scopes` key
@@ -78,7 +78,7 @@ results["helixer"]["global"]["nucleotide"]["scopes"]
 
 ## Feature Types and Roles
 
-GFF/GTF feature names are **not** part of {py:class}`dna_segmentation_benchmark.LabelConfig`.
+GFF/GTF feature names are **not** part of {py:class}`gene_calling_benchmark.LabelConfig`.
 The Python pipeline maps them to benchmark roles through two arguments:
 `gt_feature_role_map` (a `{feature_type: role}` map for the ground truth) and
 `pred_feature_role_maps` (a flat `{feature_type: role}` map applied to every
@@ -117,7 +117,7 @@ you configured.
 
 ## Locus Matching Modes
 
-Use {py:class}`dna_segmentation_benchmark.LocusMatchingMode` to choose how GT
+Use {py:class}`gene_calling_benchmark.LocusMatchingMode` to choose how GT
 transcripts are paired with predictions inside one locus:
 
 - `FULL_DISCOVERY`: maximize 1:1 matches across the locus
@@ -247,15 +247,15 @@ crowded loci with several similar isoforms.
 
 ## CLI
 
-The same workflow is available through `dna-benchmark`.
+The same workflow is available through `gene-benchmark`.
 
 ### Create a Config Template
 
 Pick the annotation mode (see {doc}`annotation_modes`):
 
 ```bash
-dna-benchmark init-config --mode exon_intron     --output label_config.yaml
-dna-benchmark init-config --mode utr_cds_intron  --output anatomy_config.yaml
+gene-benchmark init-config --mode exon_intron     --output label_config.yaml
+gene-benchmark init-config --mode utr_cds_intron  --output anatomy_config.yaml
 ```
 
 The generated YAML describes label meanings, not parser behavior.
@@ -311,7 +311,7 @@ default map (`five_prime_UTR`, `CDS`, `three_prime_UTR`) is used.
 `EXON_INTRON` (legacy exon-type flags):
 
 ```bash
-dna-benchmark run \
+gene-benchmark run \
   --gt ground_truth.gtf \
   --pred segmentnt:segmentnt.gtf \
   --pred augustus:augustus.gtf \
@@ -333,7 +333,7 @@ dna-benchmark run \
 `UTR_CDS_INTRON` (feature-role maps):
 
 ```bash
-dna-benchmark run \
+gene-benchmark run \
   --gt ground_truth.gtf \
   --pred helixer:helixer.gtf \
   --config anatomy_config.yaml \

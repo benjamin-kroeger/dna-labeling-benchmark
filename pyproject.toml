@@ -1,14 +1,14 @@
 [project]
-name = "dna-segmentation-benchmark"
+name = "gene-calling-benchmark"
 version = "0.1.2"
-description = "Metrics for nucleotide-level DNA segmentation benchmarking"
+description = "Metrics for nucleotide-level gene-calling benchmarking"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [
     { name = "Benjamin Kroeger" },
 ]
-keywords = ["genomics", "gene prediction", "benchmarking", "segmentation", "bioinformatics"]
+keywords = ["genomics", "gene prediction", "gene calling", "benchmarking", "bioinformatics"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Intended Audience :: Science/Research",
@@ -61,8 +61,8 @@ where = ["src"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-"dna_segmentation_benchmark" = ["icons/*.png"]
-"dna_segmentation_benchmark.datasets" = ["registry.yaml"]
+"gene_calling_benchmark" = ["icons/*.png"]
+"gene_calling_benchmark.datasets" = ["registry.yaml"]
 
 [tool.ruff]
 line-length = 120
@@ -76,9 +76,9 @@ markers = [
 ]
 
 [project.scripts]
-dna-benchmark = "dna_segmentation_benchmark.cli:cli"
+gene-benchmark = "gene_calling_benchmark.cli:cli"
 
 [project.urls]
-"Documentation" = "https://dna-labeling-benchmark.readthedocs.io/en/latest/"
-"Source Code" = "https://github.com/benjamin-kroeger/dna-labeling-benchmark"
-"Bug Tracker" = "https://github.com/benjamin-kroeger/dna-labeling-benchmark/issues"
+"Documentation" = "https://gene-calling-benchmark.readthedocs.io/en/latest/"
+"Source Code" = "https://github.com/benjamin-kroeger/gene-calling-benchmark"
+"Bug Tracker" = "https://github.com/benjamin-kroeger/gene-calling-benchmark/issues"

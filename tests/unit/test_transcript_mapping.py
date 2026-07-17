@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from dna_segmentation_benchmark.io_utils import collect_gff
-from dna_segmentation_benchmark.transcript_mapping import (
+from gene_calling_benchmark.io_utils import collect_gff
+from gene_calling_benchmark.transcript_mapping import (
     LocusMatchingMode,
     MatchClass,
     _TranscriptInfo,

@@ -107,6 +107,26 @@ def compute_state_change_errors(
     num_labels = len(label_ids)
     label_id_array = np.asarray(label_ids, dtype=gt_pred_arr.dtype)
 
+    # A (2, 2) sliding window needs at least two positions. Shorter sequences
+    # (a length-0 or length-1 chunk — e.g. a tiny transcript in an online batch)
+    # have no transition to analyse, so return an all-zero result instead of
+    # letting sliding_window_view raise. A length-1 chunk still contributes its
+    # single position to the GT-stable denominator.
+    if gt_pred_arr.shape[1] < 2:
+        empty = lambda: {int(lid): np.zeros((num_labels, num_labels), dtype=np.int64) for lid in label_ids}
+        stable = {int(lid): 0 for lid in label_ids}
+        if gt_pred_arr.shape[1] == 1:
+            gt0 = int(gt_pred_arr[0, 0])
+            if gt0 in stable:
+                stable[gt0] = 1
+        return TransitionAnalysis(
+            gt_transition_matrices=empty(),
+            late_catchup_matrices=empty(),
+            premature_matrices=empty(),
+            spurious_matrices=empty(),
+            stable_position_counts=stable,
+        )
+
     # Sliding window: shape (N-1, 2, 2)
     # Each window[i] = [[gt[i], gt[i+1]], [pred[i], pred[i+1]]]
     nuc_transitions = np.lib.stride_tricks.sliding_window_view(

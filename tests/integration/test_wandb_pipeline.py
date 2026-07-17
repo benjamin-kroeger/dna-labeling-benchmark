@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from dna_segmentation_benchmark.pipeline import benchmark_from_gff
-from dna_segmentation_benchmark.transcript_mapping import LocusMatchingMode
-from dna_segmentation_benchmark.wandb_logger import (
+from gene_calling_benchmark.pipeline import benchmark_from_gff
+from gene_calling_benchmark.transcript_mapping import LocusMatchingMode
+from gene_calling_benchmark.wandb_logger import (
     clear_benchmark_media_video_buffer,
     log_benchmark_all_scalars,
     log_benchmark_media,
@@ -43,7 +43,7 @@ def test_log_scalars_from_real_output(pipeline_result, exon_intron_config, wandb
     """Curated scalars from real output are flattened, prefixed and logged."""
     aggregated = pipeline_result["aggregated"]
 
-    logged = log_benchmark_scalars(aggregated, exon_intron_config, step=7, method_prefix="val")
+    logged = log_benchmark_scalars(aggregated, step=7, method_prefix="val")
 
     assert wandb_stub.logged[-1]["step"] == 7
     data = wandb_stub.logged[-1]["data"]
@@ -62,7 +62,7 @@ def test_log_scalars_from_real_output(pipeline_result, exon_intron_config, wandb
 
 def test_log_all_scalars_unwraps_pipeline_wrapper(pipeline_result, exon_intron_config, wandb_stub):
     """The ``{"aggregated", "global"}`` wrapper is unwrapped; noise keys excluded."""
-    logged = log_benchmark_all_scalars(pipeline_result, exon_intron_config, step=2)
+    logged = log_benchmark_all_scalars(pipeline_result, step=2)
 
     assert wandb_stub.logged[-1]["step"] == 2
     assert logged

@@ -1,6 +1,6 @@
 Evaluation
 ==========
 
-.. automodule:: dna_segmentation_benchmark.eval.evaluate_predictors
+.. automodule:: gene_calling_benchmark.eval.evaluate_predictors
    :members:
    :show-inheritance:

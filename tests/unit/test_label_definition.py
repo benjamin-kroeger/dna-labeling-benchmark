@@ -2,11 +2,11 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from dna_segmentation_benchmark.eval.evaluate_predictors import (
+from gene_calling_benchmark.eval.evaluate_predictors import (
     EvalMetrics,
-    benchmark_gt_vs_pred_single,
+    _benchmark_gt_vs_pred_single,
 )
-from dna_segmentation_benchmark.label_definition import (
+from gene_calling_benchmark.label_definition import (
     AnnotationMode,
     BenchmarkScope,
     BEND_LABEL_CONFIG,
@@ -233,7 +233,7 @@ class TestLabelConfigHelpers:
 
     def test_phase_drift_requires_utr_cds_cds_scope(self):
         with pytest.raises(ValueError, match="UTR_CDS_INTRON"):
-            benchmark_gt_vs_pred_single(
+            _benchmark_gt_vs_pred_single(
                 gt_labels=np.array([8, 0, 0, 8]),
                 pred_labels=np.array([8, 0, 0, 8]),
                 label_config=BEND_LABEL_CONFIG,

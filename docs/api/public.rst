@@ -1,7 +1,7 @@
 Public Package API
 ==================
 
-.. currentmodule:: dna_segmentation_benchmark
+.. currentmodule:: gene_calling_benchmark
 
 .. autosummary::
    :nosignatures:
@@ -12,8 +12,7 @@ Public Package API
    BEND_LABEL_CONFIG
    EvalMetrics
    LocusMatchingMode
-   benchmark_gt_vs_pred_single
-   benchmark_gt_vs_pred_multiple
+   benchmark_from_arrays
    benchmark_from_gff
    compare_multiple_predictions
    load_dataset

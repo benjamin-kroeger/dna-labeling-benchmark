@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
-from dna_segmentation_benchmark.plotting.summary_stat_plotting import compare_multiple_predictions
-from dna_segmentation_benchmark.eval.evaluate_predictors import EvalMetrics
-from dna_segmentation_benchmark.wandb_logger import (
+from gene_calling_benchmark.label_definition import BEND_LABEL_CONFIG
+from gene_calling_benchmark.plotting.summary_stat_plotting import compare_multiple_predictions
+from gene_calling_benchmark.eval.evaluate_predictors import EvalMetrics
+from gene_calling_benchmark.wandb_logger import (
     clear_benchmark_media_video_buffer,
     init_wandb_with_presets,
     log_benchmark_all_scalars,
@@ -70,7 +70,6 @@ def test_log_benchmark_scalars_logs_only_selected_online_metrics(wandb_stub):
 
     logged = log_benchmark_scalars(
         results,
-        BEND_LABEL_CONFIG,
         step=7,
         method_prefix="val",
     )
@@ -113,7 +112,7 @@ def test_log_benchmark_scalars_includes_diagnostic_depth_metrics(wandb_stub):
         },
     }
 
-    logged = log_benchmark_scalars(results, BEND_LABEL_CONFIG, step=1)
+    logged = log_benchmark_scalars(results, step=1)
 
     assert "diagnostic_depth/length_emd/mean" in logged
     assert "diagnostic_depth/length_emd/mae" in logged
@@ -136,7 +135,7 @@ def test_log_benchmark_scalars_includes_splice_site_metrics(wandb_stub):
         },
     }
 
-    logged = log_benchmark_scalars(results, BEND_LABEL_CONFIG, step=2)
+    logged = log_benchmark_scalars(results, step=2)
 
     assert "struct_coherence/splice_site_results/donor_precision" in logged
     assert "struct_coherence/splice_site_results/donor_recall" in logged
@@ -156,7 +155,7 @@ def test_log_benchmark_scalars_skips_missing_splice_site_results(wandb_stub):
         },
     }
 
-    logged = log_benchmark_scalars(results, BEND_LABEL_CONFIG, step=1)
+    logged = log_benchmark_scalars(results, step=1)
 
     assert not any("splice_site" in k for k in logged)
     assert "struct_coherence/intron_chain/match_rate" in logged
@@ -176,7 +175,7 @@ def test_log_benchmark_all_scalars_logs_everything(wandb_stub):
         "metadata": {"annotation_mode": "EXON_INTRON"},
     }
 
-    logged = log_benchmark_all_scalars(results, BEND_LABEL_CONFIG, step=5, method_prefix="final")
+    logged = log_benchmark_all_scalars(results, step=5, method_prefix="final")
 
     assert wandb_stub.logged[0]["step"] == 5
     assert "final/boundary_exactness/iou_stats/mean" in logged
@@ -199,7 +198,7 @@ def test_log_benchmark_all_scalars_unwraps_pipeline_wrapper(wandb_stub):
         "global": {},
     }
 
-    logged = log_benchmark_all_scalars(results, BEND_LABEL_CONFIG)
+    logged = log_benchmark_all_scalars(results)
 
     assert "boundary_exactness/iou_stats/mean" in logged
 
@@ -324,7 +323,7 @@ def test_log_benchmark_media_buffers_frames_for_video_generation(wandb_stub):
 
 def test_log_benchmark_media_only_buffers_video_buffer_figures(wandb_stub):
     """Figures not in _VIDEO_BUFFER_FIGURE_KEYS are logged as images but not buffered."""
-    from dna_segmentation_benchmark.wandb_logger import _BUFFERED_MEDIA_FRAMES, _VIDEO_BUFFER_FIGURE_KEYS
+    from gene_calling_benchmark.wandb_logger import _BUFFERED_MEDIA_FRAMES, _VIDEO_BUFFER_FIGURE_KEYS
 
     clear_benchmark_media_video_buffer()
 
@@ -350,9 +349,11 @@ def test_log_benchmark_media_only_buffers_video_buffer_figures(wandb_stub):
 
     logged = log_benchmark_media(results, BEND_LABEL_CONFIG, step=1, method_prefix="val")
 
-    # Extract the figure names that were buffered
+    # Extract the figure names that were buffered (buffer is scoped by run id)
     buffered_fig_names = {
-        key.removeprefix("val/plots/") for key in _BUFFERED_MEDIA_FRAMES
+        key.removeprefix("val/plots/")
+        for run_frames in _BUFFERED_MEDIA_FRAMES.values()
+        for key in run_frames
     }
     # All buffered figures must be in the video-buffer allowlist
     assert buffered_fig_names <= _VIDEO_BUFFER_FIGURE_KEYS
@@ -361,14 +362,19 @@ def test_log_benchmark_media_only_buffers_video_buffer_figures(wandb_stub):
 
 
 def test_log_benchmark_media_videos_normalizes_frame_shapes(wandb_stub, monkeypatch):
+    from gene_calling_benchmark.wandb_logger import _NO_ACTIVE_RUN
+
     clear_benchmark_media_video_buffer()
+    # Buffer is scoped by run id; the stub has no active run -> the sentinel bucket.
     monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._BUFFERED_MEDIA_FRAMES",
+        "gene_calling_benchmark.wandb_logger._BUFFERED_MEDIA_FRAMES",
         {
-            "val/plots/position_bias": [
-                np.zeros((20, 30, 3), dtype=np.uint8),
-                np.zeros((10, 15, 3), dtype=np.uint8),
-            ],
+            _NO_ACTIVE_RUN: {
+                "val/plots/position_bias": [
+                    np.zeros((20, 30, 3), dtype=np.uint8),
+                    np.zeros((10, 15, 3), dtype=np.uint8),
+                ],
+            },
         },
     )
 
@@ -381,6 +387,48 @@ def test_log_benchmark_media_videos_normalizes_frame_shapes(wandb_stub, monkeypa
     assert video.fps == 2
     assert video.format == "gif"
     assert video.data.shape == (2, 3, 20, 30)
+
+
+def test_log_benchmark_media_isolates_failing_metric_group(wandb_stub, monkeypatch):
+    """One metric group's plotting failure is logged and skipped, not raised."""
+    import matplotlib.pyplot as plt
+    import gene_calling_benchmark.wandb_logger as wl
+
+    results = {
+        "NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"precision": 1.0, "recall": 1.0, "f1": 1.0}},
+        "REGION_DISCOVERY": {"neighborhood_hit": {"precision": 1.0, "recall": 1.0}},
+    }
+
+    def fake_compare(*, per_method_benchmark_res, label_config, metrics_to_eval):
+        if metrics_to_eval[0] == EvalMetrics.REGION_DISCOVERY:
+            raise RuntimeError("synthetic plotting failure")
+        return {"nucleotide_classification_bar": plt.figure()}
+
+    monkeypatch.setattr(wl, "compare_multiple_predictions", fake_compare)
+
+    media = log_benchmark_media(results, BEND_LABEL_CONFIG, step=0)  # must not raise
+    assert any("nucleotide_classification_bar" in key for key in media)
+
+
+def test_media_video_buffer_is_scoped_per_run(wandb_stub):
+    """Sequential runs in one process must not mix each other's video frames."""
+    import matplotlib.pyplot as plt
+    from types import SimpleNamespace
+    import gene_calling_benchmark.wandb_logger as wl
+
+    wl.clear_benchmark_media_video_buffer()
+    figures = {"position_bias": plt.figure()}  # in _VIDEO_BUFFER_FIGURE_KEYS
+    wl._buffer_media_frames(figures, run_id="runA", method_prefix=None)
+    wl._buffer_media_frames(figures, run_id="runB", method_prefix=None)
+    plt.close("all")
+
+    wandb_stub.run = SimpleNamespace(id="runB")
+    videos = log_benchmark_media_videos()  # flushes runB only
+
+    assert set(videos) == {"plots/position_bias_video"}
+    assert "runA" in wl._BUFFERED_MEDIA_FRAMES  # other run untouched
+    assert "runB" not in wl._BUFFERED_MEDIA_FRAMES  # drained after its own flush
+    wl.clear_benchmark_media_video_buffer()
 
 
 def test_init_wandb_with_presets_uses_metric_family_grouping(wandb_stub):

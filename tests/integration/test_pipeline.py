@@ -13,10 +13,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.eval.evaluate_predictors import EvalMetrics
-from dna_segmentation_benchmark.io_utils import collect_gff
-from dna_segmentation_benchmark.pipeline import benchmark_from_gff
-from dna_segmentation_benchmark.transcript_mapping import (
+from gene_calling_benchmark.eval.evaluate_predictors import EvalMetrics
+from gene_calling_benchmark.io_utils import collect_gff
+from gene_calling_benchmark.pipeline import benchmark_from_gff
+from gene_calling_benchmark.transcript_mapping import (
     LocusMatchingMode,
     build_paired_arrays,
     map_transcripts,
@@ -66,7 +66,7 @@ def test_pipeline_runs_end_to_end_gencode_vs_augustus(gencode_gtf, augustus_gff,
 
 def test_default_exon_intron_factory_runs_end_to_end(gencode_gtf, augustus_gff):
     """LabelConfig.default_exon_intron() drives the GFF pipeline with no manual tokens."""
-    from dna_segmentation_benchmark.label_definition import LabelConfig
+    from gene_calling_benchmark.label_definition import LabelConfig
 
     results = benchmark_from_gff(
         gt_path=gencode_gtf,
@@ -172,7 +172,7 @@ def test_parallel_path_matches_serial(gencode_gtf, augustus_gff, exon_intron_con
     spy on ``ProcessPoolExecutor`` proves the parallel branch actually executed
     (so this can't silently degrade into re-testing the serial path).
     """
-    from dna_segmentation_benchmark import pipeline
+    from gene_calling_benchmark import pipeline
 
     kwargs = dict(
         gt_path=gencode_gtf,

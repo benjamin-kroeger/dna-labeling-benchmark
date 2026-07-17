@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-from dna_segmentation_benchmark.eval.statistics import Counts, summarise_counts
+from gene_calling_benchmark.eval.statistics import Counts, summarise_counts
 
 
 def test_macro_differs_from_micro_under_size_heterogeneity():

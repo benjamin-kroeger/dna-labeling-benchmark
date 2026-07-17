@@ -6,7 +6,7 @@ intron=2, acceptor=3).
 
 from __future__ import annotations
 
-from dna_segmentation_benchmark.eval.evaluate_predictors import EvalMetrics
+from gene_calling_benchmark.eval.evaluate_predictors import EvalMetrics
 
 EXON, DONOR, INTRON, ACCEPTOR, NONCODING = 0, 1, 2, 3, 8
 

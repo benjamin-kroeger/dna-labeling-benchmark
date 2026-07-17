@@ -3,20 +3,20 @@
 Usage examples::
 
     # Basic run with a single prediction
-    dna-benchmark run \\
+    gene-benchmark run \\
         --gt ground_truth.gff \\
         --pred augustus:predictions.gff \\
         --config label_config.yaml
 
     # Augustus (CDS features) with BEST_PER_LOCUS matching
-    dna-benchmark run \\
+    gene-benchmark run \\
         --gt ground_truth.gff \\
         --pred augustus:augustus.gff \\
         --config label_config.yaml \\
         --locus-matching best_per_locus
 
     # Compare multiple predictors at once
-    dna-benchmark run \\
+    gene-benchmark run \\
         --gt ground_truth.gff \\
         --pred augustus:augustus.gff \\
         --pred helixer:helixer.gff \\
@@ -25,7 +25,7 @@ Usage examples::
         --output results.json
 
     # Generate a template config file
-    dna-benchmark init-config --output my_config.yaml
+    gene-benchmark init-config --output my_config.yaml
 """
 
 from __future__ import annotations
@@ -287,9 +287,9 @@ def _serialise_results(results: dict) -> dict:
 
 
 @click.group()
-@click.version_option(package_name="dna-segmentation-benchmark")
+@click.version_option(package_name="gene-calling-benchmark")
 def cli():
-    """DNA Segmentation Benchmark -- evaluate nucleotide-level predictions."""
+    """Gene Calling Benchmark -- evaluate nucleotide-level predictions."""
 
 
 # ------------------------------------------------------------------
@@ -313,7 +313,7 @@ def cli():
     default=None,
     help=(
         "Registry dataset name to use as ground truth (downloaded on demand). "
-        "Mutually exclusive with --gt; see 'dna-benchmark datasets list'."
+        "Mutually exclusive with --gt; see 'gene-benchmark datasets list'."
     ),
 )
 @click.option(
@@ -776,7 +776,7 @@ def init_config(mode: str, output_path: Path):
     content += _TEMPLATE_HINTS[mode.lower()]
     output_path.write_text(content)
     click.echo(f"Template config ({template['annotation_mode']}) written to {output_path}")
-    click.echo("Edit the file to match your label set, then use: dna-benchmark run --config " + str(output_path))
+    click.echo("Edit the file to match your label set, then use: gene-benchmark run --config " + str(output_path))
 
 
 # ------------------------------------------------------------------

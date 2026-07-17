@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.eval.preprocessing import collapse_out_of_scope_content
-from dna_segmentation_benchmark.eval.state_transitions import (
+from gene_calling_benchmark.eval.preprocessing import collapse_out_of_scope_content
+from gene_calling_benchmark.eval.state_transitions import (
     TransitionAnalysis,
     compute_state_change_errors,
 )
-from dna_segmentation_benchmark.label_definition import (
+from gene_calling_benchmark.label_definition import (
     AnnotationMode,
     BEND_LABEL_CONFIG,
     BenchmarkScope,
@@ -320,15 +320,15 @@ def test_compute_state_change_errors_matches_reference_implementation():
 # fragments are emitted by the benchmark entry points.
 # ------------------------------------------------------------------
 def test_state_transitions_emitted_only_when_requested():
-    from dna_segmentation_benchmark.eval.evaluate_predictors import (
+    from gene_calling_benchmark.eval.evaluate_predictors import (
         EvalMetrics,
-        benchmark_gt_vs_pred_single,
+        _benchmark_gt_vs_pred_single,
     )
 
     gt = np.array([EXON, EXON, DONOR, INTRON, ACCEPTOR, EXON, NONCODING, NONCODING])
     pred = np.array([EXON, DONOR, INTRON, INTRON, ACCEPTOR, EXON, NONCODING, NONCODING])
 
-    without = benchmark_gt_vs_pred_single(
+    without = _benchmark_gt_vs_pred_single(
         gt_labels=gt,
         pred_labels=pred,
         label_config=BEND_LABEL_CONFIG,
@@ -337,7 +337,7 @@ def test_state_transitions_emitted_only_when_requested():
     assert "transition_failures" not in without
     assert "false_transitions" not in without
 
-    with_transitions = benchmark_gt_vs_pred_single(
+    with_transitions = _benchmark_gt_vs_pred_single(
         gt_labels=gt,
         pred_labels=pred,
         label_config=BEND_LABEL_CONFIG,
@@ -349,14 +349,14 @@ def test_state_transitions_emitted_only_when_requested():
 
 def test_state_transitions_in_default_metric_set():
     """Default metrics keep transitions on so framing plots still render."""
-    from dna_segmentation_benchmark.eval.evaluate_predictors import (
-        benchmark_gt_vs_pred_single,
+    from gene_calling_benchmark.eval.evaluate_predictors import (
+        _benchmark_gt_vs_pred_single,
     )
 
     gt = np.array([EXON, EXON, DONOR, INTRON, ACCEPTOR, EXON, NONCODING, NONCODING])
     pred = np.array([EXON, DONOR, INTRON, INTRON, ACCEPTOR, EXON, NONCODING, NONCODING])
 
-    default = benchmark_gt_vs_pred_single(
+    default = _benchmark_gt_vs_pred_single(
         gt_labels=gt,
         pred_labels=pred,
         label_config=BEND_LABEL_CONFIG,
@@ -419,9 +419,9 @@ def test_collapse_out_of_scope_content_demotes_utr_only_under_cds_scope():
 
 def test_state_transitions_ignore_utr_under_cds_scope():
     """Under `cds` scope, a UTR-aware pred is indistinguishable from a NONCODING pred."""
-    from dna_segmentation_benchmark.eval.evaluate_predictors import (
+    from gene_calling_benchmark.eval.evaluate_predictors import (
         EvalMetrics,
-        benchmark_gt_vs_pred_single,
+        _benchmark_gt_vs_pred_single,
     )
 
     gt = np.array([_BG, _BG, _BG, _CDS, _CDS, _CDS, _BG, _BG, _BG])  # CDS-only GT
@@ -432,16 +432,16 @@ def test_state_transitions_ignore_utr_under_cds_scope():
         label_config=_utr_config(BenchmarkScope.CDS),
         metrics=[EvalMetrics.STATE_TRANSITIONS],
     )
-    res_utr = benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_utr, **kwargs)
-    res_nc = benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_nc, **kwargs)
+    res_utr = _benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_utr, **kwargs)
+    res_nc = _benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_nc, **kwargs)
     assert _transitions_equal(res_utr, res_nc)
 
 
 def test_state_transitions_keep_utr_under_transcript_exon_scope():
     """Regression guard: default scope keeps UTR distinct (does not over-collapse)."""
-    from dna_segmentation_benchmark.eval.evaluate_predictors import (
+    from gene_calling_benchmark.eval.evaluate_predictors import (
         EvalMetrics,
-        benchmark_gt_vs_pred_single,
+        _benchmark_gt_vs_pred_single,
     )
 
     gt = np.array([_BG, _BG, _BG, _CDS, _CDS, _CDS, _BG, _BG, _BG])
@@ -452,6 +452,29 @@ def test_state_transitions_keep_utr_under_transcript_exon_scope():
         label_config=_utr_config(BenchmarkScope.TRANSCRIPT_EXON),
         metrics=[EvalMetrics.STATE_TRANSITIONS],
     )
-    res_utr = benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_utr, **kwargs)
-    res_nc = benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_nc, **kwargs)
+    res_utr = _benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_utr, **kwargs)
+    res_nc = _benchmark_gt_vs_pred_single(gt_labels=gt, pred_labels=pred_with_nc, **kwargs)
     assert not _transitions_equal(res_utr, res_nc)
+
+
+# ------------------------------------------------------------------
+# Sub-window sequences (N < 2): the (2, 2) sliding-window transition
+# analysis must degrade gracefully instead of crashing an online batch.
+# ------------------------------------------------------------------
+@pytest.mark.parametrize("n", [0, 1])
+def test_short_window_sequences_do_not_crash(n):
+    arr = np.full((2, n), NONCODING, dtype=np.int64)
+    result = compute_state_change_errors(gt_pred_arr=arr, label_config=BEND_LABEL_CONFIG)
+
+    label_ids = sorted(BEND_LABEL_CONFIG.labels.keys())
+    for matrices in (
+        result.gt_transition_matrices,
+        result.late_catchup_matrices,
+        result.premature_matrices,
+        result.spurious_matrices,
+    ):
+        assert set(matrices) == set(label_ids)
+        assert all(not m.any() for m in matrices.values())  # no transition is possible
+
+    # A length-1 array still carries exactly one GT-stable position (its label).
+    assert result.stable_position_counts[NONCODING] == (1 if n == 1 else 0)

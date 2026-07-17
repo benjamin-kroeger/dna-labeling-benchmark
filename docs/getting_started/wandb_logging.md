@@ -5,19 +5,19 @@ yourself, then hand the aggregated result dict to the logging helpers.
 
 Relevant public functions:
 
-- {py:func}`dna_segmentation_benchmark.init_wandb_with_presets`
-- {py:func}`dna_segmentation_benchmark.log_benchmark_scalars`
-- {py:func}`dna_segmentation_benchmark.log_benchmark_media`
-- {py:func}`dna_segmentation_benchmark.log_benchmark_media_videos`
-- {py:func}`dna_segmentation_benchmark.clear_benchmark_media_video_buffer`
+- {py:func}`gene_calling_benchmark.init_wandb_with_presets`
+- {py:func}`gene_calling_benchmark.log_benchmark_scalars`
+- {py:func}`gene_calling_benchmark.log_benchmark_media`
+- {py:func}`gene_calling_benchmark.log_benchmark_media_videos`
+- {py:func}`gene_calling_benchmark.clear_benchmark_media_video_buffer`
 
 ## Minimal Loop
 
 ```python
-from dna_segmentation_benchmark import (
+from gene_calling_benchmark import (
     BEND_LABEL_CONFIG,
     EvalMetrics,
-    benchmark_gt_vs_pred_multiple,
+    benchmark_from_arrays,
     init_wandb_with_presets,
     log_benchmark_scalars,
     log_benchmark_media,
@@ -25,11 +25,11 @@ from dna_segmentation_benchmark import (
 )
 
 run = init_wandb_with_presets(
-    project="dna-benchmark",
+    project="gene-benchmark",
     run_name="validation",
 )
 
-results = benchmark_gt_vs_pred_multiple(
+results = benchmark_from_arrays(
     gt_labels=gt_arrays,
     pred_labels=pred_arrays,
     label_config=BEND_LABEL_CONFIG,
@@ -43,7 +43,6 @@ results = benchmark_gt_vs_pred_multiple(
 
 log_benchmark_scalars(
     results,
-    BEND_LABEL_CONFIG,
     step=12,
     method_prefix="val",
 )
@@ -61,7 +60,7 @@ run.finish()
 ```
 
 ```{note}
-`benchmark_gt_vs_pred_multiple(...)` tops out at roughly 1000 transcript pairs
+`benchmark_from_arrays(...)` tops out at roughly 1000 transcript pairs
 per second, so on a large validation set it can take a while. Run it on a
 separate thread (or process) off the critical GPU training path so the
 benchmark doesn't stall training — hand it the arrays and let it log
@@ -92,7 +91,7 @@ metric was in the result:
 - `diagnostic_depth/length_emd/{mean,mae}`
 
 To log *every* numeric scalar instead of this subset, use
-{py:func}`dna_segmentation_benchmark.log_benchmark_all_scalars`.
+{py:func}`gene_calling_benchmark.log_benchmark_all_scalars`.
 
 `log_benchmark_media(...)` renders and logs **every figure the benchmark
 plotting layer produces for the metric groups present in the result** — not a
@@ -109,9 +108,9 @@ The subset that is *also* buffered for GIF videos (see below) is:
 
 ## Media History vs GIF Videos
 
-Each call to {py:func}`dna_segmentation_benchmark.log_benchmark_media` logs
+Each call to {py:func}`gene_calling_benchmark.log_benchmark_media` logs
 regular W&B images and also stores the rendered RGB frames in an internal
-buffer. {py:func}`dna_segmentation_benchmark.log_benchmark_media_videos`
+buffer. {py:func}`gene_calling_benchmark.log_benchmark_media_videos`
 converts the buffered history into GIF videos and clears the buffer.
 
 This design keeps the user-facing API simple:
@@ -144,4 +143,4 @@ uv sync --extra wandb
 - `method_prefix="val"` is only a naming convention. The helper does not decide
   when validation happens.
 - Video generation happens only when
-  {py:func}`dna_segmentation_benchmark.log_benchmark_media_videos` is called.
+  {py:func}`gene_calling_benchmark.log_benchmark_media_videos` is called.

@@ -1,4 +1,4 @@
-"""W&B logging adapter for the DNA Segmentation Benchmark.
+"""W&B logging adapter for the Gene Calling Benchmark.
 
 Provides plug-and-play Weights & Biases integration for two use cases:
 
@@ -16,7 +16,7 @@ pre-configured metric groupings so the dashboard is organised from the start.
 
    ``wandb`` is an **optional** dependency.  Install it with::
 
-       pip install dna-segmentation-benchmark[wandb]
+       pip install gene-calling-benchmark[wandb]
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def _require_wandb():
     except ImportError as exc:
         raise ImportError(
             "The 'wandb' package is required for W&B logging but is not installed.\n"
-            "Install it with:  pip install dna-segmentation-benchmark[wandb]"
+            "Install it with:  pip install gene-calling-benchmark[wandb]"
         ) from exc
 
 
@@ -129,9 +129,19 @@ _VIDEO_BUFFER_FIGURE_KEYS = frozenset({
 # plotting orchestrator. Surfaces in plot legends only.
 _INTERNAL_METHOD_LABEL = "model"
 
-_BUFFERED_MEDIA_FRAMES: dict[str, list[np.ndarray]] = {}
+# Buffered video frames, scoped by active W&B run id: ``{run_id: {plot_key: [frames]}}``.
+# Scoping by run keeps a sweep's sequential runs (same process) from concatenating
+# each other's frames into one video — each run flushes only its own bucket.
+_BUFFERED_MEDIA_FRAMES: dict[str, dict[str, list[np.ndarray]]] = {}
+_NO_ACTIVE_RUN = "__no_active_run__"
 _DEFAULT_VIDEO_FPS = 2
 _DEFAULT_VIDEO_FORMAT = "gif"
+
+
+def _active_run_id(wandb) -> str:
+    """Return the current W&B run id, or a sentinel when no run is active."""
+    run = getattr(wandb, "run", None)
+    return run.id if run is not None else _NO_ACTIVE_RUN
 
 
 def _flatten_leaf(
@@ -238,17 +248,32 @@ def _render_benchmark_media_figures(
     results: dict,
     label_config: LabelConfig,
 ) -> dict[str, Any]:
-    """Render the benchmark media figures for one aggregated result dict."""
+    """Render the benchmark media figures for one aggregated result dict.
+
+    Each metric group is rendered in its own protected call, so one group's
+    plotting failure is logged and skipped rather than aborting the whole media
+    log — and, in an online setting, the caller's training loop. Isolation is
+    per metric group (not per individual plot) to avoid scattering error
+    handling through the shared plotting orchestrator.
+    """
     inner_results = _unwrap_aggregated_results(results)
     metrics_to_eval = _infer_metrics_from_results(inner_results)
-    if not metrics_to_eval and "transition_failures" not in inner_results:
+    if not metrics_to_eval:
         return {}
 
-    return compare_multiple_predictions(
-        per_method_benchmark_res={_INTERNAL_METHOD_LABEL: inner_results},
-        label_config=label_config,
-        metrics_to_eval=metrics_to_eval,
-    )
+    figures: dict[str, Any] = {}
+    for metric in metrics_to_eval:
+        try:
+            figures.update(
+                compare_multiple_predictions(
+                    per_method_benchmark_res={_INTERNAL_METHOD_LABEL: inner_results},
+                    label_config=label_config,
+                    metrics_to_eval=[metric],
+                )
+            )
+        except Exception:
+            logger.exception("Rendering media for %s failed; skipping its plots.", metric.name)
+    return figures
 
 
 def _close_figures(figures: dict[str, Any]) -> None:
@@ -280,9 +305,11 @@ def _pad_frames_to_common_shape(frames: list[np.ndarray]) -> list[np.ndarray]:
 def _buffer_media_frames(
     figures: dict[str, Any],
     *,
+    run_id: str,
     method_prefix: str | None,
 ) -> None:
-    """Append figures in _VIDEO_BUFFER_FIGURE_KEYS to the internal video-frame buffer."""
+    """Append figures in _VIDEO_BUFFER_FIGURE_KEYS to the active run's frame buffer."""
+    run_buffer = _BUFFERED_MEDIA_FRAMES.setdefault(run_id, {})
     for fig_name, fig in figures.items():
         if fig_name not in _VIDEO_BUFFER_FIGURE_KEYS:
             continue
@@ -290,7 +317,12 @@ def _buffer_media_frames(
             plot_name=fig_name,
             method_prefix=method_prefix,
         )
-        _BUFFERED_MEDIA_FRAMES.setdefault(buffer_key, []).append(_figure_to_rgb_frame(fig))
+        try:
+            frame = _figure_to_rgb_frame(fig)
+        except Exception:
+            logger.exception("Failed to rasterise figure %r for the video buffer; skipping it.", fig_name)
+            continue
+        run_buffer.setdefault(buffer_key, []).append(frame)
 
 
 def _infer_metrics_from_results(results: dict) -> list[EvalMetrics]:
@@ -337,7 +369,6 @@ def _flatten_all_scalars(
 
 def log_benchmark_scalars(
     results: dict,
-    label_config: LabelConfig,
     step: int | None = None,
     method_prefix: str | None = None,
 ) -> dict[str, float]:
@@ -349,10 +380,8 @@ def log_benchmark_scalars(
     Parameters
     ----------
     results : dict
-        Aggregated result dict from :func:`benchmark_gt_vs_pred_multiple`.
+        Aggregated result dict from :func:`benchmark_from_arrays`.
         Can contain any subset of metrics.
-    label_config : LabelConfig
-        Currently unused; kept for API compatibility.
     step : int, optional
         Training step or epoch number.  If ``None``, W&B uses its internal
         step counter.
@@ -382,7 +411,6 @@ def log_benchmark_scalars(
 
 def log_benchmark_all_scalars(
     results: dict,
-    label_config: LabelConfig,
     step: int | None = None,
     method_prefix: str | None = None,
 ) -> dict[str, float]:
@@ -396,11 +424,9 @@ def log_benchmark_all_scalars(
     Parameters
     ----------
     results : dict
-        Aggregated result dict from :func:`benchmark_gt_vs_pred_multiple`.
+        Aggregated result dict from :func:`benchmark_from_arrays`.
         Pipeline wrapper ``{"aggregated": ..., "global": ...}`` is also
         accepted.
-    label_config : LabelConfig
-        Currently unused; kept for API compatibility.
     step : int, optional
         Training step or epoch number.
     method_prefix : str, optional
@@ -445,7 +471,7 @@ def log_benchmark_media(
     ----------
     results : dict
         Aggregated benchmark result dict from
-        :func:`benchmark_gt_vs_pred_multiple`. A pipeline-style wrapper
+        :func:`benchmark_from_arrays`. A pipeline-style wrapper
         ``{"aggregated": ..., "global": ...}`` is also accepted.
     label_config : LabelConfig
         Label semantics for plot labelling.
@@ -468,9 +494,12 @@ def log_benchmark_media(
             key = f"plots/{fig_name}"
             if method_prefix:
                 key = f"{method_prefix}/{key}"
-            media_payload[key] = wandb.Image(fig)
+            try:
+                media_payload[key] = wandb.Image(fig)
+            except Exception:
+                logger.exception("Failed to prepare figure %r for W&B; skipping it.", fig_name)
 
-        _buffer_media_frames(figures, method_prefix=method_prefix)
+        _buffer_media_frames(figures, run_id=_active_run_id(wandb), method_prefix=method_prefix)
 
         if not media_payload:
             logger.info("No W&B media plots were generated from the benchmark results.")
@@ -479,7 +508,11 @@ def log_benchmark_media(
         log_kwargs: dict[str, Any] = {"data": media_payload}
         if step is not None:
             log_kwargs["step"] = step
-        wandb.log(**log_kwargs)
+        try:
+            wandb.log(**log_kwargs)
+        except Exception:
+            logger.exception("wandb.log failed for %d media panels; continuing.", len(media_payload))
+            return {}
         logger.info("Logged %d benchmark media panels to W&B (step=%s).", len(media_payload), step)
         return media_payload
     finally:
@@ -487,16 +520,22 @@ def log_benchmark_media(
 
 
 def clear_benchmark_media_video_buffer() -> None:
-    """Drop any buffered media frames without logging them."""
+    """Drop all buffered media frames (every run) without logging them."""
     _BUFFERED_MEDIA_FRAMES.clear()
 
 
 def log_benchmark_media_videos() -> dict[str, Any]:
-    """Log buffered benchmark media histories as W&B videos and clear the buffer."""
+    """Log the active run's buffered media histories as W&B videos and drop them.
+
+    Only the current run's frames are flushed, so in a sweep each run animates
+    its own history; other runs' buffers (if any share the process) are left
+    untouched for those runs to flush.
+    """
     wandb = _require_wandb()
+    run_buffer = _BUFFERED_MEDIA_FRAMES.pop(_active_run_id(wandb), {})
 
     video_payload: dict[str, Any] = {}
-    for plot_key, frames in _BUFFERED_MEDIA_FRAMES.items():
+    for plot_key, frames in run_buffer.items():
         if not frames:
             continue
         normalized_frames = _pad_frames_to_common_shape(frames)
@@ -513,7 +552,6 @@ def log_benchmark_media_videos() -> dict[str, Any]:
 
     wandb.log(video_payload)
     logger.info("Logged %d benchmark media videos to W&B.", len(video_payload))
-    _BUFFERED_MEDIA_FRAMES.clear()
     return video_payload
 
 

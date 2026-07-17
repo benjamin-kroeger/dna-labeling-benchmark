@@ -1,4 +1,4 @@
-# DNA Segmentation Benchmark
+# Gene Calling Benchmark
 
 ```{toctree}
 :maxdepth: 2

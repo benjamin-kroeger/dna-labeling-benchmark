@@ -3,9 +3,8 @@
 All metric families operate on paired one-dimensional integer label arrays.
 The public entry points are:
 
-- {py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_single`
-- {py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple`
-- {py:func}`dna_segmentation_benchmark.benchmark_from_gff`
+- {py:func}`gene_calling_benchmark.benchmark_from_arrays`
+- {py:func}`gene_calling_benchmark.benchmark_from_gff`
 
 ## Available Metric Families
 
@@ -23,7 +22,7 @@ The public entry points are:
 ### A note on Transition Analysis
 
 Transition Analysis is requested via
-{py:attr}`~dna_segmentation_benchmark.EvalMetrics.STATE_TRANSITIONS`. It is kept
+{py:attr}`~gene_calling_benchmark.EvalMetrics.STATE_TRANSITIONS`. It is kept
 in the default metric set (`_DEFAULT_METRICS`) so its outputs
 (`transition_failures` and `false_transitions`) are emitted — and the plotting
 layer can show a confusion-matrix view — without an explicit request. To skip
@@ -67,5 +66,5 @@ the following online scalar set per metric family:
 **Diagnostic Depth**
 - Length EMD (mean, MAE)
 
-Full details in {py:func}`dna_segmentation_benchmark.log_benchmark_scalars` and
-{py:func}`dna_segmentation_benchmark.log_benchmark_all_scalars`.
+Full details in {py:func}`gene_calling_benchmark.log_benchmark_scalars` and
+{py:func}`gene_calling_benchmark.log_benchmark_all_scalars`.

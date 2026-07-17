@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from dna_segmentation_benchmark.io_utils import DEFAULT_TRANSCRIPT_TYPES
+from gene_calling_benchmark.io_utils import DEFAULT_TRANSCRIPT_TYPES
 
 # Feature→role maps for UTR_CDS_INTRON tests. The prediction side commonly has no
 # CDS feature (its UTRs abut directly), hence the CDS-free variant.

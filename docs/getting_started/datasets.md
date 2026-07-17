@@ -14,7 +14,7 @@ mode — `EXON_INTRON` or `UTR_CDS_INTRON`. See {doc}`annotation_modes`.
 ## Python API
 
 ```python
-from dna_segmentation_benchmark import list_datasets, get_dataset_info, load_dataset
+from gene_calling_benchmark import list_datasets, get_dataset_info, load_dataset
 
 list_datasets()                   # -> ['zenodo_test']
 get_dataset_info("zenodo_test")   # DatasetSpec, no download
@@ -29,7 +29,7 @@ by the benchmark itself. The benchmark compares your prediction GFF/GTF against
 `ds.annotation` (the ground truth):
 
 ```python
-from dna_segmentation_benchmark import benchmark_from_gff, LabelConfig, AnnotationMode
+from gene_calling_benchmark import benchmark_from_gff, LabelConfig, AnnotationMode
 
 results = benchmark_from_gff(
     gt_path=ds.annotation,
@@ -41,12 +41,12 @@ results = benchmark_from_gff(
 ## Command line
 
 ```bash
-dna-benchmark datasets list               # names + one-line descriptions
-dna-benchmark datasets info zenodo_test   # record id, license, files (no download)
-dna-benchmark datasets get  zenodo_test   # download + print cached paths
+gene-benchmark datasets list               # names + one-line descriptions
+gene-benchmark datasets info zenodo_test   # record id, license, files (no download)
+gene-benchmark datasets get  zenodo_test   # download + print cached paths
 
 # Use a registry dataset directly as ground truth (downloaded on demand):
-dna-benchmark run \
+gene-benchmark run \
     --dataset zenodo_test \
     --pred augustus:augustus.gff3 \
     --config label_config.yaml
@@ -57,5 +57,5 @@ dna-benchmark run \
 ## Cache location
 
 Downloads land in `$DNASB_DATA_HOME` if set, otherwise the platform user cache
-(e.g. `~/.cache/dna-segmentation-benchmark` on Linux). Delete that directory to
+(e.g. `~/.cache/gene-calling-benchmark` on Linux). Delete that directory to
 force a re-download.

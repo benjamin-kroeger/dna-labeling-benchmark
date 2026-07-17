@@ -1,6 +1,6 @@
 # Array Benchmark
 
-Use {py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple` when
+Use {py:func}`gene_calling_benchmark.benchmark_from_arrays` when
 you already have paired ground-truth and prediction arrays in memory.
 
 ## Minimal Example
@@ -8,11 +8,11 @@ you already have paired ground-truth and prediction arrays in memory.
 ```python
 import numpy as np
 
-from dna_segmentation_benchmark import (
+from gene_calling_benchmark import (
     AnnotationMode,
     EvalMetrics,
     LabelConfig,
-    benchmark_gt_vs_pred_multiple,
+    benchmark_from_arrays,
 )
 
 label_config = LabelConfig(
@@ -33,7 +33,7 @@ pred_arrays = [
     np.array([8, 0, 0, 0, 2, 0, 0, 8]),
 ]
 
-results = benchmark_gt_vs_pred_multiple(
+results = benchmark_from_arrays(
     gt_labels=gt_arrays,
     pred_labels=pred_arrays,
     label_config=label_config,
@@ -56,7 +56,7 @@ full discussion of modes and scopes.
 Minimal `EXON_INTRON` setup:
 
 ```python
-from dna_segmentation_benchmark import AnnotationMode, LabelConfig
+from gene_calling_benchmark import AnnotationMode, LabelConfig
 
 label_config = LabelConfig(
     annotation_mode=AnnotationMode.EXON_INTRON,
@@ -81,7 +81,7 @@ label_config = LabelConfig(
 `UTR_CDS_INTRON` setup when your arrays carry distinct UTR and CDS tokens:
 
 ```python
-from dna_segmentation_benchmark import AnnotationMode, BenchmarkScope, LabelConfig
+from gene_calling_benchmark import AnnotationMode, BenchmarkScope, LabelConfig
 
 label_config = LabelConfig(
     annotation_mode=AnnotationMode.UTR_CDS_INTRON,
@@ -115,7 +115,7 @@ mask_labels = [
     np.array([False, False, False, ...]),
 ]
 
-results = benchmark_gt_vs_pred_multiple(
+results = benchmark_from_arrays(
     gt_labels=gt_arrays,
     pred_labels=pred_arrays,
     label_config=label_config,
@@ -146,7 +146,7 @@ top-level `EXON` wrapper anymore.
 
 ## When To Use `infer_introns`
 
-{py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple` applies
+{py:func}`gene_calling_benchmark.benchmark_from_arrays` applies
 `infer_introns` to the raw GT and prediction arrays before any metric is
 computed. That keeps all metric families consistent on the same transformed
 input.
@@ -154,7 +154,7 @@ input.
 Use it when:
 
 - your arrays contain exon or CDS labels but no explicit intron labels
-- you still want to evaluate {py:attr}`~dna_segmentation_benchmark.EvalMetrics.STRUCTURAL_COHERENCE`
+- you still want to evaluate {py:attr}`~gene_calling_benchmark.EvalMetrics.STRUCTURAL_COHERENCE`
   with strict intron-chain scoring
 
 Be careful on very large arrays. In that case the benchmark switches to a

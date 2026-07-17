@@ -11,7 +11,7 @@ Covers:
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.io_utils import (
+from gene_calling_benchmark.io_utils import (
     _detect_format,
     collect_gff,
     read_gff_to_arrays,

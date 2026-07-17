@@ -27,8 +27,8 @@ import pytest
 
 matplotlib.use("Agg")  # headless figure rendering for the media tests
 
-from dna_segmentation_benchmark.io_utils import collect_gff
-from dna_segmentation_benchmark.label_definition import (
+from gene_calling_benchmark.io_utils import collect_gff
+from gene_calling_benchmark.label_definition import (
     AnnotationMode,
     BEND_LABEL_CONFIG,
     BenchmarkScope,
@@ -171,7 +171,7 @@ def wandb_stub(monkeypatch) -> FakeWandb:
     """Patch the logger's wandb accessor with a fresh ``FakeWandb`` and return it."""
     fake = FakeWandb()
     monkeypatch.setattr(
-        "dna_segmentation_benchmark.wandb_logger._require_wandb",
+        "gene_calling_benchmark.wandb_logger._require_wandb",
         lambda: fake,
     )
     return fake

@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.eval.accumulators import (
+from gene_calling_benchmark.eval.accumulators import (
     BenchmarkAccumulator,
     BoundaryExactnessAccumulator,
     DiagnosticDepthAccumulator,
@@ -13,7 +13,7 @@ from dna_segmentation_benchmark.eval.accumulators import (
     StructuralAccumulator,
     TransitionsAccumulator,
 )
-from dna_segmentation_benchmark.eval.statistics import (
+from gene_calling_benchmark.eval.statistics import (
     Counts,
     summarise_counts,
 )

@@ -13,12 +13,12 @@ import math
 
 import pandas as pd
 
-from dna_segmentation_benchmark.eval.global_metrics import (
+from gene_calling_benchmark.eval.global_metrics import (
     compute_global_metrics,
     compute_overlap_keepsets,
 )
-from dna_segmentation_benchmark.label_definition import AnnotationMode, LabelConfig
-from dna_segmentation_benchmark.transcript_mapping import (
+from gene_calling_benchmark.label_definition import AnnotationMode, LabelConfig
+from gene_calling_benchmark.transcript_mapping import (
     LocusMatchingMode,
     MatchClass,
     PredictionMatch,
@@ -101,10 +101,10 @@ def test_recycled_id_exons_not_fused_across_seqids():
     """Bucketing scope intervals by a bare parent pooled every same-named
     transcript's exons into one bucket, where the coordinate-only merge fused
     exons from unrelated scaffolds into one chimeric interval."""
-    from dna_segmentation_benchmark.eval.global_metrics import (
+    from gene_calling_benchmark.eval.global_metrics import (
         _collect_scoped_transcript_intervals,
     )
-    from dna_segmentation_benchmark.feature_roles import normalize_feature_role_map
+    from gene_calling_benchmark.feature_roles import normalize_feature_role_map
 
     rows = [
         _ex("e1", 100, 200, "g1.t1", seqid="chr1"),

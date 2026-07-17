@@ -108,7 +108,7 @@ def compare_multiple_predictions(
     ----------
     per_method_benchmark_res : dict[str, dict]
         Outer key = method name, inner dict = benchmark result as returned
-        by :func:`benchmark_gt_vs_pred_multiple`.
+        by :func:`benchmark_from_arrays`.
     label_config : LabelConfig
         Used to resolve class token → human-readable name.
     metrics_to_eval : list[EvalMetrics]

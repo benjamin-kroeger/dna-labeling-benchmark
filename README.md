@@ -1,15 +1,15 @@
-# DNA Segmentation Benchmark
+# Gene Calling Benchmark
 
-[![Documentation](https://readthedocs.org/projects/dna-labeling-benchmark/badge/?version=latest)](https://dna-labeling-benchmark.readthedocs.io/en/latest/)
+[![Documentation](https://readthedocs.org/projects/gene-calling-benchmark/badge/?version=latest)](https://gene-calling-benchmark.readthedocs.io/en/latest/)
 
-Diagnostic evaluation toolkit for nucleotide-level DNA segmentation models (gene finders like Augustus, Helixer, Tiberius, SegmentNT) against reference annotations (e.g., GENCODE).
+Diagnostic evaluation toolkit for nucleotide-level gene callers (gene finders like Augustus, Helixer, Tiberius, SegmentNT) against reference annotations (e.g., GENCODE).
 
 Goes beyond standard precision/recall with an **8-type INDEL error taxonomy**, **boundary bias/reliability landscapes**, **strict intron chain plus per-transcript exon recovery distributions**, **transcript match classification**, and **state transition analysis** -- metrics not available in gffcompare, Mikado, or EGASP.
 
 For continuity with existing tooling, the GFF pipeline also reports a **gffcompare-compatible baseline layer** (nucleotide / exon / transcript / gene sensitivity & precision) under each predictor's `global` results; the diagnostics above are the value this toolkit adds on top of that baseline.
 
 ```
-pip install dna-segmentation-benchmark
+pip install gene-calling-benchmark
 ```
 
 ## Quick Start
@@ -17,7 +17,7 @@ pip install dna-segmentation-benchmark
 ### From GFF/GTF files
 
 ```python
-from dna_segmentation_benchmark import (
+from gene_calling_benchmark import (
     AnnotationMode, LabelConfig, EvalMetrics, benchmark_from_gff, compare_multiple_predictions,
 )
 
@@ -47,8 +47,8 @@ figures = compare_multiple_predictions(
 
 ```python
 import numpy as np
-from dna_segmentation_benchmark import (
-    AnnotationMode, LabelConfig, EvalMetrics, benchmark_gt_vs_pred_multiple, compare_multiple_predictions,
+from gene_calling_benchmark import (
+    AnnotationMode, LabelConfig, EvalMetrics, benchmark_from_arrays, compare_multiple_predictions,
 )
 
 label_config = LabelConfig(
@@ -58,7 +58,7 @@ label_config = LabelConfig(
     intron_label=2,
 )
 
-results = benchmark_gt_vs_pred_multiple(
+results = benchmark_from_arrays(
     gt_labels=gt_arrays,       # list[np.ndarray]
     pred_labels=pred_arrays,   # list[np.ndarray]
     label_config=label_config,
@@ -77,7 +77,7 @@ results = benchmark_gt_vs_pred_multiple(
 ### CLI
 
 ```bash
-dna-benchmark run \
+gene-benchmark run \
     --gt ground_truth.gtf \
     --pred augustus:predictions.gff \
     --config label_config.yaml \
@@ -85,7 +85,7 @@ dna-benchmark run \
     --output results.json
 ```
 
-Generate a starter `label_config.yaml` with `dna-benchmark init-config`
+Generate a starter `label_config.yaml` with `gene-benchmark init-config`
 (`--mode exon_intron` or `--mode utr_cds_intron`).
 
 ---
@@ -286,7 +286,7 @@ All metrics are label-agnostic. Every `LabelConfig` declares an explicit
 | `UTR_CDS_INTRON` | `five_prime_utr_label`, `cds_label`, `three_prime_utr_label` | full transcript anatomy; CDS-scoped metrics; `PHASE_DRIFT` |
 
 ```python
-from dna_segmentation_benchmark import AnnotationMode, LabelConfig
+from gene_calling_benchmark import AnnotationMode, LabelConfig
 
 # Exon/intron structure
 exon_config = LabelConfig(
@@ -328,7 +328,7 @@ scope. `PHASE_DRIFT` is only valid in `UTR_CDS_INTRON` with
 
 A pre-built `EXON_INTRON` config for the BEND benchmark is available as
 `BEND_LABEL_CONFIG`. See the
-[annotation modes guide](https://dna-labeling-benchmark.readthedocs.io/en/latest/getting_started/annotation_modes.html)
+[annotation modes guide](https://gene-calling-benchmark.readthedocs.io/en/latest/getting_started/annotation_modes.html)
 for the full walkthrough.
 
 ---
@@ -338,7 +338,7 @@ for the full walkthrough.
 Log metrics during training and full diagnostic reports after:
 
 ```python
-from dna_segmentation_benchmark import (
+from gene_calling_benchmark import (
     init_wandb_with_presets,
     log_benchmark_scalars,
     log_benchmark_media,
@@ -348,7 +348,7 @@ from dna_segmentation_benchmark import (
 run = init_wandb_with_presets("my-project", "run-name")
 
 # During training -- lightweight scalar logging per epoch
-log_benchmark_scalars(val_results, label_config, step=epoch, method_prefix="val")
+log_benchmark_scalars(val_results, step=epoch, method_prefix="val")
 
 # Per-epoch diagnostic figures (boundary landscape, position bias, transitions, etc.)
 log_benchmark_media(val_results, label_config, step=epoch, method_prefix="val")
@@ -357,14 +357,14 @@ log_benchmark_media(val_results, label_config, step=epoch, method_prefix="val")
 log_benchmark_media_videos()
 ```
 
-Install with: `pip install dna-segmentation-benchmark[wandb]`
+Install with: `pip install gene-calling-benchmark[wandb]`
 
 ---
 
 ## Documentation
 
-Full documentation is available at **https://dna-labeling-benchmark.readthedocs.io/en/latest/**
+Full documentation is available at **https://gene-calling-benchmark.readthedocs.io/en/latest/**
 
-- **[Metrics overview](https://dna-labeling-benchmark.readthedocs.io/en/latest/metrics/overview.html)** — index of every metric group with formulas and aggregation details
-- **[Getting started](https://dna-labeling-benchmark.readthedocs.io/en/latest/getting_started/index.html)** — array, GFF, method-comparison, and W&B walkthroughs
-- **[API reference](https://dna-labeling-benchmark.readthedocs.io/en/latest/api/index.html)** — Sphinx-generated module documentation
+- **[Metrics overview](https://gene-calling-benchmark.readthedocs.io/en/latest/metrics/overview.html)** — index of every metric group with formulas and aggregation details
+- **[Getting started](https://gene-calling-benchmark.readthedocs.io/en/latest/getting_started/index.html)** — array, GFF, method-comparison, and W&B walkthroughs
+- **[API reference](https://gene-calling-benchmark.readthedocs.io/en/latest/api/index.html)** — Sphinx-generated module documentation

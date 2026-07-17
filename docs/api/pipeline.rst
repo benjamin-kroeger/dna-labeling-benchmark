@@ -1,6 +1,6 @@
 GFF/GTF Pipeline
 ================
 
-.. automodule:: dna_segmentation_benchmark.pipeline
+.. automodule:: gene_calling_benchmark.pipeline
    :members:
    :show-inheritance:

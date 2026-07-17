@@ -337,7 +337,7 @@ def plot_boundary_shift_distribution(
 
     Consumes the ``boundary_shift_offsets`` records (one per *shifted*
     boundary, see
-    :func:`~dna_segmentation_benchmark.eval.chain_comparison._measure_shifted_boundaries`)
+    :func:`~gene_calling_benchmark.eval.chain_comparison._measure_shifted_boundaries`)
     pooled across every transcript whose predicted exon count matches the
     ground truth.  Each record carries a signed array-coordinate ``offset``
     (positive = predicted edge shifted to the right / array-3') and a

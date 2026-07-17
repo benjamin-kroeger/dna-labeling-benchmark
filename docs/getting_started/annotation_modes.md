@@ -4,8 +4,8 @@ Every benchmark run is anchored to an explicit **annotation mode**. The mode
 removes the old ambiguity around what the positive label meant (sometimes exon,
 sometimes CDS) and makes metric scope a first-class, self-describing concept.
 
-A {py:class}`dna_segmentation_benchmark.LabelConfig` always carries an
-{py:class}`dna_segmentation_benchmark.AnnotationMode`. There is no implicit
+A {py:class}`gene_calling_benchmark.LabelConfig` always carries an
+{py:class}`gene_calling_benchmark.AnnotationMode`. There is no implicit
 default — you choose the mode, and the benchmark carries that choice through
 validation, evaluation, plotting, logging, and serialized output.
 
@@ -19,7 +19,7 @@ intron and splice-site labels.
 > *Did the model recover exon structure correctly?*
 
 ```python
-from dna_segmentation_benchmark import AnnotationMode, LabelConfig
+from gene_calling_benchmark import AnnotationMode, LabelConfig
 
 label_config = LabelConfig(
     annotation_mode=AnnotationMode.EXON_INTRON,
@@ -42,7 +42,7 @@ splice-site labels.
 > *Did the model recover transcript anatomy, including UTR and CDS structure?*
 
 ```python
-from dna_segmentation_benchmark import AnnotationMode, LabelConfig
+from gene_calling_benchmark import AnnotationMode, LabelConfig
 
 label_config = LabelConfig(
     annotation_mode=AnnotationMode.UTR_CDS_INTRON,
@@ -93,7 +93,7 @@ The `evaluation_scope` field selects which scope the **per-transcript** metrics
 use:
 
 ```python
-from dna_segmentation_benchmark import AnnotationMode, BenchmarkScope, LabelConfig
+from gene_calling_benchmark import AnnotationMode, BenchmarkScope, LabelConfig
 
 cds_config = LabelConfig(
     annotation_mode=AnnotationMode.UTR_CDS_INTRON,
@@ -160,9 +160,9 @@ The same mode is honoured everywhere:
 - **Array benchmark** — {doc}`array_benchmark`
 - **GFF/GTF pipeline** — {doc}`gff_benchmark` (feature-role maps translate GFF
   feature names such as `CDS`/`five_prime_UTR` into mode roles)
-- **Plotting** — {py:func}`dna_segmentation_benchmark.compare_multiple_predictions`
+- **Plotting** — {py:func}`gene_calling_benchmark.compare_multiple_predictions`
   renders one figure per scope and includes the scope in figure keys
 - **W&B logging** — scalar/media logging picks the default scope per group
-- **CLI** — `dna-benchmark init-config --mode {exon_intron,utr_cds_intron}` and
-  `dna-benchmark run` (feature roles via `--gt-feature-role` /
+- **CLI** — `gene-benchmark init-config --mode {exon_intron,utr_cds_intron}` and
+  `gene-benchmark run` (feature roles via `--gt-feature-role` /
   `--pred-feature-role` in `UTR_CDS_INTRON`)

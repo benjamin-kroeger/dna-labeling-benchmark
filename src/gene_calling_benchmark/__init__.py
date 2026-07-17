@@ -1,11 +1,10 @@
-"""DNA Segmentation Benchmark – evaluate nucleotide-level predictions.
+"""Gene Calling Benchmark – evaluate nucleotide-level predictions.
 
 Public API (see the Sphinx API reference for full signatures):
 
 - Config: ``AnnotationMode``, ``BenchmarkScope``, ``LabelConfig``,
   ``BEND_LABEL_CONFIG``, ``EvalMetrics``, ``LocusMatchingMode``
-- Benchmarking: ``benchmark_gt_vs_pred_single``,
-  ``benchmark_gt_vs_pred_multiple``, ``benchmark_from_gff``,
+- Benchmarking: ``benchmark_from_arrays``, ``benchmark_from_gff``,
   ``compare_multiple_predictions``
 - Datasets: ``load_dataset``, ``list_datasets``, ``get_dataset_info``,
   ``LoadedDataset``
@@ -22,8 +21,7 @@ from .label_definition import (
 )
 from .eval.evaluate_predictors import (
     EvalMetrics,
-    benchmark_gt_vs_pred_single,
-    benchmark_gt_vs_pred_multiple,
+    benchmark_from_arrays,
 )
 from .plotting.summary_stat_plotting import compare_multiple_predictions
 from .wandb_logger import (
@@ -50,8 +48,7 @@ __all__ = [
     "BEND_LABEL_CONFIG",
     "EvalMetrics",
     "LocusMatchingMode",
-    "benchmark_gt_vs_pred_single",
-    "benchmark_gt_vs_pred_multiple",
+    "benchmark_from_arrays",
     "benchmark_from_gff",
     "load_dataset",
     "list_datasets",

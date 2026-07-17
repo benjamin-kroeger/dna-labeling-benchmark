@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-project = "DNA Segmentation Benchmark"
+project = "Gene Calling Benchmark"
 author = "Benjamin Kroeger"
 copyright = "2026, Benjamin Kroeger"
 release = "0.1.2"

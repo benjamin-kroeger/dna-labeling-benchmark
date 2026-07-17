@@ -1,6 +1,6 @@
 # Method Comparison
 
-Use {py:func}`dna_segmentation_benchmark.compare_multiple_predictions` when you
+Use {py:func}`gene_calling_benchmark.compare_multiple_predictions` when you
 already have aggregated benchmark results for several methods and want a common
 plot bundle.
 
@@ -9,10 +9,10 @@ plot bundle.
 ```python
 from pathlib import Path
 
-from dna_segmentation_benchmark import (
+from gene_calling_benchmark import (
     BEND_LABEL_CONFIG,
     EvalMetrics,
-    benchmark_gt_vs_pred_multiple,
+    benchmark_from_arrays,
     compare_multiple_predictions,
 )
 
@@ -25,14 +25,14 @@ metrics = [
 ]
 
 all_results = {
-    "segmentnt": benchmark_gt_vs_pred_multiple(
+    "segmentnt": benchmark_from_arrays(
         gt_labels=gt_arrays,
         pred_labels=segmentnt_arrays,
         label_config=BEND_LABEL_CONFIG,
         metrics=metrics,
         infer_introns=True,
     ),
-    "augustus": benchmark_gt_vs_pred_multiple(
+    "augustus": benchmark_from_arrays(
         gt_labels=gt_arrays,
         pred_labels=augustus_arrays,
         label_config=BEND_LABEL_CONFIG,
@@ -54,8 +54,8 @@ figures = compare_multiple_predictions(
 
 `compare_multiple_predictions(...)` accepts either:
 
-- raw outputs from {py:func}`dna_segmentation_benchmark.benchmark_gt_vs_pred_multiple`
-- pipeline outputs from {py:func}`dna_segmentation_benchmark.benchmark_from_gff`
+- raw outputs from {py:func}`gene_calling_benchmark.benchmark_from_arrays`
+- pipeline outputs from {py:func}`gene_calling_benchmark.benchmark_from_gff`
   where each method result is wrapped as `{"aggregated": ..., "global": ...}`
 
 For the second case, the plotting code automatically unwraps the

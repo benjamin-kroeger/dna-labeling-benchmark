@@ -14,11 +14,11 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from dna_segmentation_benchmark.cli import cli
-from dna_segmentation_benchmark.eval.evaluate_predictors import EvalMetrics
-from dna_segmentation_benchmark.label_definition import BEND_LABEL_CONFIG
-from dna_segmentation_benchmark.pipeline import benchmark_from_gff
-from dna_segmentation_benchmark.transcript_mapping import LocusMatchingMode
+from gene_calling_benchmark.cli import cli
+from gene_calling_benchmark.eval.evaluate_predictors import EvalMetrics
+from gene_calling_benchmark.label_definition import BEND_LABEL_CONFIG
+from gene_calling_benchmark.pipeline import benchmark_from_gff
+from gene_calling_benchmark.transcript_mapping import LocusMatchingMode
 
 from support.gff import write_gff
 

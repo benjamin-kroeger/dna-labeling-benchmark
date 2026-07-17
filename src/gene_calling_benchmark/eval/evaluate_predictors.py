@@ -1,8 +1,9 @@
 """Core evaluation orchestration for the DNA segmentation benchmark.
 
-Public entry points (:func:`benchmark_gt_vs_pred_single` and
-:func:`benchmark_gt_vs_pred_multiple`) compare ground-truth nucleotide-level
-annotations with predictions and dispatch to the per-metric modules:
+The public entry point :func:`benchmark_from_arrays` (built on the internal
+per-sequence :func:`_benchmark_gt_vs_pred_single`) compares ground-truth
+nucleotide-level annotations with predictions and dispatches to the per-metric
+modules:
 
 * **INDEL** — :mod:`indel_metrics`
 * **REGION_DISCOVERY / BOUNDARY_EXACTNESS** — :mod:`section_metrics`
@@ -28,6 +29,7 @@ integer tokens to names and declares semantic roles (background, coding, …).
 from __future__ import annotations
 
 import dataclasses
+import logging
 import warnings
 from collections.abc import Iterator
 from typing import Iterable
@@ -56,6 +58,8 @@ from .structural_summary import compute_structural_summary
 from .utils import get_contiguous_groups
 from .splice_sites import eval_splice_site_junctions
 from ..label_definition import LabelConfig, EvalMetrics, _DEFAULT_METRICS
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers — which groups need section overlap to be computed
@@ -87,7 +91,7 @@ def _validate_metric_config(metrics: Iterable[EvalMetrics], label_config: LabelC
 # ---------------------------------------------------------------------------
 
 
-def benchmark_gt_vs_pred_single(
+def _benchmark_gt_vs_pred_single(
     gt_labels: np.ndarray,
     pred_labels: np.ndarray,
     label_config: LabelConfig,
@@ -127,7 +131,7 @@ def benchmark_gt_vs_pred_single(
         ``"metadata"`` entry is always present.
 
         This single-sequence entry point returns the **raw per-sequence
-        fragment**; the aggregating :func:`benchmark_gt_vs_pred_multiple`
+        fragment**; the aggregating :func:`benchmark_from_arrays`
         path reduces these to precision/recall and distribution statistics.
         Per group (raw fragment → aggregated form):
 
@@ -231,7 +235,7 @@ def _benchmark_chunk(
     """Evaluate one fully-unmasked GT/pred span.
 
     ``metrics`` must already be normalised to a frozenset; intron inference
-    and mask splitting are handled by :func:`benchmark_gt_vs_pred_single`.
+    and mask splitting are handled by :func:`_benchmark_gt_vs_pred_single`.
     """
     metric_results: dict[str, dict] = {}
     # Transition diagnostics are opt-in via EvalMetrics.STATE_TRANSITIONS (kept in
@@ -426,7 +430,7 @@ class StreamingBenchmark:
     lazily (one transcript pair at a time) instead of holding every array in
     memory at once.
 
-    :func:`benchmark_gt_vs_pred_multiple` (aggregate mode) is implemented on top
+    :func:`benchmark_from_arrays` (aggregate mode) is implemented on top
     of this class, so streaming and list-based aggregation return identical
     numbers for the same sequence of pairs.
     """
@@ -457,15 +461,23 @@ class StreamingBenchmark:
         pred_labels: np.ndarray,
         mask_labels: np.ndarray | None = None,
     ) -> None:
-        """Accumulate one GT/pred pair (same per-sequence path as the list API)."""
-        for fragment in _iter_sequence_fragments(
-            gt_labels,
-            pred_labels,
-            self._label_config,
-            self._metrics,
-            mask_labels,
-            self._infer_introns,
-        ):
+        """Accumulate one GT/pred pair (same per-sequence path as the list API).
+
+        Atomic: all fragments for the sequence are computed before any is
+        committed, so a mid-sequence failure leaves the accumulator untouched
+        (nothing partially added) and can be safely isolated by the caller.
+        """
+        fragments = list(
+            _iter_sequence_fragments(
+                gt_labels,
+                pred_labels,
+                self._label_config,
+                self._metrics,
+                mask_labels,
+                self._infer_introns,
+            )
+        )
+        for fragment in fragments:
             self._accumulator.add(fragment)
         self._count += 1
 
@@ -478,7 +490,7 @@ class StreamingBenchmark:
         self._count += count
 
 
-def benchmark_gt_vs_pred_multiple(
+def benchmark_from_arrays(
     gt_labels: list[np.ndarray],
     pred_labels: list[np.ndarray],
     label_config: LabelConfig,
@@ -487,7 +499,17 @@ def benchmark_gt_vs_pred_multiple(
     mask_labels: list[np.ndarray] | None = None,
     infer_introns: bool = False,
 ) -> dict | list[dict]:
-    """Run :func:`benchmark_gt_vs_pred_single` over paired GT/pred lists.
+    """Benchmark paired GT/prediction label-array lists (the array entry point).
+
+    Runs the internal per-sequence :func:`_benchmark_gt_vs_pred_single` over each
+    pair and, by default, aggregates the fragments into precision/recall and
+    distribution statistics.
+
+    Per-sequence isolation: a pair that raises during evaluation is logged and
+    skipped so a single pathological sequence never aborts the whole batch —
+    important when the benchmark runs inside a training loop.  In aggregate mode
+    the failing pair is simply omitted; in ``return_individual_results`` mode its
+    slot is ``None`` (indices stay aligned with the inputs).
 
     Parameters
     ----------
@@ -511,7 +533,9 @@ def benchmark_gt_vs_pred_multiple(
     Returns
     -------
     dict | list[dict]
-        Aggregated (default) or per-sequence results.
+        Aggregated (default) or per-sequence results.  In
+        ``return_individual_results`` mode the list may contain ``None`` for any
+        sequence whose evaluation failed.
     """
     if len(gt_labels) != len(pred_labels):
         raise ValueError(f"GT and prediction lists must have equal length, got {len(gt_labels)} vs {len(pred_labels)}.")
@@ -523,28 +547,41 @@ def benchmark_gt_vs_pred_multiple(
     if return_individual_results:
         _validate_metric_config(metrics, label_config)
         _warn_phase_drift(metrics)
-        return [
-            benchmark_gt_vs_pred_single(
-                gt_labels=gt_labels[i],
-                pred_labels=pred_labels[i],
-                label_config=label_config,
-                metrics=metrics,
-                mask_labels=mask_labels[i] if mask_labels is not None else None,
-                infer_introns=infer_introns,
-            )
-            for i in tqdm(range(len(gt_labels)), desc="Running benchmark")
-        ]
+        # Per-sequence isolation: a single failing pair is logged and recorded as
+        # None (indices stay aligned with the inputs) rather than aborting the batch.
+        results: list[dict | None] = []
+        for i in tqdm(range(len(gt_labels)), desc="Running benchmark"):
+            try:
+                results.append(
+                    _benchmark_gt_vs_pred_single(
+                        gt_labels=gt_labels[i],
+                        pred_labels=pred_labels[i],
+                        label_config=label_config,
+                        metrics=metrics,
+                        mask_labels=mask_labels[i] if mask_labels is not None else None,
+                        infer_introns=infer_introns,
+                    )
+                )
+            except Exception:
+                logger.exception("Benchmark failed for sequence %d; skipping it (result=None).", i)
+                results.append(None)
+        return results
 
     # Aggregate path: stream each pair through a single accumulator.  Identical
     # to the list-based loop it replaces — the validation and PHASE_DRIFT warning
-    # are emitted by StreamingBenchmark.
+    # are emitted by StreamingBenchmark.  Per-sequence isolation: a failing pair
+    # is logged and skipped (StreamingBenchmark.add is atomic, so a mid-sequence
+    # failure leaves the accumulator uncorrupted) instead of aborting the batch.
     bench = StreamingBenchmark(label_config, metrics, infer_introns=infer_introns)
     for i in tqdm(range(len(gt_labels)), desc="Running benchmark"):
-        bench.add(
-            gt_labels[i],
-            pred_labels[i],
-            mask_labels[i] if mask_labels is not None else None,
-        )
+        try:
+            bench.add(
+                gt_labels[i],
+                pred_labels[i],
+                mask_labels[i] if mask_labels is not None else None,
+            )
+        except Exception:
+            logger.exception("Benchmark failed for sequence %d; skipping it.", i)
 
     return bench.result()
 

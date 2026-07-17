@@ -13,7 +13,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from dna_segmentation_benchmark.cli import (
+from gene_calling_benchmark.cli import (
     _load_label_config,
     _parse_gt_feature_role_specs,
     _parse_pred_exon_feature_specs,

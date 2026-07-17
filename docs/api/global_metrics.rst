@@ -1,6 +1,6 @@
 Global Metrics
 ==============
 
-.. automodule:: dna_segmentation_benchmark.eval.global_metrics
+.. automodule:: gene_calling_benchmark.eval.global_metrics
    :members:
    :show-inheritance:

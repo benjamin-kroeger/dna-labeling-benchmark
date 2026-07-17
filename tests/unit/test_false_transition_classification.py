@@ -12,8 +12,8 @@ Uses the production label config of the thesis real-data runs
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.eval.state_transitions import compute_state_change_errors
-from dna_segmentation_benchmark.label_definition import (
+from gene_calling_benchmark.eval.state_transitions import compute_state_change_errors
+from gene_calling_benchmark.label_definition import (
     AnnotationMode,
     BenchmarkScope,
     LabelConfig,

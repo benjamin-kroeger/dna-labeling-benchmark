@@ -15,12 +15,12 @@ matplotlib.use("Agg")  # headless rendering (conftest also sets this)
 import matplotlib.pyplot as plt
 import numpy as np
 
-from dna_segmentation_benchmark.label_definition import (
+from gene_calling_benchmark.label_definition import (
     AnnotationMode,
     BenchmarkScope,
     LabelConfig,
 )
-from dna_segmentation_benchmark.plotting.metrics.transitions import (
+from gene_calling_benchmark.plotting.metrics.transitions import (
     plot_false_transitions,
     plot_transition_matrices,
 )

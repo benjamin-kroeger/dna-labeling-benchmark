@@ -84,7 +84,7 @@ def _spec_from_dict(name: str, d: dict) -> DatasetSpec:
 
 
 def _registry_path() -> Path:
-    return Path(str(resources.files("dna_segmentation_benchmark.datasets") / "registry.yaml"))
+    return Path(str(resources.files("gene_calling_benchmark.datasets") / "registry.yaml"))
 
 
 def load_registry(path: Path | None = None) -> dict[str, DatasetSpec]:

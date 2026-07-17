@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.eval.evaluate_predictors import EvalMetrics
-from dna_segmentation_benchmark.label_definition import (
+from gene_calling_benchmark.eval.evaluate_predictors import EvalMetrics
+from gene_calling_benchmark.label_definition import (
     AnnotationMode,
     BenchmarkScope,
     LabelConfig,

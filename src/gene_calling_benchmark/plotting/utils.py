@@ -5,7 +5,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.colors import to_rgb
 
-from dna_segmentation_benchmark.plotting.config import PlotMetadata
+from gene_calling_benchmark.plotting.config import PlotMetadata
 
 SPEZI_COLORS = [
     "#F47B20", "#F5A623", "#F7C94B", "#F0553A", "#E8006A",

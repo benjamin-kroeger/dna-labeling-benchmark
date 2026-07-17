@@ -844,7 +844,7 @@ def map_transcripts(
         *pred_paths* is not re-parsed.
     transcript_types : list[str] | None
         Feature types that define transcript boundaries.
-        Defaults to :data:`~dna_segmentation_benchmark.io_utils.DEFAULT_TRANSCRIPT_TYPES`.
+        Defaults to :data:`~gene_calling_benchmark.io_utils.DEFAULT_TRANSCRIPT_TYPES`.
     gt_feature_role_map : dict[str, str] | None
         Maps GT GFF/GTF feature types to benchmark roles.  When ``None``,
         the mode-specific default is used.

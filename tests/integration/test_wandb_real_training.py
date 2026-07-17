@@ -22,9 +22,9 @@ import pytest
 
 wandb = pytest.importorskip("wandb")
 
-from dna_segmentation_benchmark import (
+from gene_calling_benchmark import (
     BEND_LABEL_CONFIG,
-    benchmark_gt_vs_pred_multiple,
+    benchmark_from_arrays,
     clear_benchmark_media_video_buffer,
     init_wandb_with_presets,
     log_benchmark_media,
@@ -131,7 +131,7 @@ def test_mock_training_writes_to_real_wandb():
         for epoch in range(EPOCHS):
             wandb.log(_train_scalars(epoch, EPOCHS), step=epoch)
             preds = _predict(gt, shift=max(1, 4 - epoch), rng=rng)
-            results = benchmark_gt_vs_pred_multiple(
+            results = benchmark_from_arrays(
                 gt_labels=gt,
                 pred_labels=preds,
                 label_config=BEND_LABEL_CONFIG,
@@ -139,10 +139,10 @@ def test_mock_training_writes_to_real_wandb():
                 infer_introns=True,
             )
             logged = log_benchmark_scalars(
-                results, label_config=BEND_LABEL_CONFIG, step=epoch, method_prefix="val"
+                results, step=epoch, method_prefix="val"
             )
             log_benchmark_media(
-                results, label_config=BEND_LABEL_CONFIG, step=epoch, method_prefix="val"
+                results, step=epoch, method_prefix="val"
             )
         videos = log_benchmark_media_videos()
     finally:

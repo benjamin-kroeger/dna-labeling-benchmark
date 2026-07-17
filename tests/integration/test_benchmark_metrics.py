@@ -1,15 +1,15 @@
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.eval.evaluate_predictors import (
-    benchmark_gt_vs_pred_single,
-    benchmark_gt_vs_pred_multiple,
+from gene_calling_benchmark.eval.evaluate_predictors import (
+    _benchmark_gt_vs_pred_single,
+    benchmark_from_arrays,
     StreamingBenchmark,
     EvalMetrics,
 )
-from dna_segmentation_benchmark.eval.accumulators import BenchmarkAccumulator
-from dna_segmentation_benchmark.pipeline import benchmark_from_gff
-from dna_segmentation_benchmark.label_definition import (
+from gene_calling_benchmark.eval.accumulators import BenchmarkAccumulator
+from gene_calling_benchmark.pipeline import benchmark_from_gff
+from gene_calling_benchmark.label_definition import (
     AnnotationMode,
     BenchmarkScope,
     BEND_LABEL_CONFIG,
@@ -23,7 +23,7 @@ from support.cases import (
     DIAGNOSTIC_DEPTH_TEST_CASES,
     SPLICE_SITE_TEST_CASES,
 )
-from support.constants import MEDIA_METRICS
+from support.constants import EXON, NONCODING, MEDIA_METRICS
 from support.gff import UTR_ROLE_MAP, UTR_ROLE_MAP_NO_CDS
 from support.metric_compare import assert_metric_value_equal
 
@@ -34,7 +34,7 @@ from support.metric_compare import assert_metric_value_equal
 )
 def test_benchmark_single(gt_pred_array, label_config, metrics, expected_errors):
     """Test single-sequence benchmark with various label configs and metrics."""
-    benchmark_results = benchmark_gt_vs_pred_single(
+    benchmark_results = _benchmark_gt_vs_pred_single(
         gt_labels=gt_pred_array[0],
         pred_labels=gt_pred_array[1],
         mask_labels=gt_pred_array[2] if gt_pred_array.shape[0] > 2 else None,
@@ -61,7 +61,7 @@ def test_benchmark_single(gt_pred_array, label_config, metrics, expected_errors)
 )
 def test_structural_coherence(gt_pred_array, label_config, metrics, expected_errors):
     """Test structural coherence metrics (gap chain, transcript classification)."""
-    benchmark_results = benchmark_gt_vs_pred_single(
+    benchmark_results = _benchmark_gt_vs_pred_single(
         gt_labels=gt_pred_array[0],
         pred_labels=gt_pred_array[1],
         label_config=label_config,
@@ -79,7 +79,7 @@ def test_structural_coherence(gt_pred_array, label_config, metrics, expected_err
 @pytest.mark.parametrize("gt_pred_array, expected_splice", SPLICE_SITE_TEST_CASES)
 def test_splice_site_evaluation(gt_pred_array, expected_splice):
     """Test splice-site confusion matrix counts and derived FP tracking."""
-    result = benchmark_gt_vs_pred_single(
+    result = _benchmark_gt_vs_pred_single(
         gt_labels=gt_pred_array[0],
         pred_labels=gt_pred_array[1],
         label_config=BEND_LABEL_CONFIG,
@@ -99,7 +99,7 @@ def test_splice_site_evaluation(gt_pred_array, expected_splice):
 )
 def test_diagnostic_depth(gt_pred_array, label_config, metrics, expected_errors):
     """Test diagnostic depth metrics (junction errors, correlations, structural summary)."""
-    benchmark_results = benchmark_gt_vs_pred_single(
+    benchmark_results = _benchmark_gt_vs_pred_single(
         gt_labels=gt_pred_array[0],
         pred_labels=gt_pred_array[1],
         label_config=label_config,
@@ -120,7 +120,7 @@ def test_diagnostic_depth(gt_pred_array, label_config, metrics, expected_errors)
 )
 def test_benchmark_multiple(gt_arrays, pred_arrays, label_config, metrics, expected_errors):
     """Test multi-sequence benchmark with aggregation and summary metrics."""
-    benchmark_results = benchmark_gt_vs_pred_multiple(
+    benchmark_results = benchmark_from_arrays(
         gt_labels=gt_arrays,
         pred_labels=pred_arrays,
         label_config=label_config,
@@ -156,14 +156,14 @@ def test_benchmark_multiple_streaming_aggregation_matches_merged_individual_resu
         EvalMetrics.DIAGNOSTIC_DEPTH,
     ]
 
-    aggregated = benchmark_gt_vs_pred_multiple(
+    aggregated = benchmark_from_arrays(
         gt_labels=gt_arrays,
         pred_labels=pred_arrays,
         label_config=BEND_LABEL_CONFIG,
         metrics=metrics,
     )
 
-    individual = benchmark_gt_vs_pred_multiple(
+    individual = benchmark_from_arrays(
         gt_labels=gt_arrays,
         pred_labels=pred_arrays,
         label_config=BEND_LABEL_CONFIG,
@@ -200,7 +200,7 @@ def test_benchmark_multiple_return_individual_results_matches_single_sequence_ou
         EvalMetrics.STRUCTURAL_COHERENCE,
     ]
 
-    individual = benchmark_gt_vs_pred_multiple(
+    individual = benchmark_from_arrays(
         gt_labels=gt_arrays,
         pred_labels=pred_arrays,
         label_config=BEND_LABEL_CONFIG,
@@ -209,7 +209,7 @@ def test_benchmark_multiple_return_individual_results_matches_single_sequence_ou
     )
 
     expected = [
-        benchmark_gt_vs_pred_single(
+        _benchmark_gt_vs_pred_single(
             gt_labels=gt,
             pred_labels=pred,
             label_config=BEND_LABEL_CONFIG,
@@ -222,7 +222,7 @@ def test_benchmark_multiple_return_individual_results_matches_single_sequence_ou
 
 
 def test_results_include_annotation_metadata():
-    result = benchmark_gt_vs_pred_single(
+    result = _benchmark_gt_vs_pred_single(
         gt_labels=np.array([8, 0, 0, 8]),
         pred_labels=np.array([8, 0, 0, 8]),
         label_config=BEND_LABEL_CONFIG,
@@ -254,7 +254,7 @@ def test_utr_cds_mode_compares_transcript_exon_and_cds_in_separate_runs():
     gt = np.array([8, 4, 4, 0, 0, 5, 5, 8])
     pred = np.array([8, 4, 4, 4, 4, 5, 5, 8])
 
-    transcript_exon_result = benchmark_gt_vs_pred_single(
+    transcript_exon_result = _benchmark_gt_vs_pred_single(
         gt_labels=gt,
         pred_labels=pred,
         label_config=transcript_exon_config,
@@ -264,7 +264,7 @@ def test_utr_cds_mode_compares_transcript_exon_and_cds_in_separate_runs():
             EvalMetrics.STRUCTURAL_COHERENCE,
         ],
     )
-    cds_result = benchmark_gt_vs_pred_single(
+    cds_result = _benchmark_gt_vs_pred_single(
         gt_labels=gt,
         pred_labels=pred,
         label_config=cds_config,
@@ -328,7 +328,7 @@ def test_boundary_offsets_are_matched_pairs_not_overlapping_pairs():
     gt = np.array([0, 0, 0, 2, 2, 0, 0, 0, 8, 8])      # exon (0,2) + exon (5,7)
     pred = np.array([0, 0, 0, 0, 0, 0, 0, 0, 8, 8])    # one exon (0,7) spanning both
 
-    result = benchmark_gt_vs_pred_single(
+    result = _benchmark_gt_vs_pred_single(
         gt_labels=gt,
         pred_labels=pred,
         label_config=BEND_LABEL_CONFIG,
@@ -349,7 +349,7 @@ def test_boundary_offsets_are_matched_pairs_not_overlapping_pairs():
 # ---------------------------------------------------------------------------
 
 def test_streaming_benchmark_matches_multiple_list_api():
-    """StreamingBenchmark.add(...).result() == benchmark_gt_vs_pred_multiple(lists)."""
+    """StreamingBenchmark.add(...).result() == benchmark_from_arrays(lists)."""
     gt_arrays = [
         np.array([8, 8, 0, 0, 0, 2, 2, 0, 0, 8]),
         np.array([8, 0, 0, 2, 2, 0, 0, 2, 2, 8]),
@@ -361,7 +361,7 @@ def test_streaming_benchmark_matches_multiple_list_api():
         np.array([0, 0, 2, 2, 0, 0, 0, 2, 2, 2]),
     ]
 
-    reference = benchmark_gt_vs_pred_multiple(
+    reference = benchmark_from_arrays(
         gt_labels=gt_arrays,
         pred_labels=pred_arrays,
         label_config=BEND_LABEL_CONFIG,
@@ -392,7 +392,7 @@ def test_streaming_benchmark_matches_multiple_list_api_with_masks():
         np.array([True, False, False, False, False, False, False, False, False, True]),
     ]
 
-    reference = benchmark_gt_vs_pred_multiple(
+    reference = benchmark_from_arrays(
         gt_labels=gt_arrays,
         pred_labels=pred_arrays,
         label_config=BEND_LABEL_CONFIG,
@@ -406,5 +406,60 @@ def test_streaming_benchmark_matches_multiple_list_api_with_masks():
     streamed = bench.result()
 
     assert_metric_value_equal(reference, streamed, "streaming_benchmark_masked")
+
+
+# ---------------------------------------------------------------------------
+# Batch robustness: one pathological sequence must never abort the whole batch
+# (online training safety — the benchmark must not crash a training loop).
+# ---------------------------------------------------------------------------
+
+def test_multiple_tolerates_short_sequence_in_batch():
+    """A sub-window (length-1) sequence must not crash the default-metric batch."""
+    good_gt = np.array([NONCODING, NONCODING, EXON, EXON, EXON, NONCODING, NONCODING])
+    good_pred = np.array([NONCODING, EXON, EXON, EXON, NONCODING, NONCODING, NONCODING])
+    gt = [good_gt, np.array([EXON])]              # second sequence is length 1
+    pred = [good_pred, np.array([NONCODING])]
+
+    # Default metrics include STATE_TRANSITIONS (the (2, 2) sliding window).
+    result = benchmark_from_arrays(
+        gt_labels=gt, pred_labels=pred, label_config=BEND_LABEL_CONFIG,
+    )
+    assert "metadata" in result
+
+
+def test_multiple_isolates_per_sequence_failure(monkeypatch):
+    """A per-sequence exception is logged and skipped, not propagated to the batch."""
+    import gene_calling_benchmark.eval.evaluate_predictors as ep
+
+    good = np.array([NONCODING, NONCODING, EXON, EXON, EXON, NONCODING])
+    gt = [good, good]
+    pred = [good.copy(), good.copy()]
+
+    original = ep._benchmark_chunk
+    state = {"calls": 0}
+
+    def flaky(*args, **kwargs):
+        state["calls"] += 1
+        if state["calls"] == 1:  # fail only the first sequence
+            raise RuntimeError("synthetic per-sequence failure")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(ep, "_benchmark_chunk", flaky)
+
+    aggregated = ep.benchmark_from_arrays(
+        gt_labels=gt, pred_labels=pred, label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+    )
+    assert "metadata" in aggregated  # surviving sequence still aggregated
+
+    # Individual path stays index-aligned: failed sequence -> None, other -> dict.
+    state["calls"] = 0
+    individual = ep.benchmark_from_arrays(
+        gt_labels=gt, pred_labels=pred, label_config=BEND_LABEL_CONFIG,
+        metrics=[EvalMetrics.NUCLEOTIDE_CLASSIFICATION],
+        return_individual_results=True,
+    )
+    assert individual[0] is None
+    assert isinstance(individual[1], dict)
 
 

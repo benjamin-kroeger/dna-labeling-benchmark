@@ -2,7 +2,7 @@
 
 Examples
 --------
->>> from dna_segmentation_benchmark.datasets import load_dataset, list_datasets
+>>> from gene_calling_benchmark.datasets import load_dataset, list_datasets
 >>> list_datasets()
 ['zenodo_test']
 >>> ds = load_dataset("zenodo_test")

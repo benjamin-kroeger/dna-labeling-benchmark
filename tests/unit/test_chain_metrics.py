@@ -6,21 +6,21 @@ import math
 import numpy as np
 import pytest
 
-from dna_segmentation_benchmark.eval.chain_comparison import (
+from gene_calling_benchmark.eval.chain_comparison import (
     _compute_exon_recovery_from_segments,
     _segments_for_scope,
     compute_intron_chain_metrics,
     compute_scoped_chain_metrics,
 )
-from dna_segmentation_benchmark.eval.evaluate_predictors import (
+from gene_calling_benchmark.eval.evaluate_predictors import (
     EvalMetrics,
     _warn_phase_drift,
-    benchmark_gt_vs_pred_single,
+    _benchmark_gt_vs_pred_single,
 )
-from dna_segmentation_benchmark.eval import preprocessing
-from dna_segmentation_benchmark.eval.statistics import Counts
-from dna_segmentation_benchmark.eval.structure import extract_structure
-from dna_segmentation_benchmark.label_definition import (
+from gene_calling_benchmark.eval import preprocessing
+from gene_calling_benchmark.eval.statistics import Counts
+from gene_calling_benchmark.eval.structure import extract_structure
+from gene_calling_benchmark.label_definition import (
     BEND_LABEL_CONFIG,
     BenchmarkScope,
     LabelConfig,
@@ -167,7 +167,7 @@ def test_intron_chain_derives_introns_from_exon_gaps_without_explicit_labels():
     """
     labels = np.array([8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8])
 
-    result = benchmark_gt_vs_pred_single(
+    result = _benchmark_gt_vs_pred_single(
         gt_labels=labels,
         pred_labels=labels,
         label_config=BEND_LABEL_CONFIG,
@@ -189,13 +189,13 @@ def test_infer_introns_reclassifies_single_exon_genes_as_multi_exon_transcript()
     """
     labels = np.array([8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8])
 
-    without = benchmark_gt_vs_pred_single(
+    without = _benchmark_gt_vs_pred_single(
         gt_labels=labels,
         pred_labels=labels,
         label_config=BEND_LABEL_CONFIG,
         metrics=[EvalMetrics.INDEL],
     )
-    with_introns = benchmark_gt_vs_pred_single(
+    with_introns = _benchmark_gt_vs_pred_single(
         gt_labels=labels,
         pred_labels=labels,
         label_config=BEND_LABEL_CONFIG,
@@ -230,7 +230,7 @@ def test_infer_introns_warns_on_large_arrays(monkeypatch):
     labels = np.array([8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8])
 
     with pytest.warns(UserWarning, match="large input array"):
-        benchmark_gt_vs_pred_single(
+        _benchmark_gt_vs_pred_single(
             gt_labels=labels,
             pred_labels=labels,
             label_config=BEND_LABEL_CONFIG,

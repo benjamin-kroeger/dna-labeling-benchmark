@@ -444,80 +444,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dna-segmentation-benchmark"
-version = "0.1.2"
-source = { editable = "." }
-dependencies = [
-    { name = "click" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pooch" },
-    { name = "pydantic" },
-    { name = "pyranges1" },
-    { name = "pyyaml" },
-    { name = "scipy" },
-    { name = "seaborn" },
-    { name = "tqdm" },
-]
-
-[package.optional-dependencies]
-docs = [
-    { name = "myst-parser" },
-    { name = "sphinx" },
-    { name = "sphinx-autodoc-typehints" },
-    { name = "sphinx-rtd-theme" },
-]
-wandb = [
-    { name = "wandb", extra = ["media"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "fastparquet" },
-    { name = "ipykernel" },
-    { name = "jupyter" },
-    { name = "notebook" },
-    { name = "pyarrow" },
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "sphinx-autobuild" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "click", specifier = ">=8.0" },
-    { name = "matplotlib", specifier = ">=3.10.1" },
-    { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=4.0" },
-    { name = "numpy", specifier = ">=2.2.4" },
-    { name = "pandas", specifier = ">=2.2.3" },
-    { name = "pooch", specifier = ">=1.8" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pyranges1", specifier = ">=1.3.5" },
-    { name = "pyyaml", specifier = ">=6.0.0" },
-    { name = "scipy", specifier = ">=1.10" },
-    { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.0" },
-    { name = "sphinx-autodoc-typehints", marker = "extra == 'docs'", specifier = ">=3.0" },
-    { name = "sphinx-rtd-theme", marker = "extra == 'docs'", specifier = ">=3.0" },
-    { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "wandb", extras = ["media"], marker = "extra == 'wandb'", specifier = ">=0.26" },
-]
-provides-extras = ["wandb", "docs"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "fastparquet", specifier = ">=2025.12.0" },
-    { name = "ipykernel", specifier = ">=6.29.5" },
-    { name = "jupyter", specifier = ">=1.1.1" },
-    { name = "notebook", specifier = ">=7.4.2" },
-    { name = "pyarrow", specifier = ">=23.0.1" },
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "ruff", specifier = ">=0.11.2" },
-    { name = "sphinx-autobuild", specifier = ">=2025.8.25" },
-]
-
-[[package]]
 name = "docutils"
 version = "0.22.4"
 source = { registry = "https://pypi.org/simple" }
@@ -632,6 +558,80 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/51/7c/f60c259dcbf4f0c47cc4ddb8f7720d2dcdc8888c8e5ad84c73ea4531cc5b/fsspec-2026.2.0.tar.gz", hash = "sha256:6544e34b16869f5aacd5b90bdf1a71acb37792ea3ddf6125ee69a22a53fb8bff", size = 313441 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e6/ab/fb21f4c939bb440104cc2b396d3be1d9b7a9fd3c6c2a53d98c45b3d7c954/fsspec-2026.2.0-py3-none-any.whl", hash = "sha256:98de475b5cb3bd66bedd5c4679e87b4fdfe1a3bf4d707b151b3c07e58c9a2437", size = 202505 },
+]
+
+[[package]]
+name = "gene-calling-benchmark"
+version = "0.1.2"
+source = { editable = "." }
+dependencies = [
+    { name = "click" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pooch" },
+    { name = "pydantic" },
+    { name = "pyranges1" },
+    { name = "pyyaml" },
+    { name = "scipy" },
+    { name = "seaborn" },
+    { name = "tqdm" },
+]
+
+[package.optional-dependencies]
+docs = [
+    { name = "myst-parser" },
+    { name = "sphinx" },
+    { name = "sphinx-autodoc-typehints" },
+    { name = "sphinx-rtd-theme" },
+]
+wandb = [
+    { name = "wandb", extra = ["media"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "fastparquet" },
+    { name = "ipykernel" },
+    { name = "jupyter" },
+    { name = "notebook" },
+    { name = "pyarrow" },
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "sphinx-autobuild" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "matplotlib", specifier = ">=3.10.1" },
+    { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=4.0" },
+    { name = "numpy", specifier = ">=2.2.4" },
+    { name = "pandas", specifier = ">=2.2.3" },
+    { name = "pooch", specifier = ">=1.8" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pyranges1", specifier = ">=1.3.5" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
+    { name = "scipy", specifier = ">=1.10" },
+    { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.0" },
+    { name = "sphinx-autodoc-typehints", marker = "extra == 'docs'", specifier = ">=3.0" },
+    { name = "sphinx-rtd-theme", marker = "extra == 'docs'", specifier = ">=3.0" },
+    { name = "tqdm", specifier = ">=4.67.1" },
+    { name = "wandb", extras = ["media"], marker = "extra == 'wandb'", specifier = ">=0.26" },
+]
+provides-extras = ["wandb", "docs"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "fastparquet", specifier = ">=2025.12.0" },
+    { name = "ipykernel", specifier = ">=6.29.5" },
+    { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "notebook", specifier = ">=7.4.2" },
+    { name = "pyarrow", specifier = ">=23.0.1" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "ruff", specifier = ">=0.11.2" },
+    { name = "sphinx-autobuild", specifier = ">=2025.8.25" },
 ]
 
 [[package]]

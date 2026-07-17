@@ -41,7 +41,7 @@ The genome-wide `compute_global_metrics` path (`global_metrics.py`)
 
 ## Aggregation across sequences
 
-When `benchmark_gt_vs_pred_multiple` is given many sequences, the
+When `benchmark_from_arrays` is given many sequences, the
 per-sequence outputs are merged element-wise before any ratio is
 computed:
 

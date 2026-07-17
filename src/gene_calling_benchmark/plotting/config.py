@@ -4,7 +4,7 @@ from pathlib import Path
 
 from importlib import resources
 
-PACKAGE_NAME = "dna_segmentation_benchmark"
+PACKAGE_NAME = "gene_calling_benchmark"
 ICON_PATH = resources.files(PACKAGE_NAME) / "icons"
 ICON_MAP = {
     "5_prime_extensions": ICON_PATH / "left_extension.png",

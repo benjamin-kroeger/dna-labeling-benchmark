@@ -40,7 +40,7 @@ def _cache_root() -> Path:
     env = os.environ.get("DNASB_DATA_HOME")
     if env:
         return Path(env).expanduser()
-    return Path(pooch.os_cache("dna-segmentation-benchmark"))
+    return Path(pooch.os_cache("gene-calling-benchmark"))
 
 
 class _Gunzip:

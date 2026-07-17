@@ -16,7 +16,7 @@ matplotlib.use("Agg")  # headless rendering (conftest also sets this)
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from dna_segmentation_benchmark.plotting.metrics.structural import (
+from gene_calling_benchmark.plotting.metrics.structural import (
     plot_boundary_shift_distribution,
     plot_per_transcript_exon_recovery,
     plot_segment_count_delta,

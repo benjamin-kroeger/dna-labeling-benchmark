@@ -18,7 +18,7 @@ from .eval.evaluate_predictors import (
     EvalMetrics,
     StreamingBenchmark,
     _warn_phase_drift,
-    benchmark_gt_vs_pred_single,
+    _benchmark_gt_vs_pred_single,
 )
 from .eval.global_metrics import compute_global_metrics, compute_overlap_keepsets
 from .feature_roles import (
@@ -103,7 +103,7 @@ def _stream_benchmark_over_mappings(
 ) -> dict[str, dict | list]:
     """Benchmark every predictor in a single streaming pass over the mappings.
 
-    Shared by :func:`benchmark_from_gff` and the ``dna-benchmark run`` CLI so the
+    Shared by :func:`benchmark_from_gff` and the ``gene-benchmark run`` CLI so the
     two entry points cannot drift.  Replaces the previous build-all-arrays-then-
     benchmark flow: :func:`build_paired_arrays` is called **once per mapping** and
     the resulting per-predictor arrays are fed straight into per-predictor
@@ -115,7 +115,7 @@ def _stream_benchmark_over_mappings(
 
     Returns ``{predictor_name: result}`` for every predictor that received at
     least one mapping.  In aggregate mode (default) each value is the summary
-    returned by :func:`benchmark_gt_vs_pred_multiple`; in individual mode each
+    returned by :func:`benchmark_from_arrays`; in individual mode each
     value is the per-sequence list.  Predictors with no mappings are omitted so
     callers can warn and skip them.
     """
@@ -191,7 +191,7 @@ def _stream_benchmark_over_mappings(
                     continue
                 if return_individual_results:
                     collected[pred_name].append(
-                        benchmark_gt_vs_pred_single(
+                        _benchmark_gt_vs_pred_single(
                             gt_labels=gt_arr,
                             pred_labels=pred_arrays[pred_name],
                             label_config=label_config,
@@ -257,8 +257,8 @@ def benchmark_from_gff(
         Metric groups to compute.  Defaults to ``_DEFAULT_METRICS``
         (``REGION_DISCOVERY``, ``BOUNDARY_EXACTNESS``,
         ``NUCLEOTIDE_CLASSIFICATION``, ``STATE_TRANSITIONS``) — the same
-        default used by :func:`benchmark_gt_vs_pred_single` /
-        :func:`benchmark_gt_vs_pred_multiple`, so all entry points agree.
+        default used by :func:`_benchmark_gt_vs_pred_single` /
+        :func:`benchmark_from_arrays`, so all entry points agree.
     gt_feature_role_map : dict[str, str] | None
         Maps GT GFF/GTF feature types to benchmark roles.  When ``None``,
         the mode-specific default is used.
@@ -297,7 +297,7 @@ def benchmark_from_gff(
     dict[str, dict]
         ``{predictor_name: {"aggregated": ..., "global": ...}}`` where
         ``aggregated`` is the corpus-level micro-averaged summary returned by
-        :func:`benchmark_gt_vs_pred_multiple` (not a per-transcript list).
+        :func:`benchmark_from_arrays` (not a per-transcript list).
 
     See Also
     --------
