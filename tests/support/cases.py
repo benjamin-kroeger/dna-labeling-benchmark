@@ -457,9 +457,9 @@ SINGLE_SEQUENCE_TEST_CASES = [
     ),
     pytest.param(
         # Pred is shifted 1 position to the right: one leading background in pred,
-        # one trailing background in GT. The single-base lag creates a persistent
-        # frame offset of 1 at every overlap position (mod-3 arithmetic: |pred_cumsum
-        # - gt_cumsum| = 1 at all overlap sites).
+        # one trailing background in GT. The single-base lag means pred trails GT by
+        # one CDS base at every overlap position — signed drift (pred_cumsum -
+        # gt_cumsum) mod 3 = -1 mod 3 = 2, the reading frame for a 1-base lag.
         np.array(
             [
                 [0, 0, 0, 0, 0, 0, 8],
@@ -470,7 +470,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.PHASE_DRIFT],
         {
             "PHASE_DRIFT": {
-                "gt_frames": np.array([np.inf, 1.0, 1.0, 1.0, 1.0, 1.0, np.inf]),
+                "gt_frames": np.array([np.inf, 2.0, 2.0, 2.0, 2.0, 2.0, np.inf]),
                 "n_skipped_non_divisible": 0,
                 "n_skipped_short": 0,
                 "n_skipped_no_overlap": 0,
@@ -481,8 +481,9 @@ SINGLE_SEQUENCE_TEST_CASES = [
         id="phase_drift_persistent_plus1",
     ),
     pytest.param(
-        # Pred is shifted 2 positions to the right: cumsum difference is 2 at every
-        # overlap position.
+        # Pred is shifted 2 positions to the right: pred trails GT by two CDS bases
+        # at every overlap position — signed drift (pred_cumsum - gt_cumsum) mod 3
+        # = -2 mod 3 = 1.
         np.array(
             [
                 [0, 0, 0, 0, 0, 0, 8, 8],
@@ -493,7 +494,7 @@ SINGLE_SEQUENCE_TEST_CASES = [
         [EvalMetrics.PHASE_DRIFT],
         {
             "PHASE_DRIFT": {
-                "gt_frames": np.array([np.inf, np.inf, 2.0, 2.0, 2.0, 2.0, np.inf, np.inf]),
+                "gt_frames": np.array([np.inf, np.inf, 1.0, 1.0, 1.0, 1.0, np.inf, np.inf]),
                 "n_skipped_non_divisible": 0,
                 "n_skipped_short": 0,
                 "n_skipped_no_overlap": 0,
@@ -530,15 +531,15 @@ SINGLE_SEQUENCE_TEST_CASES = [
         id="phase_drift_no_overlap",
     ),
     pytest.param(
-        # Frame escalates 0→1→2 inside a single exon. GT has 9 consecutive CDS
-        # bases; pred drops every 3rd one (positions 2, 5, 8). At each gap the
-        # cumsum difference increases by 1, shifting the frame up one step.
+        # Frame drifts 0→2→1 inside a single exon. GT has 9 consecutive CDS bases;
+        # pred drops every 3rd one (positions 2, 5, 8). Each dropped base makes pred
+        # trail by one more: signed drift goes 0, -1, -2, i.e. frames 0, 2, 1.
         np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 8], [0, 0, 8, 0, 0, 8, 0, 0, 8, 8]]),
         CDS_SCOPE_CONFIG,
         [EvalMetrics.PHASE_DRIFT],
         {
             "PHASE_DRIFT": {
-                "gt_frames": np.array([0.0, 0.0, np.inf, 1.0, 1.0, np.inf, 2.0, 2.0, np.inf, np.inf]),
+                "gt_frames": np.array([0.0, 0.0, np.inf, 2.0, 2.0, np.inf, 1.0, 1.0, np.inf, np.inf]),
                 "n_skipped_non_divisible": 0,
                 "n_skipped_short": 0,
                 "n_skipped_no_overlap": 0,

@@ -252,7 +252,8 @@ Earth Mover's Distance between the GT and predicted coding-segment length distri
 ### Phase Drift
 
 Per-position coding-base phase drift, defined as
-`|cumulative_pred_coding_count − cumulative_gt_coding_count| mod 3` along the transcript.
+`(cumulative_pred_coding_count − cumulative_gt_coding_count) mod 3` along the transcript
+(signed difference reduced mod 3, so `-1` and `+2` both map to frame `2`).
 Reflects relative coding-base displacement between GT and prediction; it is **not** the
 biological reading frame (which depends on the GFF `phase` column and is not consumed here).
 Useful as a qualitative diagnostic. When the GT coding length is not divisible by 3 (e.g.
