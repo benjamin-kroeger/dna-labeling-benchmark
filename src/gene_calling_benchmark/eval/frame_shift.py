@@ -2,10 +2,12 @@
 
 This module measures **relative coding-phase drift**, not the biological reading
 frame.  At each genomic position covered by *both* GT and predicted CDS masks,
-it reports ``|cumcount_pred − cumcount_gt| mod 3``, where cumcount is the number
+it reports ``(cumcount_pred − cumcount_gt) mod 3``, where cumcount is the number
 of CDS bases seen from the leftmost array position up to (and including) that
 position.  A value of 0 means the two annotations are in lockstep by CDS-base
-count; 1 or 2 means one annotation is ahead by that many bases.
+count; 1 or 2 identify the two shifted reading frames.  The signed difference is
+reduced mod 3 (never ``abs``-ed first): drift is a mod-3 equivalence class, so
+being 1 base behind (−1) is the same frame as being 2 bases ahead (+2), both 2.
 
 This is a structural comparison signal, not an absolute frame computation.
 To compute the biological reading frame you would need the GFF ``phase`` column
@@ -76,6 +78,9 @@ def get_frame_shift_metrics(
     gt_cumsum = np.searchsorted(gt_exon_indices, positions, side="right")
     pred_cumsum = np.searchsorted(pred_exon_indices, positions, side="right")
 
-    frame_list[valid_mask] = np.abs(pred_cumsum[valid_mask] - gt_cumsum[valid_mask]) % 3
+    # Frame drift is a mod-3 equivalence class: d=-1 (1 behind) ≡ d=+2 (2 ahead).
+    # numpy % returns non-negative for a positive divisor, so no abs — abs would
+    # wrongly map -1 to 1 instead of 2 and split a single reading frame in two.
+    frame_list[valid_mask] = (pred_cumsum[valid_mask] - gt_cumsum[valid_mask]) % 3
 
     return {"frames": frame_list.tolist(), "n_skipped_non_divisible": 0, "n_skipped_short": 0, "n_skipped_no_overlap": 0}

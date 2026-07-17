@@ -16,12 +16,15 @@ At each position covered by **both** the GT and predicted CDS masks, the
 benchmark stores
 
 ```
-abs(cumcount_pred - cumcount_gt) % 3
+(cumcount_pred - cumcount_gt) % 3
 ```
 
 where `cumcount` is the number of CDS bases seen from the start of the array up
 to and including that position. A value of `0` means the two annotations are in
-lockstep by CDS-base count; `1` or `2` means one is ahead by that many bases.
+lockstep by CDS-base count; `1` or `2` identify the two shifted reading frames.
+The signed difference is reduced mod 3 (not `abs`-ed first): drift is a mod-3
+equivalence class, so 1 base behind (`-1`) is the same frame as 2 ahead (`+2`),
+both `2`.
 
 Positions where GT or prediction is non-coding are filled with `np.inf` and
 skipped by the plotting layer; only finite values are bucketed into
