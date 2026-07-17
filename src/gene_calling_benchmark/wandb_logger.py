@@ -70,6 +70,11 @@ _GROUP_DISPLAY_NAMES = {
 _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
     "BOUNDARY_EXACTNESS": {
         "iou_mean": ("iou_stats", "mean"),
+        # Boundary-error sidedness (raw counts): how many matched boundaries were
+        # exact, off on one end, or off on both. One line each in the workspace.
+        "sidedness/exact": ("fuzzy_metrics", "sidedness", "exact"),
+        "sidedness/one_sided": ("fuzzy_metrics", "sidedness", "one_sided"),
+        "sidedness/two_sided": ("fuzzy_metrics", "sidedness", "two_sided"),
     },
     "REGION_DISCOVERY": {
         "neighborhood_hit/precision": ("neighborhood_hit", "precision"),
@@ -91,8 +96,12 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         # (a chain mismatch is booked as both an FP and an FN). Log the single
         # match rate instead of duplicating it as precision and recall.
         "intron_chain/match_rate": ("intron_chain", "precision"),
+        "intron_chain/subset_rate": ("intron_chain_subset", "precision"),
+        "intron_chain/superset_rate": ("intron_chain_superset", "precision"),
         "exon_chain/match_rate": ("exon_chain", "precision"),
         "exon_chain_multi/match_rate": ("exon_chain_multi", "precision"),
+        "exon_chain_multi/subset_rate": ("exon_chain_multi_subset", "precision"),
+        "exon_chain_multi/superset_rate": ("exon_chain_multi_superset", "precision"),
         "exon_chain_single/match_rate": ("exon_chain_single", "precision"),
         "segment_count_delta/mean": ("segment_count_delta", "mean"),
         "segment_count_delta/mae": ("segment_count_delta", "mae"),
@@ -110,6 +119,24 @@ _ONLINE_SCALAR_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "length_emd/mae": ("length_emd", "mae"),
     },
 }
+
+# Count-based online metrics the path-tuple spec format cannot express (they need
+# summation over nested lists or a fixed key vocabulary). Logged as RAW COUNTS per
+# eval batch: hold the eval set constant across steps for the lines to be
+# comparable (the usual ML val-set caveat).
+_INDEL_ERROR_BUCKETS = (
+    "5_prime_extensions", "3_prime_extensions", "joined", "whole_insertions",
+    "5_prime_deletions", "3_prime_deletions", "split", "whole_deletions",
+)
+_INDEL_LOCATIONS = (
+    "five_prime_terminal_exon", "internal_exon",
+    "three_prime_terminal_exon", "single_exon_gene",
+)
+_TRANSCRIPT_MATCH_CLASSES = (
+    "exact", "boundary_shift_internal", "boundary_shift_terminal",
+    "missing_segments", "extra_segments", "partial_overlap",
+    "substitution", "no_overlap",
+)
 
 # Figures to buffer for per-epoch GIF videos. Only short, informative plots
 # are included — heavy multi-panel plots (indel histograms, splice-site CMs)
@@ -204,6 +231,77 @@ def _default_scope_payload(group_key: str, group_data: dict) -> dict:
     return payload
 
 
+def _flatten_indel_counts(indel: dict, section: str) -> dict[str, float]:
+    """Raw INDEL event counts per error type and per exon location.
+
+    ``by_boundary`` is ``{location: {error: [run_lengths]}}``; the count is the
+    number of runs (events), summed across the other axis. Absent buckets log 0
+    so every workspace line exists from step 0.
+    """
+    by_boundary = indel.get("by_boundary")
+    if not isinstance(by_boundary, dict):
+        return {}
+    by_error = {e: 0 for e in _INDEL_ERROR_BUCKETS}
+    by_location = {loc: 0 for loc in _INDEL_LOCATIONS}
+    for location, errors in by_boundary.items():
+        if not isinstance(errors, dict):
+            continue
+        for error, runs in errors.items():
+            n = len(runs) if isinstance(runs, list) else 0
+            if error in by_error:
+                by_error[error] += n
+            if location in by_location:
+                by_location[location] += n
+    flat = {f"{section}/by_error/{e}": float(c) for e, c in by_error.items()}
+    flat.update({f"{section}/by_location/{loc}": float(c) for loc, c in by_location.items()})
+    return flat
+
+
+def _flatten_phase_frame_counts(phase_drift: dict, section: str) -> dict[str, float]:
+    """Raw per-phase coding-base counts (``frame_0``/``1``/``2``)."""
+    counts = phase_drift.get("gt_frame_counts")
+    if not isinstance(counts, list):
+        return {}
+    return {f"{section}/frame_{i}": float(c) for i, c in enumerate(counts)}
+
+
+def _flatten_transcript_match_counts(struct: dict, section: str) -> dict[str, float]:
+    """Raw per-class transcript-match counts over the fixed class vocabulary."""
+    payload = _default_scope_payload("STRUCTURAL_COHERENCE", struct)
+    dist = payload.get("transcript_match_distribution")
+    if not isinstance(dist, dict):
+        return {}
+    return {
+        f"{section}/transcript_match/{cls}": float(dist.get(cls, 0))
+        for cls in _TRANSCRIPT_MATCH_CLASSES
+    }
+
+
+def _flatten_sidedness_fractions(boundary_exactness: dict, section: str) -> dict[str, float]:
+    """Boundary-error sidedness as fractions of all matched boundaries (sum to 1).
+
+    ``exact`` / ``one_sided`` / ``two_sided`` counts (from the boundary-precision
+    sidedness block) divided by their sum, so one plot shows the composition of
+    matched boundaries. Returns nothing when no boundary matched.
+    """
+    payload = _default_scope_payload("BOUNDARY_EXACTNESS", boundary_exactness)
+    fuzzy = payload.get("fuzzy_metrics")
+    sided = fuzzy.get("sidedness") if isinstance(fuzzy, dict) else None
+    if not isinstance(sided, dict):
+        return {}
+    exact = sided.get("exact", 0) or 0
+    one_sided = sided.get("one_sided", 0) or 0
+    two_sided = sided.get("two_sided", 0) or 0
+    total = exact + one_sided + two_sided
+    if total <= 0:
+        return {}
+    return {
+        f"{section}/sidedness/exact_frac": exact / total,
+        f"{section}/sidedness/one_sided_frac": one_sided / total,
+        f"{section}/sidedness/two_sided_frac": two_sided / total,
+    }
+
+
 def _flatten_selected_scalars(
     results: dict,
     *,
@@ -222,6 +320,24 @@ def _flatten_selected_scalars(
             value = _get_nested_scalar(group_payload, source_path)
             if value is not None:
                 flat[f"{section}/{leaf_name}"] = value
+
+    # Count-based groups: raw counts the path-tuple format can't express.
+    def _section(group_key: str) -> str:
+        group_display = _GROUP_DISPLAY_NAMES.get(group_key, group_key)
+        return f"{prefix}/{group_display}" if prefix else group_display
+
+    indel = results.get("INDEL")
+    if isinstance(indel, dict):
+        flat.update(_flatten_indel_counts(indel, _section("INDEL")))
+    phase_drift = results.get("PHASE_DRIFT")
+    if isinstance(phase_drift, dict):
+        flat.update(_flatten_phase_frame_counts(phase_drift, _section("PHASE_DRIFT")))
+    struct = results.get("STRUCTURAL_COHERENCE")
+    if isinstance(struct, dict):
+        flat.update(_flatten_transcript_match_counts(struct, _section("STRUCTURAL_COHERENCE")))
+    boundary = results.get("BOUNDARY_EXACTNESS")
+    if isinstance(boundary, dict):
+        flat.update(_flatten_sidedness_fractions(boundary, _section("BOUNDARY_EXACTNESS")))
     return flat
 
 
@@ -452,6 +568,79 @@ def log_benchmark_all_scalars(
 
     logger.info("Logged %d scalar metrics to W&B (step=%s).", len(flat), step)
     return flat
+
+
+def _collect_distributions(inner: dict) -> dict[str, list]:
+    """Extract the numeric-distribution lists to log as native histograms."""
+    dists: dict[str, list] = {}
+    boundary = inner.get("BOUNDARY_EXACTNESS")
+    if isinstance(boundary, dict):
+        iou = boundary.get("iou_scores")
+        if isinstance(iou, list) and iou:
+            dists["boundary_exactness/iou_dist"] = iou
+    struct = inner.get("STRUCTURAL_COHERENCE")
+    if isinstance(struct, dict):
+        offsets = [
+            record["offset"]
+            for record in struct.get("boundary_shift_offsets", [])
+            if isinstance(record, dict) and "offset" in record
+        ]
+        if offsets:
+            dists["struct_coherence/boundary_shift_dist"] = offsets
+    return dists
+
+
+def log_benchmark_histograms(
+    results: dict,
+    step: int | None = None,
+    method_prefix: str | None = None,
+) -> dict[str, Any]:
+    """Log per-transcript distributions as native ``wandb.Histogram`` panels.
+
+    Renders the IoU-score and boundary-shift-offset distributions as W&B
+    histograms so their shape can be tracked over training without the
+    matplotlib/video render path.  Call it alongside
+    :func:`log_benchmark_scalars` each eval step.
+
+    Parameters
+    ----------
+    results : dict
+        Aggregated result dict from :func:`benchmark_from_arrays`.  A pipeline
+        wrapper ``{"aggregated": ..., "global": ...}`` is also accepted.
+    step : int, optional
+        Training step or epoch number.
+    method_prefix : str, optional
+        Optional prefix to namespace the metrics (e.g., ``"val"``).
+
+    Returns
+    -------
+    dict[str, Any]
+        The histogram payload that was logged (keys are W&B panel paths).
+    """
+    wandb = _require_wandb()
+
+    inner = _unwrap_aggregated_results(results)
+    payload: dict[str, Any] = {
+        key: wandb.Histogram(values) for key, values in _collect_distributions(inner).items()
+    }
+    if method_prefix:
+        payload = {f"{method_prefix}/{k}": v for k, v in payload.items()}
+
+    if not payload:
+        logger.info("No benchmark distributions available to log as histograms.")
+        return {}
+
+    log_kwargs: dict[str, Any] = {"data": payload}
+    if step is not None:
+        log_kwargs["step"] = step
+    try:
+        wandb.log(**log_kwargs)
+    except Exception:
+        logger.exception("wandb.log failed for %d histograms; continuing.", len(payload))
+        return {}
+
+    logger.info("Logged %d benchmark histograms to W&B (step=%s).", len(payload), step)
+    return payload
 
 
 def log_benchmark_media(

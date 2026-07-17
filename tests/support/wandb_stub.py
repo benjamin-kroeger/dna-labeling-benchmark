@@ -23,6 +23,12 @@ class FakeWandb:
             self.fps = fps
             self.format = format
 
+    class Histogram:
+        def __init__(self, sequence=None, np_histogram=None, num_bins=64):
+            self.sequence = list(sequence) if sequence is not None else None
+            self.np_histogram = np_histogram
+            self.num_bins = num_bins
+
     class Table:
         def __init__(self, columns, data):
             self.columns = columns

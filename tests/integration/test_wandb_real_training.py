@@ -2,7 +2,17 @@
 
 Unlike ``test_wandb_pipeline.py`` (which drives the logger through the
 ``FakeWandb`` stub), this test writes to a live Weights & Biases project so you
-can open the run in the dashboard and confirm scalars, plots and videos land.
+can open the run in the dashboard and confirm scalars, histograms, plots and
+videos land.  The W&B default workspace auto-groups the logged metrics into
+``train`` / ``val`` sections by prefix — no extra workspace API needed.
+
+It evaluates on *two* splits each epoch (``train`` a little tighter than
+``val``) and logs the benchmark under both prefixes, running the full metric
+sweep (region discovery, boundary exactness + sidedness, nucleotide,
+transcript-match rates + classification, EMD, INDEL by-error/location).
+Phase-drift metrics stay empty here because phase drift is only defined under a
+CDS-scope UTR_CDS_INTRON config, not the EXON_INTRON ``BEND_LABEL_CONFIG`` used
+for this mock.
 
 It needs network access and a logged-in wandb (``wandb login``), so it is
 **skipped unless ``RUN_WANDB_INTEGRATION`` is set**. Target and mode are picked
@@ -24,9 +34,11 @@ wandb = pytest.importorskip("wandb")
 
 from gene_calling_benchmark import (
     BEND_LABEL_CONFIG,
+    EvalMetrics,
     benchmark_from_arrays,
     clear_benchmark_media_video_buffer,
     init_wandb_with_presets,
+    log_benchmark_histograms,
     log_benchmark_media,
     log_benchmark_media_videos,
     log_benchmark_scalars,
@@ -41,6 +53,13 @@ pytestmark = pytest.mark.skipif(
 
 EPOCHS = 3
 NUM_TRANSCRIPTS = 8
+
+# Full dashboard metric set: media metrics plus INDEL.
+DASHBOARD_METRICS = MEDIA_METRICS + [EvalMetrics.INDEL]
+
+# The two evaluation splits logged each epoch (val a touch looser than train),
+# so both train/val sections of the default workspace carry data.
+SPLITS = (("train", 0), ("val", 1))
 
 
 def _make_ground_truth(rng: np.random.Generator) -> list[np.ndarray]:
@@ -127,28 +146,32 @@ def test_mock_training_writes_to_real_wandb():
 
     clear_benchmark_media_video_buffer()
     logged: dict[str, float] = {}
+    hists: dict = {}
     try:
         for epoch in range(EPOCHS):
             wandb.log(_train_scalars(epoch, EPOCHS), step=epoch)
-            preds = _predict(gt, shift=max(1, 4 - epoch), rng=rng)
-            results = benchmark_from_arrays(
-                gt_labels=gt,
-                pred_labels=preds,
-                label_config=BEND_LABEL_CONFIG,
-                metrics=MEDIA_METRICS,
-                infer_introns=True,
-            )
-            logged = log_benchmark_scalars(
-                results, step=epoch, method_prefix="val"
-            )
-            log_benchmark_media(
-                results, step=epoch, method_prefix="val"
-            )
+            base_shift = max(1, 4 - epoch)
+            for split, extra_shift in SPLITS:
+                preds = _predict(gt, shift=base_shift + extra_shift, rng=rng)
+                results = benchmark_from_arrays(
+                    gt_labels=gt,
+                    pred_labels=preds,
+                    label_config=BEND_LABEL_CONFIG,
+                    metrics=DASHBOARD_METRICS,
+                    infer_introns=True,
+                )
+                logged = log_benchmark_scalars(results, step=epoch, method_prefix=split)
+                hists = log_benchmark_histograms(results, step=epoch, method_prefix=split)
+                log_benchmark_media(
+                    results, label_config=BEND_LABEL_CONFIG, step=epoch, method_prefix=split
+                )
         videos = log_benchmark_media_videos()
     finally:
         run.finish()
 
     assert run.id  # a real run object was created
-    assert logged and all(k.startswith("val/") for k in logged)  # validation scalars logged
+    assert logged and all(k.startswith("val/") for k in logged)  # last split logged is val
+    assert hists  # IoU + boundary-shift distributions logged as histograms
     assert videos  # buffered plots flushed to at least one video
-    print(f"\nW&B run: {getattr(run, 'url', None)}")
+
+    print(f"\nW&B run (default workspace auto-groups metrics into train/val sections): {getattr(run, 'url', None)}")

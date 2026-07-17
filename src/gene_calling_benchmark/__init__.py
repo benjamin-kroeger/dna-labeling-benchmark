@@ -9,8 +9,9 @@ Public API (see the Sphinx API reference for full signatures):
 - Datasets: ``load_dataset``, ``list_datasets``, ``get_dataset_info``,
   ``LoadedDataset``
 - W&B logging: ``log_benchmark_scalars``, ``log_benchmark_all_scalars``,
-  ``log_benchmark_media``, ``log_benchmark_media_videos``,
-  ``clear_benchmark_media_video_buffer``, ``init_wandb_with_presets``
+  ``log_benchmark_histograms``, ``log_benchmark_media``,
+  ``log_benchmark_media_videos``, ``clear_benchmark_media_video_buffer``,
+  ``init_wandb_with_presets``
 """
 
 from .label_definition import (
@@ -28,6 +29,7 @@ from .wandb_logger import (
     clear_benchmark_media_video_buffer,
     log_benchmark_scalars,
     log_benchmark_all_scalars,
+    log_benchmark_histograms,
     log_benchmark_media,
     log_benchmark_media_videos,
     init_wandb_with_presets,
@@ -58,6 +60,7 @@ __all__ = [
     "clear_benchmark_media_video_buffer",
     "log_benchmark_scalars",
     "log_benchmark_all_scalars",
+    "log_benchmark_histograms",
     "log_benchmark_media",
     "log_benchmark_media_videos",
     "init_wandb_with_presets",

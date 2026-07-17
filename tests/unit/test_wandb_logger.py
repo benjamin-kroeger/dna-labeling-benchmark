@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from gene_calling_benchmark.label_definition import BEND_LABEL_CONFIG
 from gene_calling_benchmark.plotting.summary_stat_plotting import compare_multiple_predictions
@@ -9,6 +10,7 @@ from gene_calling_benchmark.wandb_logger import (
     clear_benchmark_media_video_buffer,
     init_wandb_with_presets,
     log_benchmark_all_scalars,
+    log_benchmark_histograms,
     log_benchmark_media,
     log_benchmark_media_videos,
     log_benchmark_scalars,
@@ -159,6 +161,123 @@ def test_log_benchmark_scalars_skips_missing_splice_site_results(wandb_stub):
 
     assert not any("splice_site" in k for k in logged)
     assert "struct_coherence/intron_chain/match_rate" in logged
+
+
+def test_log_benchmark_scalars_includes_boundary_sidedness_counts(wandb_stub):
+    results = {
+        "BOUNDARY_EXACTNESS": {
+            "iou_stats": {"mean": 0.9},
+            "fuzzy_metrics": {"sidedness": {"exact": 13, "one_sided": 2, "two_sided": 1}},
+        },
+    }
+    logged = log_benchmark_scalars(results)
+    assert logged["boundary_exactness/sidedness/exact"] == 13.0
+    assert logged["boundary_exactness/sidedness/one_sided"] == 2.0
+    assert logged["boundary_exactness/sidedness/two_sided"] == 1.0
+    # Fractions over all matched boundaries (13 + 2 + 1 = 16), summing to 1.
+    assert logged["boundary_exactness/sidedness/exact_frac"] == pytest.approx(13 / 16)
+    assert logged["boundary_exactness/sidedness/one_sided_frac"] == pytest.approx(2 / 16)
+    assert logged["boundary_exactness/sidedness/two_sided_frac"] == pytest.approx(1 / 16)
+    fracs = [logged[f"boundary_exactness/sidedness/{k}"] for k in ("exact_frac", "one_sided_frac", "two_sided_frac")]
+    assert sum(fracs) == pytest.approx(1.0)
+
+
+def test_log_benchmark_scalars_sidedness_fractions_absent_when_no_boundaries(wandb_stub):
+    results = {"BOUNDARY_EXACTNESS": {"fuzzy_metrics": {"sidedness": {"exact": 0, "one_sided": 0, "two_sided": 0}}}}
+    logged = log_benchmark_scalars(results)
+    assert not any("sidedness" in k and "frac" in k for k in logged)
+
+
+def test_log_benchmark_scalars_includes_chain_subset_superset(wandb_stub):
+    results = {
+        "STRUCTURAL_COHERENCE": {
+            "intron_chain": {"precision": 0.7},
+            "intron_chain_subset": {"precision": 0.8},
+            "intron_chain_superset": {"precision": 0.9},
+            "exon_chain_multi": {"precision": 0.5},
+            "exon_chain_multi_subset": {"precision": 0.6},
+            "exon_chain_multi_superset": {"precision": 0.55},
+            "exon_chain_single": {"precision": 0.4},
+        },
+    }
+    logged = log_benchmark_scalars(results)
+    assert logged["struct_coherence/intron_chain/subset_rate"] == 0.8
+    assert logged["struct_coherence/intron_chain/superset_rate"] == 0.9
+    assert logged["struct_coherence/exon_chain_multi/subset_rate"] == 0.6
+    assert logged["struct_coherence/exon_chain_multi/superset_rate"] == 0.55
+    assert logged["struct_coherence/exon_chain_single/match_rate"] == 0.4
+
+
+def test_log_benchmark_scalars_includes_indel_counts(wandb_stub):
+    """INDEL logs raw event counts per error and per location; absent buckets = 0."""
+    results = {
+        "INDEL": {
+            "by_boundary": {
+                "internal_exon": {"split": [3, 4], "3_prime_deletions": [7]},
+                "five_prime_terminal_exon": {"whole_insertions": [10]},
+            },
+        },
+    }
+    logged = log_benchmark_scalars(results)
+    # per-error event counts (len of run lists)
+    assert logged["indel/by_error/split"] == 2.0
+    assert logged["indel/by_error/3_prime_deletions"] == 1.0
+    assert logged["indel/by_error/whole_insertions"] == 1.0  # whole insertions included
+    assert logged["indel/by_error/joined"] == 0.0            # absent bucket present as 0
+    # per-location event counts
+    assert logged["indel/by_location/internal_exon"] == 3.0
+    assert logged["indel/by_location/five_prime_terminal_exon"] == 1.0
+    assert logged["indel/by_location/single_exon_gene"] == 0.0
+
+
+def test_log_benchmark_scalars_includes_phase_frame_counts(wandb_stub):
+    results = {"PHASE_DRIFT": {"gt_frame_counts": [494, 66, 119]}}
+    logged = log_benchmark_scalars(results)
+    assert logged["phase_drift/frame_0"] == 494.0
+    assert logged["phase_drift/frame_1"] == 66.0
+    assert logged["phase_drift/frame_2"] == 119.0
+
+
+def test_log_benchmark_scalars_includes_transcript_match_classes(wandb_stub):
+    """All 8 classes always logged; classes absent from the batch log as 0."""
+    results = {
+        "STRUCTURAL_COHERENCE": {
+            "transcript_match_distribution": {"exact": 3, "partial_overlap": 1},
+        },
+    }
+    logged = log_benchmark_scalars(results)
+    assert logged["struct_coherence/transcript_match/exact"] == 3.0
+    assert logged["struct_coherence/transcript_match/partial_overlap"] == 1.0
+    assert logged["struct_coherence/transcript_match/no_overlap"] == 0.0
+    assert logged["struct_coherence/transcript_match/substitution"] == 0.0
+    match_keys = {k for k in logged if "/transcript_match/" in k}
+    assert len(match_keys) == 8  # fixed vocabulary
+
+
+def test_log_benchmark_histograms_logs_iou_and_boundary_shift(wandb_stub):
+    results = {
+        "BOUNDARY_EXACTNESS": {"iou_scores": [0.5, 0.9, 1.0]},
+        "STRUCTURAL_COHERENCE": {
+            "boundary_shift_offsets": [
+                {"offset": -2, "position": "internal"},
+                {"offset": 3, "position": "terminal"},
+            ],
+        },
+    }
+    logged = log_benchmark_histograms(results, step=4, method_prefix="val")
+
+    assert wandb_stub.logged[-1]["step"] == 4
+    assert set(logged) == {
+        "val/boundary_exactness/iou_dist",
+        "val/struct_coherence/boundary_shift_dist",
+    }
+    assert all(isinstance(v, FakeWandb.Histogram) for v in logged.values())
+    assert logged["val/boundary_exactness/iou_dist"].sequence == [0.5, 0.9, 1.0]
+    assert logged["val/struct_coherence/boundary_shift_dist"].sequence == [-2, 3]
+
+
+def test_log_benchmark_histograms_empty_when_no_distributions(wandb_stub):
+    assert log_benchmark_histograms({"NUCLEOTIDE_CLASSIFICATION": {}}) == {}
 
 
 def test_log_benchmark_all_scalars_logs_everything(wandb_stub):
