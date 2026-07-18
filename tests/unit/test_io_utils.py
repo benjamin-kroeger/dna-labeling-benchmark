@@ -241,6 +241,25 @@ def test_collect_gff_excludes_features(hierarchical_gff):
     assert len(df_no_gene) == len(df_all) - gene_count
 
 
+def test_collect_gff_drops_reversed_coordinates(tmp_path):
+    """Rows with start > end are dropped so they can't crash downstream.
+
+    A reversed transcript span yields a negative array length in
+    build_paired_arrays (np.full(-n) → ValueError), aborting the whole run on
+    one bad row. collect_gff must drop it at the parse boundary; the valid row
+    survives.
+    """
+    f = tmp_path / "reversed.gff3"
+    f.write_text(
+        "c1\tX\tmRNA\t400\t100\t.\t+\t.\tID=bad;Parent=g1\n"
+        "c1\tX\tmRNA\t100\t400\t.\t+\t.\tID=ok;Parent=g1\n"
+    )
+    df = collect_gff(f)
+    assert (df["start"] <= df["end"]).all()
+    assert "ok" in df["gff_id"].values
+    assert "bad" not in df["gff_id"].values
+
+
 # ------------------------------------------------------------------
 # Tests: content-based format detection (extension is unreliable)
 # ------------------------------------------------------------------

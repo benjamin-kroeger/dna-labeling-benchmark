@@ -519,7 +519,13 @@ def log_benchmark_scalars(
     if step is not None:
         log_kwargs["step"] = step
 
-    wandb.log(**log_kwargs)
+    # Online path: a transient wandb.log failure must never abort the training
+    # loop it runs inside (same guard as the histogram/media loggers).
+    try:
+        wandb.log(**log_kwargs)
+    except Exception:
+        logger.exception("wandb.log failed for %d scalar metrics; continuing.", len(flat))
+        return {}
 
     logger.info("Logged %d scalar metrics to W&B (step=%s).", len(flat), step)
     return flat
@@ -564,7 +570,13 @@ def log_benchmark_all_scalars(
     if step is not None:
         log_kwargs["step"] = step
 
-    wandb.log(**log_kwargs)
+    # Online path: a transient wandb.log failure must never abort the training
+    # loop it runs inside (same guard as the histogram/media loggers).
+    try:
+        wandb.log(**log_kwargs)
+    except Exception:
+        logger.exception("wandb.log failed for %d scalar metrics; continuing.", len(flat))
+        return {}
 
     logger.info("Logged %d scalar metrics to W&B (step=%s).", len(flat), step)
     return flat
@@ -739,7 +751,11 @@ def log_benchmark_media_videos() -> dict[str, Any]:
         logger.info("No benchmark media videos were generated from the frame history.")
         return {}
 
-    wandb.log(video_payload)
+    try:
+        wandb.log(video_payload)
+    except Exception:
+        logger.exception("wandb.log failed for %d media videos; continuing.", len(video_payload))
+        return {}
     logger.info("Logged %d benchmark media videos to W&B.", len(video_payload))
     return video_payload
 

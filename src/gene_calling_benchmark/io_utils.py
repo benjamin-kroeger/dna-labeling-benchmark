@@ -174,6 +174,22 @@ def collect_gff(
             gff_path,
         )
 
+    # Drop rows with start > end (invalid per the GFF/GTF spec, e.g. a corrupt or
+    # mis-converted file). A reversed transcript span yields a negative array
+    # length downstream (np.full(-n) → ValueError), which aborts the whole run on
+    # a single bad row; drop it here at the parse boundary so every consumer is
+    # protected in one place. NaN coords compare False and are left to the null
+    # handling above / downstream .notna() filters.
+    reversed_mask = (df["start"] > df["end"]).fillna(False)
+    n_reversed = int(reversed_mask.sum())
+    if n_reversed > 0:
+        logger.warning(
+            "%d row(s) in %s have start > end (invalid coordinates) and will be ignored.",
+            n_reversed,
+            gff_path,
+        )
+        df = df[~reversed_mask].reset_index(drop=True)
+
     return df
 
 

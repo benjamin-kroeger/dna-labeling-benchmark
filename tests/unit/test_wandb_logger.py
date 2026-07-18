@@ -280,6 +280,26 @@ def test_log_benchmark_histograms_empty_when_no_distributions(wandb_stub):
     assert log_benchmark_histograms({"NUCLEOTIDE_CLASSIFICATION": {}}) == {}
 
 
+def test_scalar_loggers_survive_wandb_log_failure(monkeypatch):
+    """A transient wandb.log failure must not abort the training loop.
+
+    The online scalar loggers run inside the training step; a network hiccup in
+    wandb.log should be swallowed (logged + empty return), never raised.
+    """
+    class RaisingWandb(FakeWandb):
+        def log(self, data, step=None):
+            raise RuntimeError("simulated wandb network failure")
+
+    fake = RaisingWandb()
+    monkeypatch.setattr(
+        "gene_calling_benchmark.wandb_logger._require_wandb", lambda: fake
+    )
+    results = {"NUCLEOTIDE_CLASSIFICATION": {"nucleotide": {"precision": 0.9, "recall": 0.8, "f1": 0.85}}}
+
+    assert log_benchmark_scalars(results, step=1) == {}
+    assert log_benchmark_all_scalars(results, step=1) == {}
+
+
 def test_log_benchmark_all_scalars_logs_everything(wandb_stub):
 
     results = {
