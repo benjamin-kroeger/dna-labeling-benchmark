@@ -134,7 +134,7 @@ quality (plus opt-in `STATE_TRANSITIONS`, described below):
 
 Per-base TP/TN/FP/FN with precision, recall, and F1. The most basic metric -- treats each position independently.
 
-![Nucleotide classification](docs/images/nucleotide_classification_nucleotide.png)
+![Nucleotide classification](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/nucleotide_classification_nucleotide.png)
 
 ---
 
@@ -156,13 +156,13 @@ its FP so `TP + FP = total predictions` and `TP + FN = total GT` — so all four
 reported as plain precision/recall. The `internal_hit` vs `full_coverage_hit` split
 gives the direction of the boundary error (under- vs over-extension).
 
-![Region discovery - neighborhood](docs/images/region_discovery_neighborhood_hit.png)
+![Region discovery - neighborhood](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/region_discovery_neighborhood_hit.png)
 
-![Region discovery - internal containment](docs/images/region_discovery_internal_hit.png)
+![Region discovery - internal containment](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/region_discovery_internal_hit.png)
 
-![Region discovery - full coverage](docs/images/region_discovery_full_coverage_hit.png)
+![Region discovery - full coverage](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/region_discovery_full_coverage_hit.png)
 
-![Region discovery - perfect boundary](docs/images/region_discovery_perfect_boundary_hit.png)
+![Region discovery - perfect boundary](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/region_discovery_perfect_boundary_hit.png)
 
 ---
 
@@ -173,9 +173,9 @@ How precise are predicted boundaries? Includes IoU distributions and two diagnos
 - **Bias matrix** (21x21): Signed boundary residuals revealing systematic directional errors (e.g., "predictions consistently start 2bp early")
 - **Reliability matrix** (11x11): Cumulative recall at tolerances 0--10 bp, showing how quickly recall degrades as boundary tolerance tightens
 
-![IoU average](docs/images/iou_average.png)
+![IoU average](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/iou_average.png)
 
-![IoU distribution](docs/images/iou_distribution.png)
+![IoU distribution](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/iou_distribution.png)
 
 ---
 
@@ -190,9 +190,9 @@ Classifies every contiguous mismatch region into one of 8 structural error types
 | Joined (merges two GT sections) | Split (splits one GT section) |
 | Whole insertion (new section) | Whole deletion (missing section) |
 
-![INDEL error counts](docs/images/indel_counts.png)
+![INDEL error counts](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/indel_counts.png)
 
-![INDEL error lengths (internal exons)](docs/images/indel_lengths_internal_exon.png)
+![INDEL error lengths (internal exons)](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/indel_lengths_internal_exon.png)
 
 ---
 
@@ -204,7 +204,7 @@ Evaluates the predicted segment chain **as a whole** -- not per-section, but as 
 
 `intron_chain` emits per-sequence `tp/fp/fn ∈ {0, 1}`: a sequence counts as TP **only if** the entire set of GT introns equals the set of predicted introns. Aggregated across sequences this becomes the familiar corpus precision/recall — directly comparable to gffcompare's intron-chain P/R.
 
-![Intron/exon chain match rate](docs/images/transcript_match_rate.png)
+![Intron/exon chain match rate](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/transcript_match_rate.png)
 
 #### Per-transcript Exon Recovery
 
@@ -214,7 +214,7 @@ The binary `intron_chain` metric hides "nearly right" predictions — a transcri
 - `exon_precision_per_transcript` — fraction in `[0, 1]` of predicted exons whose `(start, end)` is an exact GT match (`0.0` when the prediction has no exons in scope). The symmetric precision partner to recall.
 - `false_exon_count_per_transcript` — integer ≥ 0: predicted exons whose `(start, end)` is absent from GT. The absolute spurious-exon burden a ratio hides.
 
-![Per-transcript exon recovery](docs/images/per_transcript_exon_recovery.png)
+![Per-transcript exon recovery](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/per_transcript_exon_recovery.png)
 
 Rendered as three overlayed histograms; a fat left tail of recall combined with a fat right tail of false exons flags a model that guesses rather than recovering true structure.
 
@@ -235,20 +235,20 @@ Holistic structural classification of each (GT, prediction) pair into one of nin
 | `no_overlap` | No shared `(start, end)` segment and no base overlap |
 | `missed` | Prediction has no segments of this class |
 
-![Transcript match classification](docs/images/transcript_match.png)
+![Transcript match classification](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/transcript_match.png)
 
 #### Segment Count Delta
 
 Over-segmentation (positive) vs under-segmentation (negative).
 
-![Segment count delta](docs/images/segment_count_delta.png)
+![Segment count delta](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/segment_count_delta.png)
 
 #### Boundary Shift Distribution
 
 For transcripts where GT and prediction have matching segment counts, the per-transcript
 total absolute boundary offset (bp).
 
-![Boundary shift distribution](docs/images/boundary_shift_dist.png)
+![Boundary shift distribution](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/boundary_shift_dist.png)
 
 ---
 
@@ -264,7 +264,7 @@ revealing whether errors concentrate at sequence ends. Two histograms are emitte
 negatives (GT coding bases the predictor missed) and false positives (predicted coding bases
 inside the GT span that are not in GT).
 
-![Position bias](docs/images/position_bias.png)
+![Position bias](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/position_bias.png)
 
 #### Segment-length EMD
 
@@ -293,9 +293,9 @@ so it runs unless you pass an explicit `metrics` list that omits it). Two analys
 - **GT Transition Confusion Matrices**: At every position where GT changes label, what did the predictor do? One heatmap per source label.
 - **False Transition Analysis**: At positions where GT is stable (no label change), did the predictor introduce a spurious transition? Each false transition is classified into *late-catchup*, *premature*, or *spurious* using lookbehind/lookahead context.
 
-![GT transition confusion matrices](docs/images/Method_A_transition_matrices.png)
+![GT transition confusion matrices](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/Method_A_transition_matrices.png)
 
-![False transitions](docs/images/false_transitions.png)
+![False transitions](https://raw.githubusercontent.com/benjamin-kroeger/gene-calling-benchmark/main/docs/images/false_transitions.png)
 
 ---
 

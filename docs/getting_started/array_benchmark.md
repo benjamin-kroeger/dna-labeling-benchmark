@@ -130,19 +130,24 @@ scoring.
 
 ## Result Structure
 
-The aggregated result is a flat dictionary keyed by metric family. There is no
-top-level `EXON` wrapper anymore.
+The aggregated result is a flat dictionary keyed by metric family, plus a
+`metadata` block. Only the families you request appear. There is no top-level
+`EXON` wrapper anymore.
+
+For the metric list in the example above:
 
 ```python
 {
+    "metadata": {...},                # always present (mode, scope, ...)
     "REGION_DISCOVERY": {...},
     "BOUNDARY_EXACTNESS": {...},
     "NUCLEOTIDE_CLASSIFICATION": {...},
     "STRUCTURAL_COHERENCE": {...},
-    "transition_failures": {...},
-    "false_transitions": {...},
 }
 ```
+
+Requesting `EvalMetrics.STATE_TRANSITIONS` adds `transition_failures` and
+`false_transitions` keys.
 
 ## When To Use `infer_introns`
 

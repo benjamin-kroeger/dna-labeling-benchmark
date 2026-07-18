@@ -14,6 +14,13 @@ Public API (see the Sphinx API reference for full signatures):
   ``init_wandb_with_presets``
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("gene-calling-benchmark")
+except PackageNotFoundError:  # not installed (e.g. running from a source checkout)
+    __version__ = "0.0.0.dev0"
+
 from .label_definition import (
     AnnotationMode,
     BenchmarkScope,
@@ -44,6 +51,7 @@ from .datasets import (
 )
 
 __all__ = [
+    "__version__",
     "LabelConfig",
     "AnnotationMode",
     "BenchmarkScope",
