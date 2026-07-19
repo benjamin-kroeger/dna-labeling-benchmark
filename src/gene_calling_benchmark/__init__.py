@@ -4,8 +4,8 @@ Public API (see the Sphinx API reference for full signatures):
 
 - Config: ``AnnotationMode``, ``BenchmarkScope``, ``LabelConfig``,
   ``BEND_LABEL_CONFIG``, ``EvalMetrics``, ``LocusMatchingMode``
-- Benchmarking: ``benchmark_from_arrays``, ``benchmark_from_gff``,
-  ``compare_multiple_predictions``
+- Benchmarking: ``benchmark_from_arrays``, ``StreamingBenchmark``,
+  ``benchmark_from_gff``, ``compare_multiple_predictions``
 - Datasets: ``load_dataset``, ``list_datasets``, ``get_dataset_info``,
   ``LoadedDataset``
 - W&B logging: ``log_benchmark_scalars``, ``log_benchmark_all_scalars``,
@@ -29,6 +29,7 @@ from .label_definition import (
 )
 from .eval.evaluate_predictors import (
     EvalMetrics,
+    StreamingBenchmark,
     benchmark_from_arrays,
 )
 from .plotting.summary_stat_plotting import compare_multiple_predictions
@@ -59,6 +60,7 @@ __all__ = [
     "EvalMetrics",
     "LocusMatchingMode",
     "benchmark_from_arrays",
+    "StreamingBenchmark",
     "benchmark_from_gff",
     "load_dataset",
     "list_datasets",

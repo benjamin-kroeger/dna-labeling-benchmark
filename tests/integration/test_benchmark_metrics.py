@@ -348,6 +348,20 @@ def test_boundary_offsets_are_matched_pairs_not_overlapping_pairs():
 # reproduce the list-based / materialized results exactly.
 # ---------------------------------------------------------------------------
 
+def test_streaming_benchmark_is_top_level_export():
+    """StreamingBenchmark is reachable from the package root (public API)."""
+    import gene_calling_benchmark as gcb
+
+    assert gcb.StreamingBenchmark is StreamingBenchmark
+    assert "StreamingBenchmark" in gcb.__all__
+
+    # the top-level handle is fully usable, not just re-exported
+    bench = gcb.StreamingBenchmark(BEND_LABEL_CONFIG, MEDIA_METRICS)
+    bench.add(np.array([8, 0, 0, 2, 2, 0, 0, 8]), np.array([8, 0, 0, 2, 2, 0, 0, 8]))
+    assert bench.count == 1
+    assert "REGION_DISCOVERY" in bench.result()
+
+
 def test_streaming_benchmark_matches_multiple_list_api():
     """StreamingBenchmark.add(...).result() == benchmark_from_arrays(lists)."""
     gt_arrays = [

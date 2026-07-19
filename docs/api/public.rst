@@ -13,6 +13,7 @@ Public Package API
    EvalMetrics
    LocusMatchingMode
    benchmark_from_arrays
+   StreamingBenchmark
    benchmark_from_gff
    compare_multiple_predictions
    load_dataset

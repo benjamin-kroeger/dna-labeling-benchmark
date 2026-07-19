@@ -67,6 +67,14 @@ benchmark doesn't stall training — hand it the arrays and let it log
 asynchronously.
 ```
 
+```{note}
+`benchmark_from_arrays(...)` needs every GT/prediction array in memory at
+once. If your validation set is too large for that, use
+{py:class}`gene_calling_benchmark.StreamingBenchmark` instead — feed pairs one
+at a time with `.add(gt, pred)` and call `.result()` at the end. It returns the
+same numbers; it just never holds all the arrays simultaneously.
+```
+
 ## What Gets Logged
 
 `log_benchmark_scalars(...)` logs a curated, high-signal online subset. Keys

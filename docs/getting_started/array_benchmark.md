@@ -178,7 +178,30 @@ gaps versus a cluster of intergenic-scale gaps) and only relabels gaps below the
 resulting cutoff, so a chromosome-scale coding gap is not mistaken for an intron.
 If your arrays already carry explicit intron labels, leave `infer_introns` off.
 
+## Large Inputs
+
+`benchmark_from_arrays` needs every GT/prediction array in memory at once. When
+the validation set is too large to hold all arrays simultaneously, use
+{py:class}`gene_calling_benchmark.StreamingBenchmark` instead — feed pairs one
+at a time and build each array lazily:
+
+```python
+from gene_calling_benchmark import StreamingBenchmark
+
+bench = StreamingBenchmark(label_config, metrics=[...], infer_introns=True)
+for gt, pred in build_pairs_lazily():   # one pair at a time; nothing else retained
+    bench.add(gt, pred)
+results = bench.result()                # identical numbers to benchmark_from_arrays
+```
+
+Reach for it only when memory is the constraint; for an in-memory set,
+`benchmark_from_arrays` is the one-liner equivalent.
+
 ## Choosing Metric Families
+
+Omit `metrics` to get the default four (`REGION_DISCOVERY`,
+`BOUNDARY_EXACTNESS`, `NUCLEOTIDE_CLASSIFICATION`, `STATE_TRANSITIONS`). Pass an
+explicit list to narrow or extend that set.
 
 Common combinations:
 
