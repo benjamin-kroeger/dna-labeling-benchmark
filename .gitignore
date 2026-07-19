@@ -30,6 +30,7 @@ docs/api/generated/
 .DS_Store
 .misc/
 misc/
+example_data/
 
 .claude
 .claudeignore
